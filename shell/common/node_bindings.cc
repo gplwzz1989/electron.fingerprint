@@ -29,6 +29,7 @@
 #include "electron/fuses.h"
 #include "electron/mas.h"
 #include "shell/browser/api/electron_api_app.h"
+#include "shell/browser/fingerprint/fingerprint_version.h"
 #include "shell/common/api/electron_bindings.h"
 #include "shell/common/electron_command_line.h"
 #include "shell/common/gin_converters/callback_converter.h"
@@ -996,6 +997,7 @@ void OnNodePreload(node::Environment* env,
   if (dict.Get("versions", &versions)) {
     versions.SetReadOnly(ELECTRON_PROJECT_NAME, ELECTRON_VERSION_STRING);
     versions.SetReadOnly("chrome", CHROME_VERSION_STRING);
+    versions.SetReadOnly("fpkernel", fingerprint::kKernelVersion);
 #if BUILDFLAG(HAS_VENDOR_VERSION)
     versions.SetReadOnly(BUILDFLAG(VENDOR_VERSION_NAME),
                          BUILDFLAG(VENDOR_VERSION_VALUE));
