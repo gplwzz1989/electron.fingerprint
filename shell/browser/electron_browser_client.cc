@@ -18,6 +18,7 @@
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/json/json_writer.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/path_service.h"
@@ -385,6 +386,10 @@ bool ElectronBrowserClient::IsRendererSubFrame(
 
 void ElectronBrowserClient::RenderProcessWillLaunch(
     content::RenderProcessHost* host) {
+  auto* browser_context =
+      static_cast<ElectronBrowserContext*>(host->GetBrowserContext());
+  browser_context->fingerprint_context()->MarkRendererCreated();
+
   // Remove in case the host is reused after a crash, otherwise noop.
   host->RemoveObserver(this);
 
@@ -588,6 +593,19 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
     auto* render_process_host = content::RenderProcessHost::FromID(process_id);
     if (render_process_host) {
       auto* browser_context = render_process_host->GetBrowserContext();
+      auto* electron_browser_context =
+          static_cast<ElectronBrowserContext*>(browser_context);
+      const auto* fingerprint_config =
+          electron_browser_context->fingerprint_context()->GetConfig();
+      if (fingerprint_config && fingerprint_config->enabled) {
+        std::string serialized_config;
+        if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
+                                    &serialized_config)) {
+          command_line->AppendSwitchASCII(options::kFingerprintConfig,
+                                          serialized_config);
+        }
+      }
+
       auto* session_prefs =
           SessionPreferences::FromBrowserContext(browser_context);
       if (session_prefs->HasServiceWorkerPreloadScript()) {

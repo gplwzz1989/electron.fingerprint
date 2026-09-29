@@ -2,7 +2,7 @@
 
 | 编号 | 状态 | 说明 |
 | --- | --- | --- |
-| FP-00 | 规划中 | 配置基础设施与传输 |
+| FP-00 | 进行中 | Session/BrowserContext 配置、Renderer 启动参数传输；Blink Hook 待完成 |
 | FP-01 | 未开始 | UA 与 Client Hints |
 | FP-02 | 未开始 | Locale 与 Timezone |
 | FP-03 | 未开始 | Navigator |

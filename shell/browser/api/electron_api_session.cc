@@ -995,6 +995,12 @@ std::string Session::GetUserAgent() {
 
 void Session::SetFingerprintConfig(gin_helper::ErrorThrower thrower,
                                    base::Value::Dict profile) {
+  if (!browser_context_->fingerprint_context()->CanModify()) {
+    thrower.ThrowError(
+        "Fingerprint 配置必须在首次 Renderer 创建前设置");
+    return;
+  }
+
   std::string error_message;
   auto config = fingerprint::FingerprintProfileParser::Parse(
       profile, &error_message);
@@ -1013,6 +1019,8 @@ v8::Local<v8::Value> Session::GetFingerprintConfig(v8::Isolate* isolate) {
 }
 
 void Session::ClearFingerprintConfig() {
+  if (!browser_context_->fingerprint_context()->CanModify())
+    return;
   browser_context_->fingerprint_context()->ClearConfig();
 }
 

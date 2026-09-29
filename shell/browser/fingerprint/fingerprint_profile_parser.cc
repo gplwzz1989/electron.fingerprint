@@ -128,6 +128,10 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
       FindString(*browser, "acceptLanguage", error_message);
   if (!family || !chromium_major || !accept_language)
     return std::nullopt;
+  if (*family != "Chrome") {
+    SetError(error_message, "Fingerprint 浏览器类型必须为 Chrome");
+    return std::nullopt;
+  }
   if (*chromium_major != 138) {
     SetError(error_message, "Fingerprint 配置的 Chromium 主版本必须为 138");
     return std::nullopt;
@@ -158,13 +162,18 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   const auto* platform = FindString(*hardware, "platform", error_message);
   if (!hardware_concurrency || !device_memory || !platform)
     return std::nullopt;
-  if (*hardware_concurrency < 1 || *device_memory < 1) {
-    SetError(error_message, "Fingerprint 硬件参数必须为正数");
+  if (*hardware_concurrency < 1 || *hardware_concurrency > 1024 ||
+      *device_memory < 1 || *device_memory > 1024) {
+    SetError(error_message, "Fingerprint 硬件参数范围无效");
     return std::nullopt;
   }
   config.hardware.hardware_concurrency = *hardware_concurrency;
   config.hardware.device_memory_gb = *device_memory;
   config.hardware.platform = *platform;
+  if (config.hardware.platform != "Win32") {
+    SetError(error_message, "Fingerprint 首版仅支持 Win32 平台");
+    return std::nullopt;
+  }
 
   const auto width = FindInt(*screen, "width", error_message);
   const auto height = FindInt(*screen, "height", error_message);

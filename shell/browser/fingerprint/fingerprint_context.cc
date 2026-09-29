@@ -22,6 +22,10 @@ void FingerprintContext::ClearConfig() {
   ++revision_;
 }
 
+void FingerprintContext::MarkRendererCreated() {
+  renderer_created_ = true;
+}
+
 bool FingerprintContext::IsEnabled() const {
   return config_ && config_->enabled;
 }

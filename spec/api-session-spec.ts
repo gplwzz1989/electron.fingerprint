@@ -1886,6 +1886,14 @@ describe('session module', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
     });
+
+    it('rejects changes after the first renderer is created', async () => {
+      const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      await w.loadURL('data:text/html,<title>fingerprint</title>');
+      expect(() => ses.setFingerprintConfig(profile)).to.throw('首次 Renderer 创建前');
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
