@@ -1,0 +1,19 @@
+{
+  "runtimeVersion": "37.2.6-fp.0.1.0",
+  "upstream": {
+    "electron": "37.2.6",
+    "chromium": "138.0.7204.185",
+    "node": "22.17.1",
+    "v8": "13.8.258.30"
+  },
+  "fingerprint": {
+    "kernel": "0.1.0",
+    "profileSchema": 1
+  },
+  "adapter": {
+    "electronMajor": 37,
+    "chromiumMajor": 138,
+    "platform": "win32",
+    "arch": "x64"
+  }
+}

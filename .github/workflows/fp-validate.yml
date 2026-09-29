@@ -1,0 +1,21 @@
+name: FP Validate
+
+on:
+  push:
+    branches: [fp/37.2.6]
+  pull_request:
+    branches: [fp/37.2.6]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 验证 FP 版本与 Schema
+        shell: pwsh
+        run: |
+          python fp-kernel/tools/verify-version.py
+          python fp-kernel/tools/verify-patches.py
+          Get-Content -Raw fp-kernel/schema/examples/win11-cn-desktop.json | ConvertFrom-Json | Out-Null
+          Get-Content -Raw fp-kernel/schema/examples/win11-en-desktop.json | ConvertFrom-Json | Out-Null

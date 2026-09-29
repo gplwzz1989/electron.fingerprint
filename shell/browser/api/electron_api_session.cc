@@ -70,6 +70,7 @@
 #include "shell/browser/electron_browser_context.h"
 #include "shell/browser/electron_browser_main_parts.h"
 #include "shell/browser/electron_permission_manager.h"
+#include "shell/browser/fingerprint/fingerprint_profile_parser.h"
 #include "shell/browser/javascript_environment.h"
 #include "shell/browser/media/media_device_id_salt.h"
 #include "shell/browser/net/cert_verifier_client.h"
@@ -992,6 +993,29 @@ std::string Session::GetUserAgent() {
   return browser_context_->GetUserAgent();
 }
 
+void Session::SetFingerprintConfig(gin_helper::ErrorThrower thrower,
+                                   base::Value::Dict profile) {
+  std::string error_message;
+  auto config = fingerprint::FingerprintProfileParser::Parse(
+      profile, &error_message);
+  if (!config) {
+    thrower.ThrowError(error_message);
+    return;
+  }
+  browser_context_->fingerprint_context()->SetConfig(std::move(*config));
+}
+
+v8::Local<v8::Value> Session::GetFingerprintConfig(v8::Isolate* isolate) {
+  const auto* config = browser_context_->fingerprint_context()->GetConfig();
+  if (!config)
+    return v8::Null(isolate);
+  return gin::Converter<base::Value::Dict>::ToV8(isolate, config->ToValue());
+}
+
+void Session::ClearFingerprintConfig() {
+  browser_context_->fingerprint_context()->ClearConfig();
+}
+
 void Session::SetSSLConfig(network::mojom::SSLConfigPtr config) {
   browser_context_->SetSSLConfig(std::move(config));
 }
@@ -1768,6 +1792,9 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("isPersistent", &Session::IsPersistent)
       .SetMethod("setUserAgent", &Session::SetUserAgent)
       .SetMethod("getUserAgent", &Session::GetUserAgent)
+      .SetMethod("setFingerprintConfig", &Session::SetFingerprintConfig)
+      .SetMethod("getFingerprintConfig", &Session::GetFingerprintConfig)
+      .SetMethod("clearFingerprintConfig", &Session::ClearFingerprintConfig)
       .SetMethod("setSSLConfig", &Session::SetSSLConfig)
       .SetMethod("getBlobData", &Session::GetBlobData)
       .SetMethod("downloadURL", &Session::DownloadURL)

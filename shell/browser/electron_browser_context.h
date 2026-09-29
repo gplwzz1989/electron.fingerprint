@@ -17,6 +17,7 @@
 #include "content/public/browser/media_stream_request.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/ssl_config.mojom.h"
+#include "shell/browser/fingerprint/fingerprint_context.h"
 #include "third_party/blink/public/common/permissions/permission_utils.h"
 
 class PrefService;
@@ -91,6 +92,13 @@ class ElectronBrowserContext : public content::BrowserContext {
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory();
 
   std::string GetMediaDeviceIDSalt();
+
+  fingerprint::FingerprintContext* fingerprint_context() {
+    return &fingerprint_context_;
+  }
+  const fingerprint::FingerprintContext* fingerprint_context() const {
+    return &fingerprint_context_;
+  }
 
   // content::BrowserContext:
   base::FilePath GetPath() override;
@@ -193,6 +201,7 @@ class ElectronBrowserContext : public content::BrowserContext {
   scoped_refptr<storage::SpecialStoragePolicy> storage_policy_;
   std::unique_ptr<predictors::PreconnectManager> preconnect_manager_;
   std::unique_ptr<ProtocolRegistry> protocol_registry_;
+  fingerprint::FingerprintContext fingerprint_context_;
 
   std::optional<std::string> user_agent_;
   base::FilePath path_;

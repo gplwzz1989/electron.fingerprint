@@ -1267,6 +1267,28 @@ will be temporary.
 
 Returns `string` - The user agent for this session.
 
+#### `ses.setFingerprintConfig(config)`
+
+* `config` Object
+
+Sets the Fingerprint Profile for this session. The configuration is scoped to
+the session's BrowserContext and must be set before the first navigation.
+Invalid configurations throw an error. Fingerprint behavior is disabled when
+no configuration is set or when `config.enabled` is `false`.
+
+The first schema version supports the fields documented in
+`fp-kernel/schema/fingerprint-profile.schema.json`.
+
+#### `ses.getFingerprintConfig()`
+
+Returns `Object | null` - The configured Fingerprint Profile, or `null` when
+the session has no profile.
+
+#### `ses.clearFingerprintConfig()`
+
+Clears the Fingerprint Profile for this session. Existing Electron behavior is
+used after the profile is cleared.
+
 #### `ses.setSSLConfig(config)`
 
 * `config` Object

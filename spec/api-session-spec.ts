@@ -1859,6 +1859,35 @@ describe('session module', () => {
     });
   });
 
+  describe('ses Fingerprint Profile', () => {
+    const profile = {
+      schemaVersion: 1,
+      id: 'test-profile',
+      enabled: true,
+      browser: { family: 'Chrome', chromiumMajor: 138, userAgent: null, acceptLanguage: 'zh-CN,zh;q=0.9' },
+      locale: { language: 'zh-CN', languages: ['zh-CN', 'zh'], timezone: 'Asia/Shanghai' },
+      hardware: { hardwareConcurrency: 8, deviceMemory: 8, platform: 'Win32' },
+      screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
+      graphics: { webglVendor: 'Google Inc. (Intel)', webglRenderer: 'ANGLE (Intel)' },
+      noise: { seed: 'test-profile-stable', canvas: false, audio: false, rects: false },
+      modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false }
+    };
+
+    it('stores and clears a profile on one session', () => {
+      const ses = session.fromPartition(`fingerprint-${Math.random()}`) as any;
+      expect(ses.getFingerprintConfig()).to.equal(null);
+      ses.setFingerprintConfig(profile);
+      expect(ses.getFingerprintConfig()).to.deep.equal(profile);
+      ses.clearFingerprintConfig();
+      expect(ses.getFingerprintConfig()).to.equal(null);
+    });
+
+    it('rejects invalid hardware values', () => {
+      const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
+      expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
+    });
+  });
+
   describe('ses.setSSLConfig()', () => {
     it('can disable cipher suites', async () => {
       const ses = session.fromPartition('' + Math.random());

@@ -1,0 +1,13 @@
+name: FP Windows Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64, electron-fingerprint]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 预留 Windows x64 构建入口
+        shell: pwsh
+        run: Write-Host '重型 Electron 构建将在原版基线验证后启用'

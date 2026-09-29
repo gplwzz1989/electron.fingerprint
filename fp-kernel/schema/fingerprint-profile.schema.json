@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gplwzz1989/electron.fingerprint/blob/fp/37.2.6/fp-kernel/schema/fingerprint-profile.schema.json",
+  "title": "Electron Fingerprint Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "enabled", "browser", "locale", "hardware", "screen", "graphics", "noise", "modules"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "enabled": { "type": "boolean" },
+    "browser": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "chromiumMajor", "acceptLanguage"],
+      "properties": {
+        "family": { "type": "string", "minLength": 1 },
+        "chromiumMajor": { "type": "integer", "const": 138 },
+        "userAgent": { "type": ["string", "null"] },
+        "acceptLanguage": { "type": "string", "minLength": 1 }
+      }
+    },
+    "locale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "languages", "timezone"],
+      "properties": {
+        "language": { "type": "string", "minLength": 2 },
+        "languages": { "type": "array", "items": { "type": "string", "minLength": 2 }, "minItems": 1 },
+        "timezone": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardwareConcurrency", "deviceMemory", "platform"],
+      "properties": {
+        "hardwareConcurrency": { "type": "integer", "minimum": 1 },
+        "deviceMemory": { "type": "integer", "minimum": 1 },
+        "platform": { "type": "string", "minLength": 1 }
+      }
+    },
+    "screen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "availWidth", "availHeight", "deviceScaleFactor"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "availWidth": { "type": "integer", "minimum": 1 },
+        "availHeight": { "type": "integer", "minimum": 1 },
+        "deviceScaleFactor": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "graphics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["webglVendor", "webglRenderer"],
+      "properties": {
+        "webglVendor": { "type": "string" },
+        "webglRenderer": { "type": "string" }
+      }
+    },
+    "noise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "canvas", "audio", "rects"],
+      "properties": {
+        "seed": { "type": "string", "minLength": 1 },
+        "canvas": { "type": "boolean" },
+        "audio": { "type": "boolean" },
+        "rects": { "type": "boolean" }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ua", "clientHints", "locale", "timezone", "navigator", "screen", "webgl", "canvas", "audio", "fonts"],
+      "properties": {
+        "ua": { "type": "boolean" },
+        "clientHints": { "type": "boolean" },
+        "locale": { "type": "boolean" },
+        "timezone": { "type": "boolean" },
+        "navigator": { "type": "boolean" },
+        "screen": { "type": "boolean" },
+        "webgl": { "type": "boolean" },
+        "canvas": { "type": "boolean" },
+        "audio": { "type": "boolean" },
+        "fonts": { "type": "boolean" }
+      }
+    }
+  }
+}
