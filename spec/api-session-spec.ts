@@ -1860,6 +1860,8 @@ describe('session module', () => {
   });
 
   describe('ses Fingerprint Profile', () => {
+    afterEach(closeAllWindows);
+
     const profile = {
       schemaVersion: 1,
       id: 'test-profile',
@@ -1893,6 +1895,39 @@ describe('session module', () => {
       defer(() => w.destroy());
       await w.loadURL('data:text/html,<title>fingerprint</title>');
       expect(() => ses.setFingerprintConfig(profile)).to.throw('首次 Renderer 创建前');
+    });
+
+    it('isolates hardwareConcurrency between sessions and workers', async () => {
+      const normalSession = session.fromPartition(`fingerprint-normal-${Math.random()}`);
+      const sessionA = session.fromPartition(`fingerprint-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-b-${Math.random()}`) as any;
+      const disabledSession = session.fromPartition(`fingerprint-disabled-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({ ...profile, id: 'profile-a', hardware: { ...profile.hardware, hardwareConcurrency: 4 } });
+      sessionB.setFingerprintConfig({ ...profile, id: 'profile-b', hardware: { ...profile.hardware, hardwareConcurrency: 12 } });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-disabled', enabled: false, hardware: { ...profile.hardware, hardwareConcurrency: 2 } });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: normalSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`new Promise(resolve => {
+        const windowValue = navigator.hardwareConcurrency;
+        {
+          const worker = new Worker(URL.createObjectURL(new Blob([
+            'self.postMessage(navigator.hardwareConcurrency)'
+          ], { type: 'text/javascript' })));
+          worker.onmessage = event => { resolve({ window: windowValue, worker: event.data }); worker.terminate(); };
+        }
+      })`)));
+
+      expect(values[1]).to.deep.equal({ window: 4, worker: 4 });
+      expect(values[2]).to.deep.equal({ window: 12, worker: 12 });
+      expect(values[0].window).to.be.a('number').and.greaterThan(0);
+      expect(values[0].worker).to.equal(values[0].window);
+      expect(values[3]).to.deep.equal(values[0]);
     });
   });
 

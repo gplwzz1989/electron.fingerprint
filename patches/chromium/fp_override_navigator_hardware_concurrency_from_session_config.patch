@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Wed, 30 Sep 2026 17:20:17 +0800
+Subject: fp: override navigator hardware concurrency from session config
+
+
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+index 64bdfb1a106da63a6699b518a7f0d8ceb631bab8..bf98bdd8a15ecec06e2de1aee5483029420b7fda 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -4,7 +4,11 @@
+ 
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+ 
++#include <optional>
++
++#include "base/command_line.h"
+ #include "base/feature_list.h"
++#include "base/json/json_reader.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+@@ -22,6 +26,43 @@ namespace blink {
+ 
+ namespace {
+ 
++std::optional<unsigned> GetFingerprintHardwareConcurrencyOverride() {
++  static const std::optional<unsigned> override_value = [] {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    if (!modules || !modules->FindBool("navigator").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* hardware = root.FindDict("hardware");
++    if (!hardware)
++      return std::nullopt;
++
++    const std::optional<int> hardware_concurrency =
++        hardware->FindInt("hardwareConcurrency");
++    if (!hardware_concurrency || *hardware_concurrency < 1 ||
++        *hardware_concurrency > 1024) {
++      return std::nullopt;
++    }
++
++    return static_cast<unsigned>(*hardware_concurrency);
++  }();
++
++  return override_value;
++}
++
+ String GetReducedNavigatorPlatform() {
+ #if BUILDFLAG(IS_ANDROID)
+   return "Linux armv81";
+@@ -85,6 +126,12 @@ unsigned int NavigatorBase::hardwareConcurrency() const {
+ 
+   probe::ApplyHardwareConcurrencyOverride(
+       probe::ToCoreProbeSink(GetExecutionContext()), hardware_concurrency);
++
++  if (const std::optional<unsigned> override_value =
++          GetFingerprintHardwareConcurrencyOverride()) {
++    return *override_value;
++  }
++
+   return hardware_concurrency;
+ }
+ 
