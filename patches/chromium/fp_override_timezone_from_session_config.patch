@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 17:06:59 +0800
+Subject: fp: override timezone from session config
+
+---
+ .../core/timezone/timezone_controller.cc      | 54 ++++++++++++++++++-
+ 1 file changed, 52 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index 8e4166b61c218a7618ced30c5c37393533ca9136..a558836f262277f8a2f9dddbe7b6e9e43698dc73 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -4,7 +4,11 @@
+ 
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
++#include <optional>
++
++#include "base/command_line.h"
+ #include "base/feature_list.h"
++#include "base/json/json_reader.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+@@ -59,7 +63,48 @@ String GetTimezoneId(const icu::TimeZone& timezone) {
+   return String(WTF::unicode::ToSpan(unicode_timezone_id));
+ }
+ 
++std::optional<String> GetFingerprintTimezoneOverride() {
++  static const std::optional<String> override_value = []()
++      -> std::optional<String> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    const base::Value::Dict* locale = root.FindDict("locale");
++    if (!modules || !modules->FindBool("timezone").value_or(false) ||
++        !locale)
++      return std::nullopt;
++
++    const std::string* timezone_value = locale->FindString("timezone");
++    if (!timezone_value || timezone_value->empty())
++      return std::nullopt;
++
++    const String timezone_id = String::FromUTF8(*timezone_value);
++    std::unique_ptr<icu::TimeZone> timezone(icu::TimeZone::createTimeZone(
++        icu::UnicodeString(timezone_id.Ascii().data(), -1, US_INV)));
++    if (!timezone || *timezone == icu::TimeZone::getUnknown())
++      return std::nullopt;
++    return timezone_id;
++  }();
++
++  return override_value;
++}
++
+ String GetCurrentTimezoneId() {
++  if (const auto timezone = GetFingerprintTimezoneOverride())
++    return *timezone;
++
+   std::unique_ptr<icu::TimeZone> timezone(icu::TimeZone::createDefault());
+   CHECK(timezone);
+   return GetTimezoneId(*timezone.get());
+@@ -82,9 +127,12 @@ void DispatchTimeZoneChangeEventToFrames() {
+ }
+ 
+ bool SetIcuTimeZoneAndNotifyV8(const String& timezone_id) {
+-  DCHECK(!timezone_id.empty());
++  String actual_timezone_id = timezone_id;
++  if (const auto timezone = GetFingerprintTimezoneOverride())
++    actual_timezone_id = *timezone;
++  DCHECK(!actual_timezone_id.empty());
+   std::unique_ptr<icu::TimeZone> timezone(icu::TimeZone::createTimeZone(
+-      icu::UnicodeString(timezone_id.Ascii().data(), -1, US_INV)));
++      icu::UnicodeString(actual_timezone_id.Ascii().data(), -1, US_INV)));
+   CHECK(timezone);
+ 
+   if (*timezone == icu::TimeZone::getUnknown())
+@@ -110,6 +158,8 @@ TimeZoneController::TimeZoneController() {
+   if (!base::FeatureList::IsEnabled(kLazyBlinkTimezoneInit)) {
+     host_timezone_id_ = GetCurrentTimezoneId();
+   }
++  if (const auto timezone = GetFingerprintTimezoneOverride())
++    SetIcuTimeZoneAndNotifyV8(*timezone);
+ }
+ 
+ TimeZoneController::~TimeZoneController() = default;

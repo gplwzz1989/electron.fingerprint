@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 17:30:25 +0800
+Subject: fix: return cached timezone override value
+
+---
+ .../blink/renderer/core/timezone/timezone_controller.cc  | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index a558836f262277f8a2f9dddbe7b6e9e43698dc73..6642d6e9606db9aa765a5bc2315e9ef8d7d48aa0 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -9,6 +9,7 @@
+ #include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/json/json_reader.h"
++#include "base/no_destructor.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+@@ -64,8 +65,8 @@ String GetTimezoneId(const icu::TimeZone& timezone) {
+ }
+ 
+ std::optional<String> GetFingerprintTimezoneOverride() {
+-  static const std::optional<String> override_value = []()
+-      -> std::optional<String> {
++  static const base::NoDestructor<std::optional<String>> override_value(
++      []() -> std::optional<String> {
+     const base::CommandLine* command_line =
+         base::CommandLine::ForCurrentProcess();
+     if (!command_line->HasSwitch("fingerprint-config"))
+@@ -96,9 +97,9 @@ std::optional<String> GetFingerprintTimezoneOverride() {
+     if (!timezone || *timezone == icu::TimeZone::getUnknown())
+       return std::nullopt;
+     return timezone_id;
+-  }();
++      }());
+ 
+-  return override_value;
++  return *override_value;
+ }
+ 
+ String GetCurrentTimezoneId() {
