@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 20:45:24 +0800
+Subject: [PATCH] fp: apply session OfflineAudio noise
+
+
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index 6fed94c675e09..e9c1ee6d35ada 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -25,6 +25,12 @@
+ 
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+ 
++#include <algorithm>
++#include <optional>
++
++#include "base/command_line.h"
++#include "base/hash/hash.h"
++#include "base/json/json_reader.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "media/base/audio_glitch_info.h"
+@@ -47,6 +53,48 @@
+ 
+ namespace blink {
+ 
++namespace {
++
++std::optional<float> GetFingerprintAudioSampleRateNoise() {
++  static const std::optional<float> audio_noise =
++      []() -> std::optional<float> {
++        const base::CommandLine* command_line =
++            base::CommandLine::ForCurrentProcess();
++        if (!command_line->HasSwitch("fingerprint-config"))
++          return std::nullopt;
++
++        std::optional<base::Value> config = base::JSONReader::Read(
++            command_line->GetSwitchValueASCII("fingerprint-config"));
++        if (!config || !config->is_dict())
++          return std::nullopt;
++
++        const base::Value::Dict& root = config->GetDict();
++        if (!root.FindBool("enabled").value_or(false))
++          return std::nullopt;
++
++        const base::Value::Dict* modules = root.FindDict("modules");
++        const base::Value::Dict* noise = root.FindDict("noise");
++        if (!modules || !modules->FindBool("audio").value_or(false) ||
++            !noise || !noise->FindBool("audio").value_or(false)) {
++          return std::nullopt;
++        }
++
++        const std::string* seed = noise->FindString("seed");
++        if (!seed || seed->empty())
++          return std::nullopt;
++
++        constexpr double kMaxHash = 4294967295.0;
++        const double normalized =
++            static_cast<double>(base::PersistentHash(*seed)) / kMaxHash -
++            0.5;
++        return static_cast<float>(normalized * 0.02);
++      }();
++
++  return audio_noise;
++}
++
++}
++
+ OfflineAudioContext* OfflineAudioContext::Create(
+     ExecutionContext* context,
+     unsigned number_of_channels,
+@@ -132,8 +180,15 @@ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
+                                          ExceptionState& exception_state)
+     : BaseAudioContext(window, ContextType::kOfflineContext),
+       total_render_frames_(number_of_frames) {
++  float adjusted_sample_rate = sample_rate;
++  if (const auto sample_rate_noise = GetFingerprintAudioSampleRateNoise()) {
++    adjusted_sample_rate = std::clamp(
++        sample_rate + *sample_rate_noise,
++        audio_utilities::MinAudioBufferSampleRate(),
++        audio_utilities::MaxAudioBufferSampleRate());
++  }
+   destination_node_ = OfflineAudioDestinationNode::Create(
+-      this, number_of_channels, number_of_frames, sample_rate);
++      this, number_of_channels, number_of_frames, adjusted_sample_rate);
+   Initialize();
+ }
+ 
