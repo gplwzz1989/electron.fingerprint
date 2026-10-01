@@ -1053,6 +1053,12 @@ std::string ElectronBrowserClient::GetUserAgent() {
   return user_agent_override_;
 }
 
+std::string ElectronBrowserClient::GetUserAgentBasedOnPolicy(
+    content::BrowserContext* context) {
+  auto* browser_context = static_cast<ElectronBrowserContext*>(context);
+  return browser_context->GetUserAgent();
+}
+
 void ElectronBrowserClient::SetUserAgent(const std::string& user_agent) {
   user_agent_override_ = user_agent;
 }

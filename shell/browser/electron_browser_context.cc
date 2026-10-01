@@ -554,6 +554,12 @@ ElectronBrowserContext::GetSpecialStoragePolicy() {
 }
 
 std::string ElectronBrowserContext::GetUserAgent() const {
+  const auto* fingerprint_config = fingerprint_context_.GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.ua &&
+      !fingerprint_config->browser.user_agent.empty()) {
+    return fingerprint_config->browser.user_agent;
+  }
   return user_agent_.value_or(ElectronBrowserClient::Get()->GetUserAgent());
 }
 

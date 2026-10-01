@@ -1923,6 +1923,57 @@ describe('session module', () => {
       expect(values).to.deep.equal([4, 16]);
     });
 
+    it('applies the User-Agent override to the renderer and requests', async () => {
+      const userAgent = 'FingerprintChrome/138.0.0.0';
+      const ses = session.fromPartition(`fingerprint-user-agent-${Math.random()}`) as any;
+      ses.setFingerprintConfig({ ...profile, browser: { ...profile.browser, userAgent } });
+      expect(ses.getFingerprintConfig().browser.userAgent).to.equal(userAgent);
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      let headers: http.IncomingHttpHeaders | null = null;
+      const server = http.createServer((req, res) => {
+        headers = req.headers;
+        res.end('<!doctype html><title>fingerprint</title>');
+        server.close();
+      });
+      const { url } = await listen(server);
+      await w.loadURL(url);
+      expect(headers!['user-agent']).to.equal(userAgent);
+      expect(await w.webContents.executeJavaScript('navigator.userAgent')).to.equal(userAgent);
+    });
+
+    it('keeps User-Agent overrides isolated between sessions', async () => {
+      const sesA = session.fromPartition(`fingerprint-user-agent-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-user-agent-b-${Math.random()}`) as any;
+      sesA.setFingerprintConfig({ ...profile, browser: { ...profile.browser, userAgent: 'FingerprintChrome/A' } });
+      sesB.setFingerprintConfig({ ...profile, browser: { ...profile.browser, userAgent: 'FingerprintChrome/B' } });
+      const wA = new BrowserWindow({ show: false, webPreferences: { session: sesA } });
+      const wB = new BrowserWindow({ show: false, webPreferences: { session: sesB } });
+      defer(() => wA.destroy());
+      defer(() => wB.destroy());
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all([wA.loadFile(fixture), wB.loadFile(fixture)]);
+      const values = await Promise.all([
+        wA.webContents.executeJavaScript('navigator.userAgent'),
+        wB.webContents.executeJavaScript('navigator.userAgent')
+      ]);
+      expect(values).to.deep.equal(['FingerprintChrome/A', 'FingerprintChrome/B']);
+    });
+
+    it('preserves the native User-Agent when the ua module is disabled', async () => {
+      const userAgent = 'FingerprintChrome/disabled';
+      const ses = session.fromPartition(`fingerprint-user-agent-disabled-${Math.random()}`) as any;
+      ses.setFingerprintConfig({
+        ...profile,
+        browser: { ...profile.browser, userAgent },
+        modules: { ...profile.modules, ua: false }
+      });
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      await w.loadFile(path.join(__dirname, 'fixtures', 'blank.html'));
+      expect(await w.webContents.executeJavaScript('navigator.userAgent')).to.not.equal(userAgent);
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
