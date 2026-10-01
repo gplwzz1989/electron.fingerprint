@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 19:55:49 +0800
+Subject: [PATCH] fp: apply session canvas pixel noise
+
+
+diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+index 105e63597d299..a7441966a3836 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+@@ -5,11 +5,16 @@
+ #include "third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.h"
+ 
+ #include <cstdint>
++#include <optional>
+ 
++#include "base/command_line.h"
+ #include "base/containers/span.h"
++#include "base/hash/hash.h"
++#include "base/json/json_reader.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
++#include "base/no_destructor.h"
+ #include "base/notreached.h"
+ #include "base/time/time.h"
+ #include "third_party/blink/public/common/fingerprinting_protection/canvas_noise_token.h"
+@@ -40,6 +45,40 @@ namespace blink {
+ 
+ namespace {
+ 
++std::optional<String> GetFingerprintCanvasSeed() {
++  static const base::NoDestructor<std::optional<String>> canvas_seed(
++      []() -> std::optional<String> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    const base::Value::Dict* noise = root.FindDict("noise");
++    if (!modules || !modules->FindBool("canvas").value_or(false) || !noise ||
++        !noise->FindBool("canvas").value_or(false)) {
++      return std::nullopt;
++    }
++
++    const std::string* seed = noise->FindString("seed");
++    if (!seed || seed->empty())
++      return std::nullopt;
++
++    return String::FromUTF8(*seed);
++      }());
++
++  return *canvas_seed;
++}
++
+ // Returns true when all criteria to apply noising are met. Currently this
+ // entails that
+ //   1) an operation was made on the canvas that triggers an
+@@ -119,7 +158,14 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+   base::TimeTicks start_time = base::TimeTicks::Now();
+   CHECK(snapshot);
+ 
+-  if (!ShouldApplyNoise(rendering_context, snapshot, execution_context)) {
++  const std::optional<String> fingerprint_canvas_seed =
++      GetFingerprintCanvasSeed();
++  if (fingerprint_canvas_seed) {
++    if (!rendering_context || !rendering_context->IsRenderingContext2D() ||
++        !execution_context) {
++      return false;
++    }
++  } else if (!ShouldApplyNoise(rendering_context, snapshot, execution_context)) {
+     return false;
+   }
+ 
+@@ -149,21 +195,26 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+ 
+   // TODO(crbug.com/377325952): Extend domain part to follow the general
+   // partitioning properties.
++  uint64_t noise_token = CanvasNoiseToken::Get();
+   String noise_domain;
+-  if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
+-    Frame& top_frame = window->GetFrame()->Tree().Top();
+-    noise_domain = GetDomainFromSecurityOrigin(
+-        top_frame.GetSecurityContext()->GetSecurityOrigin());
+-  } else if (auto* worker = DynamicTo<WorkerGlobalScope>(execution_context)) {
+-    noise_domain =
+-        GetDomainFromSecurityOrigin(worker->top_level_frame_security_origin());
++  if (fingerprint_canvas_seed) {
++    noise_token = base::PersistentHash(fingerprint_canvas_seed->Utf8());
+   } else {
+-    NOTREACHED();
++    if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
++      Frame& top_frame = window->GetFrame()->Tree().Top();
++      noise_domain = GetDomainFromSecurityOrigin(
++          top_frame.GetSecurityContext()->GetSecurityOrigin());
++    } else if (auto* worker = DynamicTo<WorkerGlobalScope>(execution_context)) {
++      noise_domain = GetDomainFromSecurityOrigin(
++          worker->top_level_frame_security_origin());
++    } else {
++      NOTREACHED();
++    }
+   }
+ 
+   // TODO(crbug.com/392627601): Use the token that is piped down from the
+   // browser.
+-  auto token_hash = NoiseHash(CanvasNoiseToken::Get(), noise_domain);
++  auto token_hash = NoiseHash(noise_token, noise_domain);
+   NoisePixels(token_hash, modify_pixels, pixmap_to_noise.width(),
+               pixmap_to_noise.height());
+ 
