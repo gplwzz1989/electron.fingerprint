@@ -22,7 +22,7 @@
 | FP-03 | User-Agent | `navigator.userAgent`、请求 User-Agent | `002-user-agent-fingerprint.patch` | 已完成，持续回归 |
 | FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | Chromium 原生 `UserAgentOverride` | 已完成，持续回归 |
 | FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `fp_override_timezone_from_session_config.patch` 与 Session 网络上下文更新 | 已完成，持续回归 |
-| FP-06 | Navigator 平台 | `navigator.platform` | `002-user-agent-fingerprint.patch` | 未开始 |
+| FP-06 | Navigator 平台 | `navigator.platform` | `fp_override_navigator_platform_from_session_config.patch` | 已完成，持续回归 |
 | FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | 参考项目声明了参数，但未找到完整生效路径 | 未开始，需先补齐设计 |
 | FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 未开始 |
 | FP-09 | Canvas 像素 | `getImageData`、`toDataURL` | `012-canvas-get-image-data.patch`、`013-canvas-toDataURL.patch` | 未开始 |
@@ -76,3 +76,12 @@
 | Profile A | 请求 `Accept-Language` 使用 A 的完整配置值 |
 | `enabled=false`、模块关闭或无 Profile | 保留 Chromium 原始语言、请求头和时区行为 |
 | Session 网络上下文已存在 | 设置 Profile 后仍能更新 `Accept-Language` |
+
+## FP-06 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | `navigator.platform` 分别使用 `Win32` 和 `MacIntel` |
+| `modules.navigator=false` | 保留该运行时的原生 `navigator.platform` |
+| 无 Profile | 保留 Chromium 原始 `navigator.platform` |
+| 非法平台值 | Browser Process 拒绝配置 |

@@ -14,7 +14,7 @@
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
-硬件指纹、User-Agent、Client Hints、Locale 与 Timezone 部分指纹点的早期版本。
+硬件指纹、User-Agent、Client Hints、Locale、Timezone 与 Navigator 平台部分指纹点的早期版本。
 
 | 评估项 | 当前结论 |
 | --- | --- |
@@ -23,13 +23,13 @@
 | Profile Schema | 版本 `1` |
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
-| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone |
-| 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | 平台、屏幕、WebGL、Canvas、Audio、字体、ClientRects、WebRTC 等 |
-| 编译状态 | FP-05 Electron 增量编译通过；13 项定向测试全部通过 |
+| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台 |
+| 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台覆盖、Session 隔离、Accept-Language 请求头 |
+| 仍未真正覆盖的主要项目 | 屏幕、WebGL、Canvas、Audio、字体、ClientRects、WebRTC 等 |
+| 编译状态 | FP-06 Electron 增量编译通过；14 项定向测试全部通过 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
-`hardwareConcurrency`、Locale 与 Timezone 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
+`hardwareConcurrency`、Locale、Timezone 与 Navigator 平台等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
 
 ## 3. 当前运行时链路
 
@@ -65,6 +65,12 @@ ElectronBrowserClient 序列化为 --fingerprint-config
          |
          v
  Intl.DateTimeFormat().resolvedOptions().timeZone
+         |
+         v
+ Blink NavigatorBase::platform()
+         |
+         v
+ navigator.platform
          |
          v
   Blink NavigatorBase::hardwareConcurrency()
@@ -115,7 +121,7 @@ ElectronBrowserClient 序列化为 --fingerprint-config
 | Client Hints | `modules.clientHints` | **已生效** | 复用 Chromium 原生 `UserAgentOverride`；覆盖 `navigator.userAgentData`、高熵 `uaFullVersion` 和协商后的 `Sec-CH-UA`，未启用时保留原生值 |
 | Locale | `locale.language`、`locale.languages`、`browser.acceptLanguage`、`modules.locale` | **已生效** | Renderer 偏好覆盖 `navigator.language`、`navigator.languages`；NetworkContext 使用配置的 `Accept-Language` |
 | Timezone | `locale.timezone`、`modules.timezone` | **已生效** | Blink 时区控制器覆盖 ICU/V8 时区；无效或关闭时保留 Chromium 原始值 |
-| Navigator 平台 | `hardware.platform`、`modules.navigator` | 未实现 | 不影响 `navigator.platform` |
+| Navigator 平台 | `hardware.platform`、`modules.navigator` | **已生效** | Blink Navigator 入口支持 `Win32`、`MacIntel` 和 `Linux x86_64`；关闭模块时保留原生值 |
 | Screen 与 DPR | `screen.*`、`modules.screen` | 未实现 | 不影响 `screen.*` 或 `devicePixelRatio` |
 | WebGL GPU 信息 | `graphics.webglVendor`、`graphics.webglRenderer`、`modules.webgl` | 未实现 | 不影响 WebGL vendor/renderer 查询结果 |
 | Canvas 像素 | `noise.canvas`、`modules.canvas` | 未实现 | 不影响 `getImageData()` 或 `toDataURL()` |
@@ -141,6 +147,7 @@ navigator.userAgentData
 navigator.language
 navigator.languages
 Intl.DateTimeFormat().resolvedOptions().timeZone
+navigator.platform
 ```
 
 生效条件同时包括：
@@ -174,6 +181,11 @@ Timezone 在 `profile.enabled === true`、`profile.modules.timezone === true` �
 IANA 标识时，覆盖 ICU/V8 的当前时区，因此 `Intl.DateTimeFormat().resolvedOptions().timeZone`
 返回配置值；无效、未启用或模块禁用时保留 Chromium 原始值。
 
+Navigator 平台在 `profile.enabled === true`、`profile.modules.navigator === true` 且
+`hardware.platform` 为 `Win32`、`MacIntel` 或 `Linux x86_64` 时覆盖
+`navigator.platform`；无效、未启用或模块禁用时保留 Chromium 原始值。该点只覆盖
+Navigator 平台字段，尚未自动重写 User-Agent、字体或 GPU 等其他平台相关信息。
+
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
 
@@ -203,13 +215,13 @@ Browser Process 解析器当前只接受：
 - `schemaVersion = 1`；
 - `browser.family = "Chrome"`；
 - `browser.chromiumMajor = 138`；
-- `hardware.platform = "Win32"`；
+- `hardware.platform` 为 `"Win32"`、`"MacIntel"` 或 `"Linux x86_64"`；
 - `hardwareConcurrency` 和 `deviceMemory` 为 `1..1024` 的整数；
 - 屏幕尺寸为正数，且可用尺寸不能大于总尺寸；
 - `deviceScaleFactor` 大于 `0`。
 
-这意味着当前 Profile 适配目标是 Chromium 138、Windows/Win32、x64 运行时，不能
-直接视为跨 Chromium 主版本或跨平台通用格式。
+这意味着当前 Profile 适配目标仍是 Chromium 138 和 Windows x64 运行时；虽然
+`navigator.platform` 支持三个目标值，但不能直接视为跨 Chromium 主版本或完整跨平台格式。
 
 ### 5.3 Schema 与运行时校验的差异
 
@@ -263,6 +275,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - `navigator.userAgentData.brands`、高熵 `uaFullVersion` 和 `Sec-CH-UA` 回归通过；
 - 不同 Session 的 Locale 与 Timezone 可以分别使用各自配置值；
 - 配置的 `Accept-Language` 请求头回归通过；
+- 不同 Session 的 `navigator.platform` 可以分别使用配置值，模块关闭时保留原生值；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -292,7 +305,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 - 已完成全量浏览器指纹伪装；
 - 已覆盖 User-Agent、Client Hints、Locale 和 Timezone 的已实现路径，但不代表所有协商请求头场景；
-- 尚未统一修改平台、屏幕和 WebGL；
+- 尚未统一修改屏幕和 WebGL；
 - 已处理 Canvas、Audio、字体和 ClientRects 指纹；
 - 已隐藏 Headless、CDP 或 WebDriver 特征；
 - 已阻断 WebRTC 本地网络地址暴露。
@@ -301,11 +314,10 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 建议后续按以下顺序推进：
 
-1. 实现 `navigator.platform`，优先保证 JS API 与 User-Agent 的一致性；
-2. 实现 Screen/DPR 与 WebGL 信息，并增加真实网页探测测试；
-3. 再处理 Canvas、Audio、Fonts、ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
-4. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
-5. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
+1. 实现 Screen/DPR 与 WebGL 信息，并增加真实网页探测测试；
+2. 再处理 Canvas、Audio、Fonts、ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
+3. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
+4. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 
 ## 9. 相关文件
 
@@ -319,6 +331,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_override_navigator_device_memory_from_session_config.patch` | `deviceMemory` 的 Blink 覆盖补丁 |
 | `patches/chromium/fp_override_timezone_from_session_config.patch` | Intl 时区的 Blink 覆盖补丁 |
 | `patches/chromium/fix_return_cached_timezone_override_value.patch` | 时区覆盖缓存返回值修复补丁 |
+| `patches/chromium/fp_override_navigator_platform_from_session_config.patch` | `navigator.platform` 覆盖补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |
