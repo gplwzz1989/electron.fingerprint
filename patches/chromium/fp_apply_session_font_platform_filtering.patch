@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 20:59:53 +0800
+Subject: [PATCH] fp: apply session font platform filtering
+
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 34603fc20615a..b8bea5fb40723 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -31,10 +31,15 @@
+ 
+ #include <limits>
+ #include <memory>
++#include <optional>
++#include <string_view>
+ 
++#include "base/command_line.h"
+ #include "base/debug/alias.h"
+ #include "base/feature_list.h"
++#include "base/json/json_reader.h"
+ #include "base/notreached.h"
++#include "base/no_destructor.h"
+ #include "base/strings/escape.h"
+ #include "base/system/sys_info.h"
+ #include "base/timer/elapsed_timer.h"
+@@ -73,6 +78,71 @@
+ 
+ namespace blink {
+ 
++namespace {
++
++std::optional<std::string> GetFingerprintFontPlatform() {
++  static const base::NoDestructor<std::optional<std::string>> platform(
++      []() -> std::optional<std::string> {
++        const base::CommandLine* command_line =
++            base::CommandLine::ForCurrentProcess();
++        if (!command_line->HasSwitch("fingerprint-config"))
++          return std::nullopt;
++
++        std::optional<base::Value> config = base::JSONReader::Read(
++            command_line->GetSwitchValueASCII("fingerprint-config"));
++        if (!config || !config->is_dict())
++          return std::nullopt;
++
++        const base::Value::Dict& root = config->GetDict();
++        if (!root.FindBool("enabled").value_or(false))
++          return std::nullopt;
++
++        const base::Value::Dict* modules = root.FindDict("modules");
++        const base::Value::Dict* hardware = root.FindDict("hardware");
++        if (!modules || !modules->FindBool("fonts").value_or(false) ||
++            !hardware) {
++          return std::nullopt;
++        }
++
++        const std::string* platform = hardware->FindString("platform");
++        if (!platform || platform->empty())
++          return std::nullopt;
++        return *platform;
++      }());
++
++  return *platform;
++}
++
++std::string_view CurrentFontPlatform() {
++#if BUILDFLAG(IS_WIN)
++  return "Win32";
++#elif BUILDFLAG(IS_MAC)
++  return "MacIntel";
++#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
++  return "Linux x86_64";
++#else
++  return "";
++#endif
++}
++
++bool IsPlatformFont(std::string_view platform, std::string_view family) {
++  if (platform == "Win32") {
++    return family == "Segoe UI" || family == "Calibri" ||
++           family == "Cambria" || family == "Consolas" || family == "Tahoma";
++  }
++  if (platform == "MacIntel") {
++    return family == "Helvetica Neue" || family == "Lucida Grande" ||
++           family == "Menlo" || family == "San Francisco";
++  }
++  if (platform == "Linux x86_64") {
++    return family == "Ubuntu" || family == "DejaVu Sans" ||
++           family == "Liberation Sans";
++  }
++  return false;
++}
++
++}
++
+ const char kColorEmojiLocale[] = "und-Zsye";
+ const char kMonoEmojiLocale[] = "und-Zsym";
+ 
+@@ -158,6 +228,27 @@ const FontPlatformData* FontCache::GetFontPlatformData(
+     PlatformInit();
+   }
+ 
++  if (const auto fingerprint_platform = GetFingerprintFontPlatform();
++      fingerprint_platform &&
++      creation_params.CreationType() == kCreateFontByFamily &&
++      alternate_font_name != AlternateFontName::kLastResort) {
++    const std::string_view current_platform = CurrentFontPlatform();
++    const std::string requested_family = creation_params.Family().Utf8();
++    const std::string_view target_platform = *fingerprint_platform;
++    if (!current_platform.empty() && target_platform != current_platform) {
++      if (IsPlatformFont(target_platform, requested_family) &&
++          !IsPlatformFont(current_platform, requested_family)) {
++        FontFaceCreationParams substitute_params(AtomicString("Arial"));
++        return font_platform_data_cache_.GetOrCreateFontPlatformData(
++            this, font_description, substitute_params, alternate_font_name);
++      }
++      if (IsPlatformFont(current_platform, requested_family) &&
++          !IsPlatformFont(target_platform, requested_family)) {
++        return nullptr;
++      }
++    }
++  }
++
+ #if !BUILDFLAG(IS_MAC)
+   if (creation_params.CreationType() == kCreateFontByFamily &&
+       creation_params.Family() == font_family_names::kSystemUi) {

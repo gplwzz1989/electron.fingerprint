@@ -152,3 +152,4 @@ fix_webgl_fingerprint_exit_time_destructor.patch
 fp_apply_session_canvas_pixel_noise.patch
 fp_apply_session_canvas_text_noise.patch
 fp_apply_session_offline_audio_noise.patch
+fp_apply_session_font_platform_filtering.patch
