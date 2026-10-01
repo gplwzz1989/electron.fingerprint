@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 18:00:45 +0800
+Subject: fp: override navigator platform from session config
+
+根据 Session 指纹配置覆盖 `navigator.platform`，支持 Win32、MacIntel 和
+Linux x86_64；配置关闭或值无效时保留 Chromium 原始行为。后续若 Chromium
+提供等价的标准覆盖入口，可移除此补丁。
+
+---
+ .../core/execution_context/navigator_base.cc  | 44 ++++++++++++++++++-
+ 1 file changed, 43 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+index bf98bdd8a15ecec06e2de1aee5483029420b7fda..8dc1ad6f9351fcc22d4d53e4012a080682d08e03 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -9,6 +9,7 @@
+ #include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/json/json_reader.h"
++#include "base/no_destructor.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+@@ -27,7 +28,8 @@ namespace blink {
+ namespace {
+ 
+ std::optional<unsigned> GetFingerprintHardwareConcurrencyOverride() {
+-  static const std::optional<unsigned> override_value = [] {
++  static const std::optional<unsigned> override_value =
++      []() -> std::optional<unsigned> {
+     const base::CommandLine* command_line =
+         base::CommandLine::ForCurrentProcess();
+     if (!command_line->HasSwitch("fingerprint-config"))
+@@ -63,6 +65,43 @@ std::optional<unsigned> GetFingerprintHardwareConcurrencyOverride() {
+   return override_value;
+ }
+ 
++std::optional<String> GetFingerprintPlatformOverride() {
++  static const base::NoDestructor<std::optional<String>> override_value(
++      []() -> std::optional<String> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    if (!modules || !modules->FindBool("navigator").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* hardware = root.FindDict("hardware");
++    if (!hardware)
++      return std::nullopt;
++
++    const std::string* platform = hardware->FindString("platform");
++    if (!platform || (*platform != "Win32" && *platform != "MacIntel" &&
++                     *platform != "Linux x86_64")) {
++      return std::nullopt;
++    }
++
++    return String::FromUTF8(*platform);
++      }());
++
++  return *override_value;
++}
++
+ String GetReducedNavigatorPlatform() {
+ #if BUILDFLAG(IS_ANDROID)
+   return "Linux armv81";
+@@ -94,6 +133,9 @@ String NavigatorBase::userAgent() const {
+ String NavigatorBase::platform() const {
+   ExecutionContext* execution_context = GetExecutionContext();
+ 
++  if (const auto platform_override = GetFingerprintPlatformOverride())
++    return *platform_override;
++
+ #if BUILDFLAG(IS_ANDROID)
+   // For user-agent reduction phase 6, Android platform should be frozen
+   // string, see https://www.chromium.org/updates/ua-reduction/.
