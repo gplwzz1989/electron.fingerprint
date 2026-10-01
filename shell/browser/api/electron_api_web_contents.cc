@@ -2698,8 +2698,13 @@ void WebContents::ForcefullyCrashRenderer() {
 void WebContents::SetUserAgent(const std::string& user_agent) {
   blink::UserAgentOverride ua_override;
   ua_override.ua_string_override = user_agent;
-  if (!user_agent.empty())
-    ua_override.ua_metadata_override = embedder_support::GetUserAgentMetadata();
+  if (!user_agent.empty()) {
+    auto metadata = embedder_support::GetUserAgentMetadata();
+    if (const auto* config =
+            GetBrowserContext()->fingerprint_context()->GetConfig())
+      fingerprint::ApplyClientHintsOverride(*config, &metadata);
+    ua_override.ua_metadata_override = std::move(metadata);
+  }
 
   web_contents()->SetUserAgentOverride(ua_override, false);
 }

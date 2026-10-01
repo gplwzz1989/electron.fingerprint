@@ -10,6 +10,10 @@
 
 #include "base/values.h"
 
+namespace blink {
+struct UserAgentMetadata;
+}
+
 namespace electron::fingerprint {
 
 struct BrowserFingerprint {
@@ -89,6 +93,9 @@ struct FingerprintConfig {
 
   base::Value::Dict ToValue() const;
 };
+
+void ApplyClientHintsOverride(const FingerprintConfig& config,
+                              blink::UserAgentMetadata* metadata);
 
 }  // namespace electron::fingerprint
 

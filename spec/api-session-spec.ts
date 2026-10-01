@@ -1974,6 +1974,56 @@ describe('session module', () => {
       expect(await w.webContents.executeJavaScript('navigator.userAgent')).to.not.equal(userAgent);
     });
 
+    it('applies Client Hints to navigator.userAgentData and requests', async () => {
+      const ses = session.fromPartition(`fingerprint-client-hints-${Math.random()}`) as any;
+      ses.setFingerprintConfig(profile);
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      let headers: http.IncomingHttpHeaders | null = null;
+      let requestCount = 0;
+      const server = http.createServer((req, res) => {
+        requestCount++;
+        if (requestCount === 2) {
+          headers = req.headers;
+          server.close();
+        }
+        res.end('<!doctype html><title>fingerprint</title>');
+      });
+      const { url } = await listen(server);
+      await w.loadURL(url);
+      const values = await w.webContents.executeJavaScript(`(async () => {
+        const highEntropy = await navigator.userAgentData.getHighEntropyValues(['uaFullVersion']);
+        await fetch(${JSON.stringify(url)});
+        return {
+          brands: navigator.userAgentData.brands,
+          fullVersion: highEntropy.uaFullVersion
+        };
+      })()`);
+      expect(values.brands.every((brand: { version: string }) => brand.version === '138')).to.equal(true);
+      expect(values.fullVersion).to.equal('138.0.0.0');
+      expect(headers!['sec-ch-ua']).to.include('"Chromium";v="138"');
+      expect(headers!['sec-ch-ua-platform']).to.equal('"Windows"');
+    });
+
+    it('isolates Client Hints and preserves native values when disabled', async () => {
+      const sesA = session.fromPartition(`fingerprint-client-hints-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-client-hints-b-${Math.random()}`) as any;
+      sesA.setFingerprintConfig(profile);
+      sesB.setFingerprintConfig({ ...profile, modules: { ...profile.modules, clientHints: false } });
+      const wA = new BrowserWindow({ show: false, webPreferences: { session: sesA } });
+      const wB = new BrowserWindow({ show: false, webPreferences: { session: sesB } });
+      defer(() => wA.destroy());
+      defer(() => wB.destroy());
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all([wA.loadFile(fixture), wB.loadFile(fixture)]);
+      const values = await Promise.all([
+        wA.webContents.executeJavaScript("navigator.userAgentData.getHighEntropyValues(['uaFullVersion'])"),
+        wB.webContents.executeJavaScript("navigator.userAgentData.getHighEntropyValues(['uaFullVersion'])")
+      ]);
+      expect(values[0].uaFullVersion).to.equal('138.0.0.0');
+      expect(values[1].uaFullVersion).to.not.equal('138.0.0.0');
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
