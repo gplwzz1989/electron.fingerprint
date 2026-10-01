@@ -1,0 +1,118 @@
+From 54f5d0111331b7799436f880ea6dc3d9b53dd8d8 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 23:12:06 +0800
+Subject: [PATCH] fp: apply session WebGL readPixels noise
+
+---
+ .../webgl/webgl_rendering_context_base.cc     | 57 ++++++++++++++++++-
+ 1 file changed, 56 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 2b4b48279f31a..ea1a43e4c70b1 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -25,10 +25,12 @@
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ 
++#include <algorithm>
+ #include <memory>
+ #include <optional>
+ #include <string>
+ #include <utility>
++#include <vector>
+ 
+ #include "base/bit_cast.h"
+ #include "base/command_line.h"
+@@ -63,6 +65,8 @@
+ #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_union_htmlcanvaselement_offscreencanvas.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/webgl_any.h"
++#include "third_party/blink/renderer/core/canvas_interventions/noise_hash.h"
++#include "third_party/blink/renderer/core/canvas_interventions/noise_helper.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/frame/dactyloscoper.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -192,6 +196,7 @@ namespace {
+ struct FingerprintWebGLOverride {
+   String vendor;
+   String renderer;
++  std::optional<String> noise_seed;
+ };
+ 
+ std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
+@@ -223,13 +228,56 @@ std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
+     if (!vendor || vendor->empty() || !renderer || renderer->empty())
+       return std::nullopt;
+ 
++    const base::Value::Dict* noise = root.FindDict("noise");
++    const std::string* seed = noise ? noise->FindString("seed") : nullptr;
+     return FingerprintWebGLOverride{String::FromUTF8(*vendor),
+-                                    String::FromUTF8(*renderer)};
++                                    String::FromUTF8(*renderer),
++                                    seed && !seed->empty()
++                                        ? std::optional<String>(
++                                              String::FromUTF8(*seed))
++                                        : std::nullopt};
+       }());
+ 
+   return *override_value;
+ }
+ 
++void ApplyFingerprintWebGLNoise(const String& seed,
++                                uint8_t* data,
++                                GLsizei width,
++                                GLsizei height,
++                                GLint pack_alignment) {
++  if (width <= 0 || height <= 0)
++    return;
++
++  const size_t row_size = static_cast<size_t>(width) * 4u;
++  const size_t aligned_row_size =
++      ((row_size + static_cast<size_t>(pack_alignment) - 1u) /
++       static_cast<size_t>(pack_alignment)) *
++      static_cast<size_t>(pack_alignment);
++  const size_t pixel_data_size = row_size * static_cast<size_t>(height);
++  NoiseHash token_hash(base::PersistentHash(seed.Utf8()),
++                       String::FromUTF8("webgl"));
++
++  if (row_size == aligned_row_size) {
++    NoisePixels(token_hash, base::span<uint8_t>(data, pixel_data_size), width,
++                height);
++    return;
++  }
++
++  std::vector<uint8_t> contiguous_pixels(pixel_data_size);
++  for (GLsizei y = 0; y < height; ++y) {
++    std::copy_n(data + static_cast<size_t>(y) * aligned_row_size, row_size,
++                contiguous_pixels.begin() +
++                    static_cast<size_t>(y) * row_size);
++  }
++  NoisePixels(token_hash, base::span<uint8_t>(contiguous_pixels), width,
++              height);
++  for (GLsizei y = 0; y < height; ++y) {
++    std::copy_n(contiguous_pixels.begin() + static_cast<size_t>(y) * row_size,
++                row_size, data + static_cast<size_t>(y) * aligned_row_size);
++  }
++}
++
+ enum class WebGLANGLEImplementation {
+   // These values are persisted to logs. Entries should not be renumbered and
+   // numeric values should never be reused.
+@@ -5135,6 +5183,13 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
+ 
++    if (const auto webgl = GetFingerprintWebGLOverride();
++        webgl && webgl->noise_seed && format == GL_RGBA &&
++        type == GL_UNSIGNED_BYTE) {
++      ApplyFingerprintWebGLNoise(*webgl->noise_seed, data, width, height,
++                                 pack_alignment_);
++    }
++
+     if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
+             IdentifiableSurface::Type::kWebFeature)) {
+       const auto& ukm_params = GetUkmParameters();
+-- 
+2.47.0.windows.2
+
