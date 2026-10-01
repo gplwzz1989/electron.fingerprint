@@ -14,7 +14,7 @@
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
-硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息与 Canvas 像素部分指纹点的早期版本。
+硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息与 Canvas 部分指纹点的早期版本。
 
 | 评估项 | 当前结论 |
 | --- | --- |
@@ -23,10 +23,10 @@
 | Profile Schema | 版本 `1` |
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
-| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素 |
+| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量 |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | Canvas 文本测量、Audio、字体、ClientRects、WebGL 像素、WebRTC 等 |
-| 编译状态 | FP-09 Electron 增量编译通过；8 项 FP-09 定向测试全部通过 |
+| 仍未真正覆盖的主要项目 | Audio、字体、ClientRects、WebGL 像素、WebRTC 等 |
+| 编译状态 | FP-10 Electron 增量编译通过；9 项 FP-10 定向测试全部通过 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -91,6 +91,9 @@ WEBGL_debug_renderer_info vendor / renderer
  Canvas 2D getImageData() / toDataURL()
           |
           v
+ Canvas 2D measureText()
+          |
+          v
   Blink NavigatorBase::hardwareConcurrency()
         |
         v
@@ -143,7 +146,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | Screen 与 DPR | `screen.*`、`modules.screen` | **已生效** | Blink Screen 和 LocalFrame 读取 Session 配置；无效、未启用或模块禁用时保留原生值 |
 | WebGL GPU 信息 | `graphics.webglVendor`、`graphics.webglRenderer`、`modules.webgl` | **已生效** | 仅覆盖 `WEBGL_debug_renderer_info` 的 vendor/renderer；无效、未启用或模块禁用时保留原生值 |
 | Canvas 像素 | `noise.canvas`、`modules.canvas` | **已生效** | 对 2D Canvas 快照应用 Session seed 像素噪声，覆盖 `getImageData()` 和 `toDataURL()`；无效、未启用或模块禁用时保留原生值 |
-| Canvas 文本测量 | `noise.canvas`、`modules.canvas` | 未实现 | 不影响 `measureText()` |
+| Canvas 文本测量 | `noise.canvas`、`modules.canvas` | **已生效** | 对 Canvas 2D 文本指标应用 Session seed 的微小稳定扰动；无效、未启用或模块禁用时保留原生值 |
 | Audio | `noise.audio`、`modules.audio` | 未实现 | 不影响 OfflineAudioContext 渲染结果 |
 | Fonts | `modules.fonts` | 未实现 | 不影响字体可用性或字体集合查询 |
 | ClientRects | `noise.rects` | 未实现 | 不影响 DOM Rect 查询结果 |
@@ -175,6 +178,7 @@ WEBGL_debug_renderer_info.UNMASKED_VENDOR_WEBGL
 WEBGL_debug_renderer_info.UNMASKED_RENDERER_WEBGL
 canvas.getImageData()
 canvas.toDataURL()
+canvas.measureText()
 ```
 
 生效条件同时包括：
@@ -229,6 +233,11 @@ Canvas 像素噪声在 `profile.enabled === true`、`profile.modules.canvas === 
 `noise.canvas === true`、`noise.seed` 非空时应用于 2D Canvas 快照，因此覆盖
 `getImageData()` 和 `toDataURL()` 的像素结果；无效、未启用或模块禁用时保留 Chromium
 原生行为。不同 Session 使用各自 seed，未声明 Profile 的 Session 不追加该处理。
+
+Canvas 文本测量在 `profile.enabled === true`、`profile.modules.canvas === true` 且
+`noise.canvas === true`、`noise.seed` 非空时对 `measureText()` 返回的文本指标应用
+基于 seed 的稳定微小比例扰动；无效、未启用或模块禁用时保留 Chromium 原生值。
+扰动覆盖宽度、水平边界、垂直边界和可用基线指标，不改变空字符串的测量结果。
 
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
@@ -323,6 +332,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的 Screen/DPR 可以分别使用配置值，模块关闭或无 Profile 时保留原生值；
 - 不同 Session 的 WebGL vendor/renderer 可以分别使用配置值，模块关闭或无 Profile 时保留原生值；
 - 不同 Session 的 Canvas 2D `getImageData()` 和 `toDataURL()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生值；
+- 不同 Session 的 Canvas 2D `measureText()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生值；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -338,7 +348,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- Canvas 文本测量、Audio、Fonts、ClientRects、WebGL 像素等未实现点的运行时测试；
+- Audio、Fonts、ClientRects、WebGL 像素等未实现点的运行时测试；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
@@ -353,7 +363,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 已完成全量浏览器指纹伪装；
 - 已覆盖 User-Agent、Client Hints、Locale 和 Timezone 的已实现路径，但不代表所有协商请求头场景；
 - 尚未修改 WebGL 像素结果；
-- 已处理 Canvas 文本测量、Audio、字体和 ClientRects 指纹；
+- 已处理 Audio、字体和 ClientRects 指纹；
 - 已隐藏 Headless、CDP 或 WebDriver 特征；
 - 已阻断 WebRTC 本地网络地址暴露。
 
@@ -361,7 +371,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 建议后续按以下顺序推进：
 
-1. 处理 Canvas 文本测量、Audio、Fonts、ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
+1. 处理 Audio、Fonts、ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
 2. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
 3. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 
@@ -382,6 +392,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_override_webgl_debug_renderer_info.patch` | WebGL vendor/renderer 覆盖补丁 |
 | `patches/chromium/fix_webgl_fingerprint_exit_time_destructor.patch` | WebGL 覆盖缓存的构建修复补丁 |
 | `patches/chromium/fp_apply_session_canvas_pixel_noise.patch` | Canvas 2D 像素噪声补丁 |
+| `patches/chromium/fp_apply_session_canvas_text_noise.patch` | Canvas 2D 文本测量噪声补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |

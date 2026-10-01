@@ -26,7 +26,7 @@
 | FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | `fp_override_screen_from_session_config.patch` | 已完成，持续回归 |
 | FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 已完成，持续回归 |
 | FP-09 | Canvas 像素 | `getImageData`、`toDataURL` | `012-canvas-get-image-data.patch`、`013-canvas-toDataURL.patch` | 已完成，持续回归 |
-| FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 未开始 |
+| FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 已完成，持续回归 |
 | FP-11 | Audio | OfflineAudioContext 渲染结果 | `003-audio-fingerprint.patch` | 未开始 |
 | FP-12 | Fonts | 字体可用性和字体集合 | `006-font-fingerprint.patch` | 未开始 |
 | FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 未开始 |
@@ -109,3 +109,11 @@
 | Profile A/B | Canvas 2D 的 `getImageData()` 和 `toDataURL()` 分别使用各自 seed 生成不同像素结果 |
 | `modules.canvas=false` | 保留 Chromium 原生 Canvas 像素结果 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 Canvas 像素结果 |
+
+## FP-10 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | Canvas 2D 的 `measureText()` 指标分别使用各自 seed 生成不同结果 |
+| `modules.canvas=false` | 保留 Chromium 原生文本测量结果 |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生文本测量结果 |
