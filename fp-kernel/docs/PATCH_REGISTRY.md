@@ -13,5 +13,6 @@
 | FP-08 | 已完成 | `WEBGL_debug_renderer_info` 的 vendor/renderer 已读取 Session 配置；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-09 | 已完成 | Canvas 2D 的 `getImageData()` 与 `toDataURL()` 已使用 Session seed 生成像素噪声；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-10 | 已完成 | Canvas 2D 的 `measureText()` 已使用 Session seed 生成稳定的微小指标扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
+| FP-11 | 已完成 | `OfflineAudioContext` 已使用 Session seed 生成稳定的微小采样率扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
