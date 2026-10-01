@@ -2105,6 +2105,45 @@ describe('session module', () => {
       expect(values[2]).to.deep.equal(values[3]);
       expect(values[2]).to.not.deep.equal(values[0]);
     });
+
+    it('隔离 Session 之间的 Audio 离线渲染噪声', async () => {
+      const sessionA = session.fromPartition(`fingerprint-audio-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-audio-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-audio-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-audio-disabled-${Math.random()}`) as any;
+      const audioProfile = {
+        ...profile,
+        modules: { ...profile.modules, audio: true },
+        noise: { ...profile.noise, audio: true }
+      };
+      sessionA.setFingerprintConfig({ ...audioProfile, id: 'profile-audio-a', noise: { ...audioProfile.noise, seed: 'audio-seed-a' } });
+      sessionB.setFingerprintConfig({ ...audioProfile, id: 'profile-audio-b', noise: { ...audioProfile.noise, seed: 'audio-seed-b' } });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-audio-disabled' });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(async () => {
+        const context = new OfflineAudioContext({ numberOfChannels: 1, length: 256, sampleRate: 44100 });
+        const oscillator = context.createOscillator();
+        oscillator.frequency.value = 440;
+        oscillator.connect(context.destination);
+        oscillator.start();
+        const buffer = await context.startRendering();
+        return {
+          sampleRate: context.sampleRate,
+          samples: Array.from(buffer.getChannelData(0).slice(0, 16))
+        };
+      })()`)));
+
+      expect(values[1]).to.not.deep.equal(values[0]);
+      expect(values[2]).to.deep.equal(values[3]);
+      expect(values[2]).to.not.deep.equal(values[0]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
