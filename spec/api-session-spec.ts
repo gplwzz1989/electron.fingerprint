@@ -2144,6 +2144,58 @@ describe('session module', () => {
       expect(values[2]).to.deep.equal(values[3]);
       expect(values[2]).to.not.deep.equal(values[0]);
     });
+
+    it('隔离 Session 之间的字体平台可见性', async () => {
+      const sessionA = session.fromPartition(`fingerprint-fonts-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-fonts-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-fonts-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-fonts-disabled-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({
+        ...profile,
+        id: 'profile-fonts-a',
+        hardware: { ...profile.hardware, platform: 'MacIntel' },
+        modules: { ...profile.modules, fonts: true }
+      });
+      sessionB.setFingerprintConfig({
+        ...profile,
+        id: 'profile-fonts-b',
+        hardware: { ...profile.hardware, platform: 'Linux x86_64' },
+        modules: { ...profile.modules, fonts: true }
+      });
+      disabledSession.setFingerprintConfig({
+        ...profile,
+        id: 'profile-fonts-disabled',
+        hardware: { ...profile.hardware, platform: 'MacIntel' }
+      });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(() => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        const measure = family => {
+          context.font = '32px "' + family + '"';
+          return context.measureText('fingerprint').width;
+        };
+        return {
+          arial: measure('Arial'),
+          segoe: measure('Segoe UI'),
+          helvetica: measure('Helvetica Neue'),
+          ubuntu: measure('Ubuntu')
+        };
+      })()`)));
+
+      expect(values[0].helvetica).to.equal(values[0].arial);
+      expect(values[1].ubuntu).to.equal(values[1].arial);
+      expect(values[0].segoe).to.not.equal(values[2].segoe);
+      expect(values[0]).to.not.deep.equal(values[1]);
+      expect(values[2]).to.deep.equal(values[3]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
