@@ -29,8 +29,8 @@
 | FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 已完成，持续回归 |
 | FP-11 | Audio | OfflineAudioContext 渲染结果 | `003-audio-fingerprint.patch` | 已完成，持续回归 |
 | FP-12 | Fonts | 字体可用性和字体集合 | `006-font-fingerprint.patch` | 已完成，持续回归 |
-| FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 未开始 |
-| FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 未开始 |
+| FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 已完成，持续回归 |
+| FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 已实现，待编译和运行验证 |
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 未开始 |
 | FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `010-headless.patch`、`001-disable-runtime.enable.patch` | 未开始，需单独评估兼容性 |
 | FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | 参考项目的统一转发思路 | 未开始 |
@@ -133,3 +133,19 @@
 | Profile A/B | 目标平台代表性字体分别替代为本地字体，当前平台独有字体按目标平台隐藏 |
 | `modules.fonts=false` | 保留 Chromium 原生字体选择和渲染结果 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生字体选择和渲染结果 |
+
+## FP-13 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | Element 与 Range 的 DOM Rect 查询分别使用各自 seed 生成稳定微小偏移 |
+| `noise.rects=false` | 保留 Chromium 原生 DOM Rect 查询结果 |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生 DOM Rect 查询结果 |
+
+## FP-14 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | `RGBA + UNSIGNED_BYTE` 的 WebGL `readPixels()` 分别使用各自 seed 生成不同结果 |
+| `modules.webgl=false` | 保留 Chromium 原生 WebGL 像素结果 |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生 WebGL 像素结果 |

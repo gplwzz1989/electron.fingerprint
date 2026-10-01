@@ -23,10 +23,10 @@
 | Profile Schema | 版本 `1` |
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
-| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤 |
+| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | ClientRects、WebGL 像素、WebRTC 等 |
-| 编译状态 | FP-12 Electron 增量编译通过；11 项 FP-12 定向测试全部通过 |
+| 仍未真正覆盖的主要项目 | WebGL 像素、WebRTC 等 |
+| 编译状态 | FP-12 已验证；FP-13/FP-14 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -158,8 +158,8 @@ WEBGL_debug_renderer_info vendor / renderer
 | Canvas 文本测量 | `noise.canvas`、`modules.canvas` | **已生效** | 对 Canvas 2D 文本指标应用 Session seed 的微小稳定扰动；无效、未启用或模块禁用时保留原生值 |
 | Audio | `noise.audio`、`modules.audio` | **已生效** | 对 `OfflineAudioContext` 使用 Session seed 的微小采样率扰动，影响离线渲染结果；无效、未启用或模块禁用时保留原生值 |
 | Fonts | `hardware.platform`、`modules.fonts` | **已生效** | 按 Session 目标平台替代和隐藏代表性字体，影响 CSS 字体选择与 Canvas 文本渲染；无效、未启用或模块禁用时保留原生值 |
-| ClientRects | `noise.rects` | 未实现 | 不影响 DOM Rect 查询结果 |
-| WebGL 像素 | `noise`、`modules.webgl` | 未实现 | 不影响 `readPixels()` |
+| ClientRects | `noise.rects` | **已生效** | 对 Element 与 Range 的 DOM Rect 查询应用 Session seed 的稳定微小偏移；无效、关闭或无 Profile 时保留原生值 |
+| WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，待验证 | 对 `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 应用 Session seed 噪声；其他格式保留原生结果 |
 | `navigator.webdriver` | 当前没有可生效字段 | 未实现 | 尚未接入自动化标记覆盖 |
 | Headless/CDP 特征 | 当前没有可生效字段 | 未实现 | 尚未处理 Headless UA、Runtime Agent 等特征 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 部分具备基础传输 | 普通 Worker 的 `hardwareConcurrency` 已测试；ServiceWorker、请求头和其他上下文尚未完成一致性验证 |
@@ -190,6 +190,10 @@ canvas.toDataURL()
 canvas.measureText()
 OfflineAudioContext.startRendering()
 FontCache family selection
+Element.getClientRects()
+Element.getBoundingClientRect()
+Range.getClientRects()
+Range.getBoundingClientRect()
 ```
 
 生效条件同时包括：
@@ -237,8 +241,9 @@ WebGL GPU 信息在 `profile.enabled === true`、`profile.modules.webgl === true
 `graphics.webglVendor` 与 `graphics.webglRenderer` 均为非空字符串时，覆盖
 `WEBGL_debug_renderer_info.UNMASKED_VENDOR_WEBGL` 和
 `WEBGL_debug_renderer_info.UNMASKED_RENDERER_WEBGL`；无效、未启用或模块禁用时保留
-Chromium 原始值。当前不修改普通 `GL_VENDOR`、`GL_RENDERER` 查询，也不修改 WebGL
-像素结果。
+Chromium 原始值。当前不修改普通 `GL_VENDOR`、`GL_RENDERER` 查询。FP-14 另在
+`modules.webgl === true` 且 `noise.seed` 非空时，对 `RGBA + UNSIGNED_BYTE` 的
+`readPixels()` 结果应用 Session seed 噪声；其他读回格式暂时保留原生结果。
 
 Canvas 像素噪声在 `profile.enabled === true`、`profile.modules.canvas === true` 且
 `noise.canvas === true`、`noise.seed` 非空时应用于 2D Canvas 快照，因此覆盖
@@ -260,6 +265,15 @@ seed 的稳定微小扰动，并限制在 Chromium 支持范围内；无效、�
 独有的代表性字体返回不可用；无效、同平台、未启用或模块禁用时保留 Chromium 原生
 字体选择。当前覆盖 Windows、macOS 和 Linux 平台的少量代表性字体，不等同于完整
 系统字体枚举伪装。
+
+ClientRects 噪声在 `profile.enabled === true`、`noise.rects === true` 且 `noise.seed`
+非空时，对每个 Document 生成基于 seed 的稳定 X/Y 微小偏移，并应用于 Element 与 Range
+的 `getClientRects()`、`getBoundingClientRect()`；无效、关闭或无 Profile 时保留原生 DOM
+Rect 结果。当前偏移约束在 ±0.001 CSS 像素范围内，不改变元素尺寸。
+
+WebGL 像素噪声在 `profile.enabled === true`、`modules.webgl === true` 且 `noise.seed`
+非空时生效。当前只处理 `RGBA + UNSIGNED_BYTE`，并保留 `GL_PACK_ALIGNMENT` 的行填充；
+未设置 Profile、Profile 未启用、模块关闭或使用其他格式时保留原生 `readPixels()` 结果。
 
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
@@ -353,10 +367,12 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的 `navigator.platform` 可以分别使用配置值，模块关闭时保留原生值；
 - 不同 Session 的 Screen/DPR 可以分别使用配置值，模块关闭或无 Profile 时保留原生值；
 - 不同 Session 的 WebGL vendor/renderer 可以分别使用配置值，模块关闭或无 Profile 时保留原生值；
+- 不同 Session 的 Element 与 Range DOM Rect 查询可以分别使用各自 seed，`noise.rects` 关闭或无 Profile 时保留原生结果；
 - 不同 Session 的 Canvas 2D `getImageData()` 和 `toDataURL()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生值；
 - 不同 Session 的 Canvas 2D `measureText()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生值；
 - 不同 Session 的 `OfflineAudioContext` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生采样率和渲染结果；
 - 不同 Session 的字体平台过滤可以分别使用各自目标平台，模块关闭或无 Profile 时保留原生字体选择；
+- 不同 Session 的 WebGL `readPixels()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生结果；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -372,7 +388,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- ClientRects、WebGL 像素等未实现点的运行时测试；
+- FP-13/FP-14 的完整增量编译和运行时定向测试；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
@@ -386,8 +402,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 - 已完成全量浏览器指纹伪装；
 - 已覆盖 User-Agent、Client Hints、Locale 和 Timezone 的已实现路径，但不代表所有协商请求头场景；
-- 尚未修改 WebGL 像素结果；
-- 已处理 ClientRects 指纹；
+- WebGL 像素当前仅实现 `RGBA + UNSIGNED_BYTE` 读回路径，完整格式覆盖仍待验证；
 - 已隐藏 Headless、CDP 或 WebDriver 特征；
 - 已阻断 WebRTC 本地网络地址暴露。
 
@@ -395,7 +410,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 建议后续按以下顺序推进：
 
-1. 处理 ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
+1. 验证 WebGL 像素实现并处理 WebRTC 等高兼容性风险点；
 2. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
 3. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 
@@ -419,6 +434,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_apply_session_canvas_text_noise.patch` | Canvas 2D 文本测量噪声补丁 |
 | `patches/chromium/fp_apply_session_offline_audio_noise.patch` | OfflineAudioContext 噪声补丁 |
 | `patches/chromium/fp_apply_session_font_platform_filtering.patch` | 字体平台过滤补丁 |
+| `patches/chromium/fp_apply_session_client_rects_noise.patch` | ClientRects 噪声补丁 |
+| `patches/chromium/fp_apply_session_webgl_read_pixels_noise.patch` | WebGL `readPixels()` 像素噪声补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |

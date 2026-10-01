@@ -15,5 +15,7 @@
 | FP-10 | 已完成 | Canvas 2D 的 `measureText()` 已使用 Session seed 生成稳定的微小指标扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-11 | 已完成 | `OfflineAudioContext` 已使用 Session seed 生成稳定的微小采样率扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-12 | 已完成 | 字体缓存已支持按 Session 目标平台替代和隐藏代表性字体；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
+| FP-13 | 已实现，待验证 | Element 与 Range 的 ClientRects 查询已使用 Session seed 生成稳定的微小 X/Y 偏移；Session 隔离、noise.rects 关闭/无 Profile 回退、定向测试和补丁导出已完成，Electron 增量编译待验证 |
+| FP-14 | 已实现，待验证 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 已使用 Session seed 生成稳定像素噪声；Session 隔离、模块关闭/无 Profile 回退测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
