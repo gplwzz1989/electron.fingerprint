@@ -10,6 +10,6 @@
 | FP-05 | 已完成 | `navigator.language`、`navigator.languages`、`Accept-Language` 和 Intl 时区已接入 Session 配置；Chromium 补丁、网络上下文更新、Electron 增量编译和 13 项定向测试通过 |
 | FP-06 | 已完成 | `navigator.platform` 已支持 `Win32`、`MacIntel` 和 `Linux x86_64`；Schema、Browser Process 校验、Chromium 补丁、Session 隔离测试和 Electron 增量编译通过 |
 | FP-07 | 已完成 | Screen 与 DPR 已接入 `screen.width`、`screen.height`、`screen.availWidth`、`screen.availHeight` 和 `devicePixelRatio`；Session 隔离、模块关闭/无 Profile 回退、补丁导出和 Electron 增量编译通过 |
-| FP-08 | 未开始 | WebGL |
+| FP-08 | 已完成 | `WEBGL_debug_renderer_info` 的 vendor/renderer 已读取 Session 配置；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。

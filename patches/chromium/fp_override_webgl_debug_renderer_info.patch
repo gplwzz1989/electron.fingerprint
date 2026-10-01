@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 19:20:09 +0800
+Subject: fp: override WebGL debug renderer info
+
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 4c25f00f128db6592b0b0a865619d53c5f267fbf..77467b021c2df4d070c30523f6397e338e3eda5b 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -26,12 +26,16 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ 
+ #include <memory>
++#include <optional>
++#include <string>
+ #include <utility>
+ 
+ #include "base/bit_cast.h"
++#include "base/command_line.h"
+ #include "base/compiler_specific.h"
+ #include "base/containers/contains.h"
+ #include "base/feature_list.h"
++#include "base/json/json_reader.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/numerics/checked_math.h"
+@@ -184,6 +188,47 @@ unsigned WebGLRenderingContextBase::max_active_webgl_contexts_on_worker_ = 0;
+ 
+ namespace {
+ 
++struct FingerprintWebGLOverride {
++  String vendor;
++  String renderer;
++};
++
++std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
++  static const std::optional<FingerprintWebGLOverride> override_value =
++      []() -> std::optional<FingerprintWebGLOverride> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    const base::Value::Dict* graphics = root.FindDict("graphics");
++    if (!modules || !modules->FindBool("webgl").value_or(false) ||
++        !graphics) {
++      return std::nullopt;
++    }
++
++    const std::string* vendor = graphics->FindString("webglVendor");
++    const std::string* renderer = graphics->FindString("webglRenderer");
++    if (!vendor || vendor->empty() || !renderer || renderer->empty())
++      return std::nullopt;
++
++    return FingerprintWebGLOverride{String::FromUTF8(*vendor),
++                                    String::FromUTF8(*renderer)};
++  }();
++
++  return override_value;
++}
++
+ enum class WebGLANGLEImplementation {
+   // These values are persisted to logs. Entries should not be renumbered and
+   // numeric values should never be reused.
+@@ -3909,6 +3954,9 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        if (const auto webgl = GetFingerprintWebGLOverride())
++          return WebGLAny(script_state, webgl->renderer);
++
+         if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
+                 blink::IdentifiableSurface::Type::kWebGLParameter)) {
+           RecordIdentifiableGLParameterDigest(
+@@ -3924,6 +3972,9 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        if (const auto webgl = GetFingerprintWebGLOverride())
++          return WebGLAny(script_state, webgl->vendor);
++
+         if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
+                 blink::IdentifiableSurface::Type::kWebGLParameter)) {
+           RecordIdentifiableGLParameterDigest(

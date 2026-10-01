@@ -24,7 +24,7 @@
 | FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `fp_override_timezone_from_session_config.patch` 与 Session 网络上下文更新 | 已完成，持续回归 |
 | FP-06 | Navigator 平台 | `navigator.platform` | `fp_override_navigator_platform_from_session_config.patch` | 已完成，持续回归 |
 | FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | `fp_override_screen_from_session_config.patch` | 已完成，持续回归 |
-| FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 未开始 |
+| FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 已完成，持续回归 |
 | FP-09 | Canvas 像素 | `getImageData`、`toDataURL` | `012-canvas-get-image-data.patch`、`013-canvas-toDataURL.patch` | 未开始 |
 | FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 未开始 |
 | FP-11 | Audio | OfflineAudioContext 渲染结果 | `003-audio-fingerprint.patch` | 未开始 |
@@ -93,3 +93,11 @@
 | Profile A/B | `screen.*` 和 `devicePixelRatio` 分别使用各自配置值 |
 | `modules.screen=false` | 保留该运行时的原生屏幕值和 DPR |
 | 无 Profile | 保留 Chromium 原始屏幕值和 DPR |
+
+## FP-08 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | `WEBGL_debug_renderer_info` 的 vendor 和 renderer 分别使用各自配置 |
+| `modules.webgl=false` | 保留 Chromium 原生 WebGL vendor 和 renderer |
+| 无 Profile | 保留 Chromium 原生 WebGL vendor 和 renderer |
