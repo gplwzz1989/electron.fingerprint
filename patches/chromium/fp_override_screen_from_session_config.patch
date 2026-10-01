@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 19:01:03 +0800
+Subject: [PATCH] fp: override screen metrics and device pixel ratio
+
+
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+index 2d28356c755c9..b3cd067e1fdef 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -33,11 +33,14 @@
+ #include <cstdint>
+ #include <limits>
+ #include <memory>
++#include <optional>
+ #include <utility>
+ #include <vector>
+ 
++#include "base/command_line.h"
+ #include "base/check_deref.h"
+ #include "base/debug/dump_without_crashing.h"
++#include "base/json/json_reader.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/numerics/safe_conversions.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -257,6 +260,46 @@ namespace blink {
+ 
+ namespace {
+ 
++std::optional<double> GetFingerprintDeviceScaleFactorOverride() {
++  static const std::optional<double> override_value =
++      []() -> std::optional<double> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    const base::Value::Dict* screen = root.FindDict("screen");
++    if (!modules || !modules->FindBool("screen").value_or(false) ||
++        !screen) {
++      return std::nullopt;
++    }
++
++    const base::Value* scale_value = screen->Find("deviceScaleFactor");
++    if (!scale_value ||
++        (!scale_value->is_double() && !scale_value->is_int())) {
++      return std::nullopt;
++    }
++
++    const double device_scale_factor = scale_value->is_double()
++                                           ? scale_value->GetDouble()
++                                           : scale_value->GetInt();
++    return device_scale_factor > 0 ? std::optional<double>(device_scale_factor)
++                                   : std::nullopt;
++      }();
++
++  return override_value;
++}
++
+ // Max size in bytes of the Vector used in ForceSynchronousDocumentInstall to
+ // buffer data before sending it to the HTML parser.
+ constexpr unsigned kMaxDocumentChunkSize = 1000000;
+@@ -1764,6 +1807,11 @@ double LocalFrame::DevicePixelRatio() const {
+   if (!page_)
+     return 0;
+ 
++  if (const auto device_scale_factor =
++          GetFingerprintDeviceScaleFactorOverride()) {
++    return *device_scale_factor;
++  }
++
+   double ratio = page_->InspectorDeviceScaleFactorOverride();
+   ratio *= LayoutZoomFactor();
+   return ratio;
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 51c1a2351ee27..9e538960f881e 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -28,6 +28,10 @@
+ 
+ #include "third_party/blink/renderer/core/frame/screen.h"
+ 
++#include <optional>
++
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
+ #include "base/numerics/safe_conversions.h"
+ #include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+ #include "third_party/blink/renderer/core/event_target_names.h"
+@@ -40,6 +44,70 @@
+ 
+ namespace blink {
+ 
++namespace {
++
++struct FingerprintScreenOverride {
++  int width;
++  int height;
++  int avail_width;
++  int avail_height;
++  double device_scale_factor;
++};
++
++std::optional<FingerprintScreenOverride> GetFingerprintScreenOverride() {
++  static const std::optional<FingerprintScreenOverride> override_value =
++      []() -> std::optional<FingerprintScreenOverride> {
++        const base::CommandLine* command_line =
++            base::CommandLine::ForCurrentProcess();
++        if (!command_line->HasSwitch("fingerprint-config"))
++          return std::nullopt;
++
++        std::optional<base::Value> config = base::JSONReader::Read(
++            command_line->GetSwitchValueASCII("fingerprint-config"));
++        if (!config || !config->is_dict())
++          return std::nullopt;
++
++        const base::Value::Dict& root = config->GetDict();
++        if (!root.FindBool("enabled").value_or(false))
++          return std::nullopt;
++
++        const base::Value::Dict* modules = root.FindDict("modules");
++        const base::Value::Dict* screen = root.FindDict("screen");
++        if (!modules || !modules->FindBool("screen").value_or(false) ||
++            !screen) {
++          return std::nullopt;
++        }
++
++        const std::optional<int> width = screen->FindInt("width");
++        const std::optional<int> height = screen->FindInt("height");
++        const std::optional<int> avail_width = screen->FindInt("availWidth");
++        const std::optional<int> avail_height =
++            screen->FindInt("availHeight");
++        const base::Value* scale_value = screen->Find("deviceScaleFactor");
++        if (!width || !height || !avail_width || !avail_height ||
++            !scale_value ||
++            (!scale_value->is_double() && !scale_value->is_int())) {
++          return std::nullopt;
++        }
++
++        const double device_scale_factor = scale_value->is_double()
++                                               ? scale_value->GetDouble()
++                                               : scale_value->GetInt();
++        if (*width < 1 || *height < 1 || *avail_width < 1 ||
++            *avail_height < 1 || *avail_width > *width ||
++            *avail_height > *height || device_scale_factor <= 0) {
++          return std::nullopt;
++        }
++
++        return FingerprintScreenOverride{*width, *height, *avail_width,
++                                         *avail_height, device_scale_factor};
++      }();
++
++  return override_value;
++}
++
++}  // namespace
++
+ Screen::Screen(LocalDOMWindow* window, int64_t display_id)
+     : ExecutionContextClient(window), display_id_(display_id) {}
+ 
+@@ -97,6 +165,9 @@ int Screen::height() const {
+   if (!DomWindow())
+     return 0;
+ 
++  if (const auto screen = GetFingerprintScreenOverride())
++    return screen->height;
++
+   if (ShouldReduceScreenSize()) {
+     return DomWindow()->innerHeight();
+   }
+@@ -108,6 +179,9 @@ int Screen::width() const {
+   if (!DomWindow())
+     return 0;
+ 
++  if (const auto screen = GetFingerprintScreenOverride())
++    return screen->width;
++
+   if (ShouldReduceScreenSize()) {
+     return DomWindow()->innerWidth();
+   }
+@@ -160,6 +234,9 @@ int Screen::availHeight() const {
+   if (!DomWindow())
+     return 0;
+ 
++  if (const auto screen = GetFingerprintScreenOverride())
++    return screen->avail_height;
++
+   if (ShouldReduceScreenSize()) {
+     return DomWindow()->innerHeight();
+   }
+@@ -171,6 +248,9 @@ int Screen::availWidth() const {
+   if (!DomWindow())
+     return 0;
+ 
++  if (const auto screen = GetFingerprintScreenOverride())
++    return screen->avail_width;
++
+   if (ShouldReduceScreenSize()) {
+     return DomWindow()->innerWidth();
+   }
+

@@ -23,7 +23,7 @@
 | FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | Chromium 原生 `UserAgentOverride` | 已完成，持续回归 |
 | FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `fp_override_timezone_from_session_config.patch` 与 Session 网络上下文更新 | 已完成，持续回归 |
 | FP-06 | Navigator 平台 | `navigator.platform` | `fp_override_navigator_platform_from_session_config.patch` | 已完成，持续回归 |
-| FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | 参考项目声明了参数，但未找到完整生效路径 | 未开始，需先补齐设计 |
+| FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | `fp_override_screen_from_session_config.patch` | 已完成，持续回归 |
 | FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 未开始 |
 | FP-09 | Canvas 像素 | `getImageData`、`toDataURL` | `012-canvas-get-image-data.patch`、`013-canvas-toDataURL.patch` | 未开始 |
 | FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 未开始 |
@@ -85,3 +85,11 @@
 | `modules.navigator=false` | 保留该运行时的原生 `navigator.platform` |
 | 无 Profile | 保留 Chromium 原始 `navigator.platform` |
 | 非法平台值 | Browser Process 拒绝配置 |
+
+## FP-07 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | `screen.*` 和 `devicePixelRatio` 分别使用各自配置值 |
+| `modules.screen=false` | 保留该运行时的原生屏幕值和 DPR |
+| 无 Profile | 保留 Chromium 原始屏幕值和 DPR |
