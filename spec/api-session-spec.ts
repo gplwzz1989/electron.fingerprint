@@ -1929,6 +1929,58 @@ describe('session module', () => {
       expect(values[0].worker).to.equal(values[0].window);
       expect(values[3]).to.deep.equal(values[0]);
     });
+
+    it('isolates screen and devicePixelRatio between sessions', async () => {
+      const sessionA = session.fromPartition(`fingerprint-screen-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-screen-b-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({
+        ...profile,
+        id: 'profile-screen-a',
+        screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1.25 }
+      });
+      sessionB.setFingerprintConfig({
+        ...profile,
+        id: 'profile-screen-b',
+        screen: { width: 1280, height: 720, availWidth: 1280, availHeight: 680, deviceScaleFactor: 2 }
+      });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`({
+        width: screen.width,
+        height: screen.height,
+        availWidth: screen.availWidth,
+        availHeight: screen.availHeight,
+        devicePixelRatio
+      })`)));
+
+      expect(values[0]).to.deep.equal({ width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, devicePixelRatio: 1.25 });
+      expect(values[1]).to.deep.equal({ width: 1280, height: 720, availWidth: 1280, availHeight: 680, devicePixelRatio: 2 });
+    });
+
+    it('preserves native screen values when the module is disabled or absent', async () => {
+      const nativeSession = session.fromPartition(`fingerprint-screen-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-screen-disabled-${Math.random()}`) as any;
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-screen-disabled', modules: { ...profile.modules, screen: false } });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`({
+        width: screen.width,
+        height: screen.height,
+        availWidth: screen.availWidth,
+        availHeight: screen.availHeight,
+        devicePixelRatio
+      })`)));
+
+      expect(values[1]).to.deep.equal(values[0]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
