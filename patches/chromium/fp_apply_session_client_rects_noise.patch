@@ -1,0 +1,178 @@
+From 1dd7e0f38cc77a730cb623fdf171afa6a4cddfa2 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 21:26:38 +0800
+Subject: [PATCH] fp: apply session ClientRects noise
+
+
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+index c040351240cfa..dcd69888fdcc1 100644
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -30,14 +30,19 @@
+ #include "third_party/blink/renderer/core/dom/document.h"
+ 
+ #include <algorithm>
++#include <cstdint>
++#include <limits>
+ #include <memory>
+ #include <optional>
+ #include <utility>
+ 
+ #include "base/auto_reset.h"
++#include "base/command_line.h"
+ #include "base/containers/adapters.h"
+ #include "base/containers/contains.h"
+ #include "base/debug/dump_without_crashing.h"
++#include "base/hash/hash.h"
++#include "base/json/json_reader.h"
+ #include "base/i18n/time_formatting.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/notreached.h"
+@@ -890,6 +895,38 @@ Document::Document(const DocumentInit& initializer,
+   TRACE_EVENT_WITH_FLOW0("blink", "Document::Document", TRACE_ID_LOCAL(this),
+                          TRACE_EVENT_FLAG_FLOW_OUT);
+   DCHECK(agent_);
++
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch("fingerprint-config")) {
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (config && config->is_dict()) {
++      const base::Value::Dict& root = config->GetDict();
++      const base::Value::Dict* noise = root.FindDict("noise");
++      const std::string* seed = noise ? noise->FindString("seed") : nullptr;
++      if (root.FindBool("enabled").value_or(false) && noise &&
++          noise->FindBool("rects").value_or(false) && seed &&
++          !seed->empty()) {
++        constexpr double kMaxHash =
++            static_cast<double>(std::numeric_limits<uint32_t>::max());
++        const double normalized_x =
++            static_cast<double>(base::PersistentHash(*seed + ":rects-x")) /
++                kMaxHash -
++            0.5;
++        const double normalized_y =
++            static_cast<double>(base::PersistentHash(*seed + ":rects-y")) /
++                kMaxHash -
++            0.5;
++        fingerprint_client_rects_offset_x_ =
++            static_cast<float>(normalized_x * 0.002);
++        fingerprint_client_rects_offset_y_ =
++            static_cast<float>(normalized_y * 0.002);
++        fingerprint_client_rects_noise_enabled_ = true;
++      }
++    }
++  }
++
+   if (base::FeatureList::IsEnabled(features::kDelayAsyncScriptExecution) &&
+       features::kDelayAsyncScriptExecutionDelayByDefaultParam.Get()) {
+     script_runner_delayer_->Activate();
+diff --git a/third_party/blink/renderer/core/dom/document.h b/third_party/blink/renderer/core/dom/document.h
+index a8a22e8f50fbb..ea7d9a51b50f6 100644
+--- a/third_party/blink/renderer/core/dom/document.h
++++ b/third_party/blink/renderer/core/dom/document.h
+@@ -693,6 +693,16 @@ class CORE_EXPORT Document : public ContainerNode,
+ 
+   float DevicePixelRatio() const;
+ 
++  bool HasFingerprintClientRectsNoise() const {
++    return fingerprint_client_rects_noise_enabled_;
++  }
++  float FingerprintClientRectsOffsetX() const {
++    return fingerprint_client_rects_offset_x_;
++  }
++  float FingerprintClientRectsOffsetY() const {
++    return fingerprint_client_rects_offset_y_;
++  }
++
+   Range* createRange();
+ 
+   NodeIterator* createNodeIterator(Node* root,
+@@ -2805,6 +2815,10 @@ class CORE_EXPORT Document : public ContainerNode,
+   bool is_srcdoc_document_;
+   bool is_mobile_document_ = false;
+ 
++  bool fingerprint_client_rects_noise_enabled_ = false;
++  float fingerprint_client_rects_offset_x_ = 0;
++  float fingerprint_client_rects_offset_y_ = 0;
++
+   Member<LayoutView> layout_view_;
+ 
+   // The last element in |top_layer_elements_| is topmost in the top layer
+diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
+index 8e086fe51f9e9..3b9febe0bfa23 100644
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -256,6 +256,7 @@
+ #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
+ #include "ui/accessibility/ax_mode.h"
+ #include "ui/gfx/geometry/rect_conversions.h"
++#include "ui/gfx/geometry/vector2d_f.h"
+ 
+ namespace blink {
+ 
+@@ -2959,6 +2960,12 @@ DOMRectList* Element::getClientRects() {
+   DCHECK(element_layout_object);
+   GetDocument().AdjustQuadsForScrollAndAbsoluteZoom(quads,
+                                                     *element_layout_object);
++  if (GetDocument().HasFingerprintClientRectsNoise()) {
++    const gfx::Vector2dF offset(GetDocument().FingerprintClientRectsOffsetX(),
++                                GetDocument().FingerprintClientRectsOffsetY());
++    for (gfx::QuadF& quad : quads)
++      quad += offset;
++  }
+   return MakeGarbageCollected<DOMRectList>(quads);
+ }
+ 
+@@ -2986,6 +2993,10 @@ gfx::RectF Element::GetBoundingClientRectNoLifecycleUpdate() const {
+   DCHECK(element_layout_object);
+   GetDocument().AdjustRectForScrollAndAbsoluteZoom(result,
+                                                    *element_layout_object);
++  if (GetDocument().HasFingerprintClientRectsNoise()) {
++    result.Offset(GetDocument().FingerprintClientRectsOffsetX(),
++                  GetDocument().FingerprintClientRectsOffsetY());
++  }
+   return result;
+ }
+ 
+diff --git a/third_party/blink/renderer/core/dom/range.cc b/third_party/blink/renderer/core/dom/range.cc
+index 3539765589369..c2ec584943458 100644
+--- a/third_party/blink/renderer/core/dom/range.cc
++++ b/third_party/blink/renderer/core/dom/range.cc
+@@ -67,6 +67,7 @@
+ #include "third_party/blink/renderer/platform/wtf/text/strcat.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ #include "ui/gfx/geometry/quad_f.h"
++#include "ui/gfx/geometry/vector2d_f.h"
+ 
+ namespace blink {
+ 
+@@ -1648,6 +1649,14 @@ DOMRectList* Range::getClientRects() const {
+   Vector<gfx::QuadF> quads;
+   GetBorderAndTextQuads(quads);
+ 
++  if (owner_document_->HasFingerprintClientRectsNoise()) {
++    const gfx::Vector2dF offset(
++        owner_document_->FingerprintClientRectsOffsetX(),
++        owner_document_->FingerprintClientRectsOffsetY());
++    for (gfx::QuadF& quad : quads)
++      quad += offset;
++  }
++
+   return MakeGarbageCollected<DOMRectList>(quads);
+ }
+ 
+@@ -1655,7 +1664,12 @@ DOMRect* Range::getBoundingClientRect() const {
+   // TODO(crbug.com/1499981): This should be removed once synchronized scrolling
+   // impact is understood.
+   SyncScrollAttemptHeuristic::DidAccessScrollOffset();
+-  return DOMRect::FromRectF(BoundingRect());
++  gfx::RectF result = BoundingRect();
++  if (owner_document_->HasFingerprintClientRectsNoise()) {
++    result.Offset(owner_document_->FingerprintClientRectsOffsetX(),
++                  owner_document_->FingerprintClientRectsOffsetY());
++  }
++  return DOMRect::FromRectF(result);
+ }
+ 
+ // TODO(editing-dev): We should make
