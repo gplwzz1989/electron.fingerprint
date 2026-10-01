@@ -37,7 +37,7 @@
       "properties": {
         "hardwareConcurrency": { "type": "integer", "minimum": 1, "maximum": 1024 },
         "deviceMemory": { "type": "integer", "minimum": 1, "maximum": 1024 },
-        "platform": { "const": "Win32" }
+        "platform": { "enum": ["Win32", "MacIntel", "Linux x86_64"] }
       }
     },
     "screen": {

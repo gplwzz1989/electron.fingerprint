@@ -2073,6 +2073,34 @@ describe('session module', () => {
       expect(headers!['accept-language']).to.equal('zh-CN,zh;q=0.9');
     });
 
+    it('applies navigator.platform per session and preserves the native value when disabled', async () => {
+      const sesA = session.fromPartition(`fingerprint-platform-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-platform-b-${Math.random()}`) as any;
+      const sesDisabled = session.fromPartition(`fingerprint-platform-disabled-${Math.random()}`) as any;
+      const sesNative = session.fromPartition(`fingerprint-platform-native-${Math.random()}`) as any;
+      sesA.setFingerprintConfig(profile);
+      sesB.setFingerprintConfig({
+        ...profile,
+        hardware: { ...profile.hardware, platform: 'MacIntel' }
+      });
+      sesDisabled.setFingerprintConfig({
+        ...profile,
+        hardware: { ...profile.hardware, platform: 'MacIntel' },
+        modules: { ...profile.modules, navigator: false }
+      });
+      const windows = [sesA, sesB, sesDisabled, sesNative].map((ses) =>
+        new BrowserWindow({ show: false, webPreferences: { session: ses } }));
+      windows.forEach((window) => defer(() => window.destroy()));
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all(windows.map((window) => window.loadFile(fixture)));
+      const values = await Promise.all(
+        windows.map((window) => window.webContents.executeJavaScript('navigator.platform'))
+      );
+      expect(values[0]).to.equal('Win32');
+      expect(values[1]).to.equal('MacIntel');
+      expect(values[2]).to.equal(values[3]);
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
