@@ -601,7 +601,7 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
         std::string serialized_config;
         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
                                     &serialized_config)) {
-          command_line->AppendSwitchASCII(options::kFingerprintConfig,
+          command_line->AppendSwitchASCII(switches::kFingerprintConfig,
                                           serialized_config);
         }
       }

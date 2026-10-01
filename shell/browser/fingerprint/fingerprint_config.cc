@@ -8,6 +8,24 @@
 
 namespace electron::fingerprint {
 
+LocaleFingerprint::LocaleFingerprint() = default;
+
+LocaleFingerprint::LocaleFingerprint(const LocaleFingerprint&) = default;
+
+LocaleFingerprint::~LocaleFingerprint() = default;
+
+ModuleFlags::ModuleFlags() = default;
+
+ModuleFlags::ModuleFlags(const ModuleFlags&) = default;
+
+ModuleFlags& ModuleFlags::operator=(const ModuleFlags&) = default;
+
+FingerprintConfig::FingerprintConfig() = default;
+
+FingerprintConfig::FingerprintConfig(const FingerprintConfig&) = default;
+
+FingerprintConfig::~FingerprintConfig() = default;
+
 base::Value::Dict FingerprintConfig::ToValue() const {
   base::Value::Dict browser_value;
   browser_value.Set("family", "Chrome");

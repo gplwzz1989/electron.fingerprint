@@ -14,7 +14,7 @@ Process: [Main](../glossary.md#main-process)<br />
 * `args` string[] (optional) - List of string arguments that will be available as `process.argv`
   in the child process.
 * `options` Object (optional)
-  * `env` Object (optional) - Environment key-value pairs. Default is `process.env`.
+  * `env` `Record<string, string>` (optional) - Environment key-value pairs. Default is `process.env`.
   * `execArgv` string[] (optional) - List of string arguments passed to the executable.
   * `cwd` string (optional) - Current working directory of the child process.
   * `stdio` (string[] | string) (optional) - Allows configuring the mode for `stdout` and `stderr`

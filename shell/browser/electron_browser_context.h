@@ -17,7 +17,7 @@
 #include "content/public/browser/media_stream_request.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/ssl_config.mojom.h"
-#include "shell/browser/fingerprint/fingerprint_context.h"
+#include "electron/shell/browser/fingerprint/fingerprint_context.h"
 #include "third_party/blink/public/common/permissions/permission_utils.h"
 
 class PrefService;

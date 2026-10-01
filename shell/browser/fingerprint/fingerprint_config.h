@@ -19,6 +19,10 @@ struct BrowserFingerprint {
 };
 
 struct LocaleFingerprint {
+  LocaleFingerprint();
+  LocaleFingerprint(const LocaleFingerprint&);
+  ~LocaleFingerprint();
+
   std::string language;
   std::vector<std::string> languages;
   std::string timezone;
@@ -51,6 +55,10 @@ struct NoiseFingerprint {
 };
 
 struct ModuleFlags {
+  ModuleFlags();
+  ModuleFlags(const ModuleFlags&);
+  ModuleFlags& operator=(const ModuleFlags&);
+
   bool ua = false;
   bool client_hints = false;
   bool locale = false;
@@ -64,6 +72,10 @@ struct ModuleFlags {
 };
 
 struct FingerprintConfig {
+  FingerprintConfig();
+  FingerprintConfig(const FingerprintConfig&);
+  ~FingerprintConfig();
+
   int schema_version = 1;
   std::string profile_id;
   bool enabled = false;

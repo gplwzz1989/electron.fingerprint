@@ -1887,6 +1887,42 @@ describe('session module', () => {
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
     });
 
+    it('applies the deviceMemory override in a renderer', async () => {
+      const ses = session.fromPartition(`fingerprint-device-memory-${Math.random()}`) as any;
+      ses.setFingerprintConfig(profile);
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      await w.loadFile(path.join(__dirname, 'fixtures', 'blank.html'));
+      expect(await w.webContents.executeJavaScript('navigator.deviceMemory')).to.equal(8);
+    });
+
+    it('preserves the native deviceMemory value without a profile', async () => {
+      const ses = session.fromPartition(`fingerprint-device-memory-native-${Math.random()}`) as any;
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      await w.loadFile(path.join(__dirname, 'fixtures', 'blank.html'));
+      const value = await w.webContents.executeJavaScript('navigator.deviceMemory');
+      expect([0.25, 0.5, 1, 2, 4, 8]).to.include(value);
+    });
+
+    it('keeps deviceMemory overrides isolated between sessions', async () => {
+      const sesA = session.fromPartition(`fingerprint-device-memory-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-device-memory-b-${Math.random()}`) as any;
+      sesA.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, deviceMemory: 4 } });
+      sesB.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, deviceMemory: 16 } });
+      const wA = new BrowserWindow({ show: false, webPreferences: { session: sesA } });
+      const wB = new BrowserWindow({ show: false, webPreferences: { session: sesB } });
+      defer(() => wA.destroy());
+      defer(() => wB.destroy());
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all([wA.loadFile(fixture), wB.loadFile(fixture)]);
+      const values = await Promise.all([
+        wA.webContents.executeJavaScript('navigator.deviceMemory'),
+        wB.webContents.executeJavaScript('navigator.deviceMemory')
+      ]);
+      expect(values).to.deep.equal([4, 16]);
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
