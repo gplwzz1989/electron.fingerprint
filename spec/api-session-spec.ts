@@ -2024,6 +2024,51 @@ describe('session module', () => {
       expect(values[3]).to.deep.equal(values[2]);
     });
 
+    it('isolates WebGL pixel noise between sessions', async () => {
+      const sessionA = session.fromPartition(`fingerprint-webgl-pixels-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-webgl-pixels-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-webgl-pixels-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-webgl-pixels-disabled-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({
+        ...profile,
+        id: 'profile-webgl-pixels-a',
+        noise: { ...profile.noise, seed: 'webgl-pixels-a' }
+      });
+      sessionB.setFingerprintConfig({
+        ...profile,
+        id: 'profile-webgl-pixels-b',
+        noise: { ...profile.noise, seed: 'webgl-pixels-b' }
+      });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-webgl-pixels-disabled', modules: { ...profile.modules, webgl: false } });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 4;
+        canvas.height = 4;
+        const context = canvas.getContext('webgl');
+        if (!context) return null;
+        context.clearColor(0.2, 0.4, 0.6, 1);
+        context.clear(context.COLOR_BUFFER_BIT);
+        const pixels = new Uint8Array(4 * 4 * 4);
+        context.readPixels(0, 0, 4, 4, context.RGBA, context.UNSIGNED_BYTE, pixels);
+        return Array.from(pixels);
+      })()`)));
+
+      expect(values[0]).to.be.an('array');
+      expect(values[1]).to.be.an('array');
+      expect(values[2]).to.be.an('array');
+      expect(values[3]).to.be.an('array');
+      expect(values[0]).to.not.deep.equal(values[1]);
+      expect(values[2]).to.deep.equal(values[3]);
+    });
+
     it('isolates Canvas pixel noise between sessions', async () => {
       const sessionA = session.fromPartition(`fingerprint-canvas-a-${Math.random()}`) as any;
       const sessionB = session.fromPartition(`fingerprint-canvas-b-${Math.random()}`) as any;
