@@ -1981,6 +1981,48 @@ describe('session module', () => {
 
       expect(values[1]).to.deep.equal(values[0]);
     });
+
+    it('isolates WebGL vendor and renderer between sessions', async () => {
+      const sessionA = session.fromPartition(`fingerprint-webgl-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-webgl-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-webgl-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-webgl-disabled-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({
+        ...profile,
+        id: 'profile-webgl-a',
+        graphics: { webglVendor: 'Vendor A', webglRenderer: 'Renderer A' }
+      });
+      sessionB.setFingerprintConfig({
+        ...profile,
+        id: 'profile-webgl-b',
+        graphics: { webglVendor: 'Vendor B', webglRenderer: 'Renderer B' }
+      });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-webgl-disabled', modules: { ...profile.modules, webgl: false } });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(() => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('webgl');
+        if (!context) return null;
+        const info = context.getExtension('WEBGL_debug_renderer_info');
+        if (!info) return null;
+        return {
+          vendor: context.getParameter(info.UNMASKED_VENDOR_WEBGL),
+          renderer: context.getParameter(info.UNMASKED_RENDERER_WEBGL)
+        };
+      })()`)));
+
+      expect(values[0]).to.deep.equal({ vendor: 'Vendor A', renderer: 'Renderer A' });
+      expect(values[1]).to.deep.equal({ vendor: 'Vendor B', renderer: 'Renderer B' });
+      expect(values[2]).to.not.equal(null);
+      expect(values[3]).to.deep.equal(values[2]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
