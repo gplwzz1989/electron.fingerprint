@@ -49,6 +49,12 @@ Renderer 创建时序锁定配置
 ElectronBrowserClient 序列化为 --fingerprint-config
         |
         v
+ ElectronBrowserContext::GetUserAgent()
+        |
+        v
+ navigator.userAgent / 请求 User-Agent
+        |
+        v
  Blink NavigatorBase::hardwareConcurrency()
         |
         v
@@ -93,7 +99,7 @@ ElectronBrowserClient 序列化为 --fingerprint-config
 | 配置链与 Session 隔离 | 全部 Profile 字段 | 基础设施已完成 | API、BrowserContext 存储、Renderer 参数转发已存在；仍需完整编译和更全面隔离回归 |
 | `navigator.hardwareConcurrency` | `hardware.hardwareConcurrency`、`modules.navigator` | **已生效** | Blink 统一 Navigator 入口读取配置；Window 和普通 Worker 测试覆盖 |
 | `navigator.deviceMemory` | `hardware.deviceMemory`、`modules.navigator` | **已生效** | Blink Navigator 入口读取 Session 配置；无有效配置时保留 Chromium 原始值 |
-| User-Agent | `browser.userAgent`、`modules.ua` | 未实现 | 不影响 `navigator.userAgent`，也不影响请求 User-Agent |
+| User-Agent | `browser.userAgent`、`modules.ua` | **已生效** | BrowserContext 统一覆盖 `navigator.userAgent` 和请求 User-Agent；无效、未启用或模块禁用时保留原生值 |
 | Client Hints | `modules.clientHints` | 未实现 | 不影响 `navigator.userAgentData` 或 `Sec-CH-UA*` 请求头 |
 | Locale | `locale.language`、`locale.languages`、`browser.acceptLanguage`、`modules.locale` | 未实现 | 不影响 `navigator.language`、`navigator.languages` 或请求头 |
 | Timezone | `locale.timezone`、`modules.timezone` | 未实现 | 不影响 Intl 时区或系统时区表现 |
@@ -117,6 +123,8 @@ ElectronBrowserClient 序列化为 --fingerprint-config
 
 ```js
 navigator.hardwareConcurrency
+navigator.deviceMemory
+navigator.userAgent
 ```
 
 生效条件同时包括：
@@ -130,6 +138,11 @@ navigator.hardwareConcurrency
 
 同一配置链路还覆盖 `navigator.deviceMemory`，生效条件与上述条件相同，硬件字段改为
 `profile.hardware.deviceMemory`，有效范围为 `1..1024` 的整数。
+
+`navigator.userAgent` 和请求 User-Agent 在 `profile.enabled === true`、
+`profile.modules.ua === true` 且 `profile.browser.userAgent` 非空时使用配置值；否则
+继续使用 Electron 原生 Session UA。该值通过 BrowserContext 的统一 UA 入口应用，保证
+页面 API 和网络请求保持一致。
 
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
@@ -213,6 +226,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 首个 Renderer 创建后修改配置会失败；
 - 不同 Session 的 `hardwareConcurrency` 可以分别为 `4` 和 `12`；
 - 不同 Session 的 `deviceMemory` 可以分别为 `4` 和 `16`；
+- 不同 Session 的 User-Agent 可以分别使用各自配置值，且请求头与页面 API 一致；
+- `modules.ua=false` 时保留原生 User-Agent；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
