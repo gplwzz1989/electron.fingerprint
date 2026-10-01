@@ -28,7 +28,7 @@
 | FP-09 | Canvas 像素 | `getImageData`、`toDataURL` | `012-canvas-get-image-data.patch`、`013-canvas-toDataURL.patch` | 已完成，持续回归 |
 | FP-10 | Canvas 文本测量 | `measureText` | `015-canvas-measure-text.patch` | 已完成，持续回归 |
 | FP-11 | Audio | OfflineAudioContext 渲染结果 | `003-audio-fingerprint.patch` | 已完成，持续回归 |
-| FP-12 | Fonts | 字体可用性和字体集合 | `006-font-fingerprint.patch` | 未开始 |
+| FP-12 | Fonts | 字体可用性和字体集合 | `006-font-fingerprint.patch` | 已完成，持续回归 |
 | FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 未开始 |
 | FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 未开始 |
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 未开始 |
@@ -125,3 +125,11 @@
 | Profile A/B | `OfflineAudioContext` 的采样率和离线渲染结果分别使用各自 seed |
 | `modules.audio=false` | 保留 Chromium 原生 Audio 采样率和渲染结果 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 Audio 采样率和渲染结果 |
+
+## FP-12 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | 目标平台代表性字体分别替代为本地字体，当前平台独有字体按目标平台隐藏 |
+| `modules.fonts=false` | 保留 Chromium 原生字体选择和渲染结果 |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生字体选择和渲染结果 |
