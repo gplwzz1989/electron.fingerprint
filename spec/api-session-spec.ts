@@ -2196,6 +2196,47 @@ describe('session module', () => {
       expect(values[0]).to.not.deep.equal(values[1]);
       expect(values[2]).to.deep.equal(values[3]);
     });
+
+    it('隔离 Session 之间的 ClientRects 噪声', async () => {
+      const sessionA = session.fromPartition(`fingerprint-rects-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-rects-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-rects-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-rects-disabled-${Math.random()}`) as any;
+      const rectsProfile = {
+        ...profile,
+        noise: { ...profile.noise, rects: true }
+      };
+      sessionA.setFingerprintConfig({ ...rectsProfile, id: 'profile-rects-a', noise: { ...rectsProfile.noise, seed: 'rects-seed-a' } });
+      sessionB.setFingerprintConfig({ ...rectsProfile, id: 'profile-rects-b', noise: { ...rectsProfile.noise, seed: 'rects-seed-b' } });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-rects-disabled' });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(() => {
+        const element = document.createElement('div');
+        element.textContent = 'fingerprint';
+        element.style.cssText = 'position:absolute;left:10.25px;top:20.5px;width:80.25px;height:30.5px;';
+        document.body.appendChild(element);
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const readRect = rect => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        return {
+          element: readRect(element.getBoundingClientRect()),
+          elementRects: Array.from(element.getClientRects(), readRect),
+          range: readRect(range.getBoundingClientRect()),
+          rangeRects: Array.from(range.getClientRects(), readRect)
+        };
+      })()`)));
+
+      expect(values[1]).to.not.deep.equal(values[0]);
+      expect(values[2]).to.deep.equal(values[3]);
+      expect(values[2]).to.not.deep.equal(values[0]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
