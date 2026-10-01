@@ -2067,6 +2067,44 @@ describe('session module', () => {
       expect(values[2].firstPixels).to.not.deep.equal(values[0].firstPixels);
       expect(values[2].firstDataUrl).to.not.equal(values[0].firstDataUrl);
     });
+
+    it('isolates Canvas text metrics noise between sessions', async () => {
+      const sessionA = session.fromPartition(`fingerprint-canvas-text-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-canvas-text-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-canvas-text-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-canvas-text-disabled-${Math.random()}`) as any;
+      const canvasProfile = {
+        ...profile,
+        modules: { ...profile.modules, canvas: true },
+        noise: { ...profile.noise, canvas: true }
+      };
+      sessionA.setFingerprintConfig({ ...canvasProfile, id: 'profile-canvas-text-a', noise: { ...canvasProfile.noise, seed: 'canvas-text-seed-a' } });
+      sessionB.setFingerprintConfig({ ...canvasProfile, id: 'profile-canvas-text-b', noise: { ...canvasProfile.noise, seed: 'canvas-text-seed-b' } });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-canvas-text-disabled' });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const values = await Promise.all(windows.map(w => w.webContents.executeJavaScript(`(() => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        context.font = '32px Arial';
+        const metrics = context.measureText('fingerprint');
+        return {
+          width: metrics.width,
+          actualBoundingBoxLeft: metrics.actualBoundingBoxLeft,
+          actualBoundingBoxRight: metrics.actualBoundingBoxRight
+        };
+      })()`)));
+
+      expect(values[1]).to.not.deep.equal(values[0]);
+      expect(values[2]).to.deep.equal(values[3]);
+      expect(values[2]).to.not.deep.equal(values[0]);
+    });
   });
 
   describe('ses.setSSLConfig()', () => {
