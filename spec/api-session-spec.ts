@@ -2024,6 +2024,55 @@ describe('session module', () => {
       expect(values[1].uaFullVersion).to.not.equal('138.0.0.0');
     });
 
+    it('applies locale and timezone overrides per session', async () => {
+      const sesA = session.fromPartition(`fingerprint-locale-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-locale-b-${Math.random()}`) as any;
+      sesA.setFingerprintConfig(profile);
+      sesB.setFingerprintConfig({
+        ...profile,
+        browser: { ...profile.browser, acceptLanguage: 'en-US,en;q=0.9' },
+        locale: { language: 'en-US', languages: ['en-US', 'en'], timezone: 'UTC' }
+      });
+      const wA = new BrowserWindow({ show: false, webPreferences: { session: sesA } });
+      const wB = new BrowserWindow({ show: false, webPreferences: { session: sesB } });
+      defer(() => wA.destroy());
+      defer(() => wB.destroy());
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all([wA.loadFile(fixture), wB.loadFile(fixture)]);
+      const values = await Promise.all([
+        wA.webContents.executeJavaScript(`({
+          language: navigator.language,
+          languages: navigator.languages,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })`),
+        wB.webContents.executeJavaScript(`({
+          language: navigator.language,
+          languages: navigator.languages,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })`)
+      ]);
+      expect(values).to.deep.equal([
+        { language: 'zh-CN', languages: ['zh-CN', 'zh'], timezone: 'Asia/Shanghai' },
+        { language: 'en-US', languages: ['en-US', 'en'], timezone: 'UTC' }
+      ]);
+    });
+
+    it('applies the configured Accept-Language header', async () => {
+      const ses = session.fromPartition(`fingerprint-locale-header-${Math.random()}`) as any;
+      ses.setFingerprintConfig(profile);
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      defer(() => w.destroy());
+      let headers: http.IncomingHttpHeaders | null = null;
+      const server = http.createServer((req, res) => {
+        headers = req.headers;
+        res.end('<!doctype html><title>fingerprint</title>');
+        server.close();
+      });
+      const { url } = await listen(server);
+      await w.loadURL(url);
+      expect(headers!['accept-language']).to.equal('zh-CN,zh;q=0.9');
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });

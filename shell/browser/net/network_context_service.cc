@@ -67,9 +67,18 @@ void NetworkContextService::ConfigureNetworkContextParams(
           ->GetOriginAccessList()
           .CreateCorsOriginAccessPatternsList();
 
-  network_context_params->accept_language =
-      net::HttpUtil::GenerateAcceptLanguageHeader(
-          ElectronBrowserClient::Get()->GetApplicationLocale());
+  const auto* fingerprint_config =
+      browser_context_->fingerprint_context()->GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.locale &&
+      !fingerprint_config->browser.accept_language.empty()) {
+    network_context_params->accept_language =
+        fingerprint_config->browser.accept_language;
+  } else {
+    network_context_params->accept_language =
+        net::HttpUtil::GenerateAcceptLanguageHeader(
+            ElectronBrowserClient::Get()->GetApplicationLocale());
+  }
 
   // Enable the HTTP cache.
   network_context_params->http_cache_enabled =
