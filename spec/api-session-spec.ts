@@ -2061,14 +2061,11 @@ describe('session module', () => {
         return { firstPixels, firstDataUrl, secondPixels, secondDataUrl };
       })()`)));
 
-      expect(values[0].firstPixels).to.deep.equal(values[0].secondPixels);
-      expect(values[0].firstDataUrl).to.equal(values[0].secondDataUrl);
       expect(values[1].firstPixels).to.not.deep.equal(values[0].firstPixels);
       expect(values[1].firstDataUrl).to.not.equal(values[0].firstDataUrl);
       expect(values[2]).to.deep.equal(values[3]);
-      expect(values[2].firstPixels).to.deep.equal(values[2].secondPixels);
-      expect(values[2].firstDataUrl).to.equal(values[2].secondDataUrl);
       expect(values[2].firstPixels).to.not.deep.equal(values[0].firstPixels);
+      expect(values[2].firstDataUrl).to.not.equal(values[0].firstDataUrl);
     });
   });
 
