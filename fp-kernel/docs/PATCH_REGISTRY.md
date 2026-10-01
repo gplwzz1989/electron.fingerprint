@@ -3,8 +3,8 @@
 | 编号 | 状态 | 说明 |
 | --- | --- | --- |
 | FP-00 | 进行中 | Session/BrowserContext 配置、Renderer 启动参数传输；基础隔离回归待完成 |
-| FP-01 | 进行中 | `navigator.hardwareConcurrency` 已加入 Blink 统一 Navigator 入口；待单点测试、补丁导出和编译验证 |
-| FP-02 | 未开始 | `navigator.deviceMemory` |
+| FP-01 | 已完成 | `navigator.hardwareConcurrency` 已加入 Blink 统一 Navigator 入口；单点测试、补丁导出和增量编译通过 |
+| FP-02 | 已完成 | `navigator.deviceMemory` 已加入 Blink Navigator 入口；单点测试、补丁导出和增量编译通过 |
 | FP-03 | 未开始 | User-Agent |
 | FP-04 | 未开始 | Client Hints |
 | FP-05 | 未开始 | Locale 与 Timezone |

@@ -17,8 +17,8 @@
 | 编号 | 指纹点 | 主要 Web API 或路径 | 参考项目依据 | 当前状态 |
 | --- | --- | --- | --- | --- |
 | FP-00 | 配置链与 Session 隔离 | Session、BrowserContext、Renderer 启动参数 | `000-add-fingerprint-switches.patch` 的参数转发思路 | 已完成，持续回归 |
-| FP-01 | `navigator.hardwareConcurrency` | Window、Worker、ServiceWorker 的 Navigator | `005-hardware-concurrency-fingerprint.patch` | 实现中 |
-| FP-02 | `navigator.deviceMemory` | `navigator.deviceMemory` | `005-hardware-concurrency-fingerprint.patch` | 未开始 |
+| FP-01 | `navigator.hardwareConcurrency` | Window、Worker、ServiceWorker 的 Navigator | `005-hardware-concurrency-fingerprint.patch` | 已完成，持续回归 |
+| FP-02 | `navigator.deviceMemory` | `navigator.deviceMemory` | `005-hardware-concurrency-fingerprint.patch` | 已完成，持续回归 |
 | FP-03 | User-Agent | `navigator.userAgent`、请求 User-Agent | `002-user-agent-fingerprint.patch` | 未开始 |
 | FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | `002-user-agent-fingerprint.patch` | 未开始 |
 | FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `018-timezone.patch` 与 Chromium 原生参数 | 未开始 |
@@ -56,4 +56,3 @@
 | Profile A | 只返回 A 的配置值 |
 | Profile B | 只返回 B 的配置值 |
 | Window 与 Worker | 同一 Renderer 配置下保持一致 |
-
