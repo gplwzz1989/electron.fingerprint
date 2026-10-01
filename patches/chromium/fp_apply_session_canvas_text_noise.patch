@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 20:26:47 +0800
+Subject: [PATCH] fp: apply session Canvas text noise
+
+
+diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+index a7441966a3836..aa43a2994a6b3 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+@@ -150,6 +150,20 @@ String GetDomainFromSecurityOrigin(const SecurityOrigin* security_origin) {
+ const char CanvasInterventionsHelper::kSupplementName[] =
+     "CanvasInterventionsHelper";
+ 
++std::optional<double>
++CanvasInterventionsHelper::GetFingerprintCanvasTextNoise() {
++  const std::optional<String> canvas_seed = GetFingerprintCanvasSeed();
++  if (!canvas_seed)
++    return std::nullopt;
++
++  constexpr double kMaxHash = 4294967295.0;
++  const double normalized =
++      static_cast<double>(base::PersistentHash(canvas_seed->Utf8())) /
++          kMaxHash -
++      0.5;
++  return 1.0 + normalized * 0.00002;
++}
++
+ // static
+ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+     CanvasRenderingContext* rendering_context,
+diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.h b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.h
+index 995abd4eb95cf..971fae8ea412b 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.h
++++ b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.h
+@@ -5,6 +5,8 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_CANVAS_INTERVENTIONS_HELPER_H_
+ #define THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_CANVAS_INTERVENTIONS_HELPER_H_
+ 
++#include <optional>
++
+ #include "third_party/blink/renderer/core/core_export.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+@@ -47,6 +49,8 @@ class CORE_EXPORT CanvasInterventionsHelper
+                                  ExecutionContext* execution_context,
+                                  scoped_refptr<StaticBitmapImage>& snapshot);
+ 
++  static std::optional<double> GetFingerprintCanvasTextNoise();
++
+   void Trace(Visitor* visitor) const override {
+     Supplement<ExecutionContext>::Trace(visitor);
+     ExecutionContextLifecycleObserver::Trace(visitor);
+diff --git a/third_party/blink/renderer/core/html/canvas/text_metrics.cc b/third_party/blink/renderer/core/html/canvas/text_metrics.cc
+index 30ec9c8e99ac0..9945f753b9a18 100644
+--- a/third_party/blink/renderer/core/html/canvas/text_metrics.cc
++++ b/third_party/blink/renderer/core/html/canvas/text_metrics.cc
+@@ -93,6 +93,21 @@ TextMetrics::TextMetrics(const Font* font,
+   Update(font, direction, baseline, align, text, text_painter);
+ }
+ 
++void TextMetrics::ApplyFingerprintNoise(const double factor) {
++  width_ *= factor;
++  actual_bounding_box_left_ *= factor;
++  actual_bounding_box_right_ *= factor;
++  font_bounding_box_ascent_ *= factor;
++  font_bounding_box_descent_ *= factor;
++  actual_bounding_box_ascent_ *= factor;
++  actual_bounding_box_descent_ *= factor;
++  em_height_ascent_ *= factor;
++  em_height_descent_ *= factor;
++  baselines_->setAlphabetic(baselines_->alphabetic() * factor);
++  baselines_->setHanging(baselines_->hanging() * factor);
++  baselines_->setIdeographic(baselines_->ideographic() * factor);
++}
++
+ namespace {
+ const ShapeResult* ShapeWord(const TextRun& word_run, const Font& font) {
+   ShapeResultSpacing<TextRun> spacing(word_run);
+diff --git a/third_party/blink/renderer/core/html/canvas/text_metrics.h b/third_party/blink/renderer/core/html/canvas/text_metrics.h
+index b98001b1782e8..72ceecc073111 100644
+--- a/third_party/blink/renderer/core/html/canvas/text_metrics.h
++++ b/third_party/blink/renderer/core/html/canvas/text_metrics.h
+@@ -95,6 +95,8 @@ class CORE_EXPORT TextMetrics final : public ScriptWrappable {
+ 
+   const Font* GetFont() const { return font_; }
+ 
++  void ApplyFingerprintNoise(double factor);
++
+   void Trace(Visitor*) const override;
+ 
+   struct RunWithOffset {
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index 46f427b61e000..f40733ea64538 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -1276,13 +1276,21 @@ TextMetrics* BaseRenderingContext2D::measureText(const String& text) {
+   TextDirection direction =
+       ToTextDirection(state.GetDirection(), host, computed_style);
+ 
+-  return MakeGarbageCollected<TextMetrics>(
++  TextMetrics* text_metrics = MakeGarbageCollected<TextMetrics>(
+       font, direction, state.GetTextBaseline().AsEnum(),
+       state.GetTextAlign().AsEnum(), text,
+       RuntimeEnabledFeatures::CanvasTextNgEnabled(
+           host->GetTopExecutionContext())
+           ? &host->GetPlainTextPainter()
+           : nullptr);
++
++  if (!text.empty()) {
++    if (const auto text_noise =
++            CanvasInterventionsHelper::GetFingerprintCanvasTextNoise()) {
++      text_metrics->ApplyFingerprintNoise(*text_noise);
++    }
++  }
++  return text_metrics;
+ }
+ 
+ String BaseRenderingContext2D::lang() const {
