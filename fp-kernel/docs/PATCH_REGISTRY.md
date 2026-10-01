@@ -7,7 +7,7 @@
 | FP-02 | 已完成 | `navigator.deviceMemory` 已加入 Blink Navigator 入口；单点测试、补丁导出和增量编译通过 |
 | FP-03 | 已完成 | `browser.userAgent` 配置已统一覆盖 `navigator.userAgent` 和请求 User-Agent；Session 隔离及模块禁用测试通过 |
 | FP-04 | 已完成 | 复用 Chromium 原生 `UserAgentOverride` 覆盖 Client Hints；`navigator.userAgentData`、高熵 `uaFullVersion` 和 `Sec-CH-UA` 测试通过，Session 隔离和模块禁用回归通过；Electron 增量编译通过 |
-| FP-05 | 未开始 | Locale 与 Timezone |
+| FP-05 | 已完成 | `navigator.language`、`navigator.languages`、`Accept-Language` 和 Intl 时区已接入 Session 配置；Chromium 补丁、网络上下文更新、Electron 增量编译和 13 项定向测试通过 |
 | FP-06 | 未开始 | Navigator 平台 |
 | FP-07 | 未开始 | Screen 与 DPR |
 | FP-08 | 未开始 | WebGL |

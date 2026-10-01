@@ -21,7 +21,7 @@
 | FP-02 | `navigator.deviceMemory` | `navigator.deviceMemory` | `005-hardware-concurrency-fingerprint.patch` | 已完成，持续回归 |
 | FP-03 | User-Agent | `navigator.userAgent`、请求 User-Agent | `002-user-agent-fingerprint.patch` | 已完成，持续回归 |
 | FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | Chromium 原生 `UserAgentOverride` | 已完成，持续回归 |
-| FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `018-timezone.patch` 与 Chromium 原生参数 | 未开始 |
+| FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `fp_override_timezone_from_session_config.patch` 与 Session 网络上下文更新 | 已完成，持续回归 |
 | FP-06 | Navigator 平台 | `navigator.platform` | `002-user-agent-fingerprint.patch` | 未开始 |
 | FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | 参考项目声明了参数，但未找到完整生效路径 | 未开始，需先补齐设计 |
 | FP-08 | WebGL GPU 信息 | WebGL vendor、renderer | `011-gpu-info.patch` | 未开始 |
@@ -67,3 +67,12 @@
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 Client Hints |
 | 高熵值查询 | `getHighEntropyValues(['uaFullVersion'])` 返回配置版本 |
 | 安全上下文与 `Accept-CH` 协商 | 允许请求高熵 Client Hints；未协商时不扩大请求头范围 |
+
+## FP-05 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A/B | `navigator.language`、`navigator.languages` 和 Intl 时区分别使用各自配置 |
+| Profile A | 请求 `Accept-Language` 使用 A 的完整配置值 |
+| `enabled=false`、模块关闭或无 Profile | 保留 Chromium 原始语言、请求头和时区行为 |
+| Session 网络上下文已存在 | 设置 Profile 后仍能更新 `Accept-Language` |
