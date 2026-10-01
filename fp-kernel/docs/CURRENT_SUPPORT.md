@@ -14,7 +14,7 @@
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
-`navigator.hardwareConcurrency` 与 `navigator.deviceMemory` 两个硬件指纹点的早期版本。
+硬件指纹、User-Agent 与 Client Hints 部分指纹点的早期版本。
 
 | 评估项 | 当前结论 |
 | --- | --- |
@@ -23,9 +23,9 @@
 | Profile Schema | 版本 `1` |
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
-| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory` |
-| 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的 `deviceMemory` 覆盖 |
-| 仍未真正覆盖的主要项目 | UA、Client Hints、语言、时区、平台、屏幕、WebGL、Canvas、Audio、字体、ClientRects、WebRTC 等 |
+| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints |
+| 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints 覆盖、Session 隔离 |
+| 仍未真正覆盖的主要项目 | 语言、时区、平台、屏幕、WebGL、Canvas、Audio、字体、ClientRects、WebRTC 等 |
 | 编译状态 | Windows x64 增量编译 `561/561` 通过；完整回归仍在继续 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
@@ -100,7 +100,7 @@ ElectronBrowserClient 序列化为 --fingerprint-config
 | `navigator.hardwareConcurrency` | `hardware.hardwareConcurrency`、`modules.navigator` | **已生效** | Blink 统一 Navigator 入口读取配置；Window 和普通 Worker 测试覆盖 |
 | `navigator.deviceMemory` | `hardware.deviceMemory`、`modules.navigator` | **已生效** | Blink Navigator 入口读取 Session 配置；无有效配置时保留 Chromium 原始值 |
 | User-Agent | `browser.userAgent`、`modules.ua` | **已生效** | BrowserContext 统一覆盖 `navigator.userAgent` 和请求 User-Agent；无效、未启用或模块禁用时保留原生值 |
-| Client Hints | `modules.clientHints` | 未实现 | 不影响 `navigator.userAgentData` 或 `Sec-CH-UA*` 请求头 |
+| Client Hints | `modules.clientHints` | **已生效** | 复用 Chromium 原生 `UserAgentOverride`；覆盖 `navigator.userAgentData`、高熵 `uaFullVersion` 和协商后的 `Sec-CH-UA`，未启用时保留原生值 |
 | Locale | `locale.language`、`locale.languages`、`browser.acceptLanguage`、`modules.locale` | 未实现 | 不影响 `navigator.language`、`navigator.languages` 或请求头 |
 | Timezone | `locale.timezone`、`modules.timezone` | 未实现 | 不影响 Intl 时区或系统时区表现 |
 | Navigator 平台 | `hardware.platform`、`modules.navigator` | 未实现 | 不影响 `navigator.platform` |
@@ -125,6 +125,7 @@ ElectronBrowserClient 序列化为 --fingerprint-config
 navigator.hardwareConcurrency
 navigator.deviceMemory
 navigator.userAgent
+navigator.userAgentData
 ```
 
 生效条件同时包括：
@@ -143,6 +144,12 @@ navigator.userAgent
 `profile.modules.ua === true` 且 `profile.browser.userAgent` 非空时使用配置值；否则
 继续使用 Electron 原生 Session UA。该值通过 BrowserContext 的统一 UA 入口应用，保证
 页面 API 和网络请求保持一致。
+
+Client Hints 在 `profile.enabled === true`、`profile.modules.clientHints === true` 且
+User-Agent 配置有效时复用 Chromium 原生 `UserAgentOverride` 生成。主版本 `138` 生成
+完整版本 `138.0.0.0`，因此 `navigator.userAgentData.brands`、高熵
+`uaFullVersion` 和 `Sec-CH-UA` 与页面 User-Agent 保持一致。高熵请求头仍受安全上下文
+和服务端 `Accept-CH` 协商约束；未满足协商条件时不会强行添加请求头。
 
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
@@ -228,6 +235,9 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的 `deviceMemory` 可以分别为 `4` 和 `16`；
 - 不同 Session 的 User-Agent 可以分别使用各自配置值，且请求头与页面 API 一致；
 - `modules.ua=false` 时保留原生 User-Agent；
+- 不同 Session 的 Client Hints 可以分别使用各自配置版本；
+- `modules.clientHints=false` 时保留原生 Client Hints；
+- `navigator.userAgentData.brands`、高熵 `uaFullVersion` 和 `Sec-CH-UA` 回归通过；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -257,7 +267,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前版本不应对外宣称以下能力：
 
 - 已完成全量浏览器指纹伪装；
-- 已统一修改 UA、Client Hints 和网络请求头；
+- 已统一修改所有 User-Agent、Client Hints 和协商后的请求头；
 - 已统一修改语言、时区、屏幕和 WebGL；
 - 已处理 Canvas、Audio、字体和 ClientRects 指纹；
 - 已隐藏 Headless、CDP 或 WebDriver 特征；
@@ -268,7 +278,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 建议后续按以下顺序推进：
 
 1. 完成 FP-00/FP-01 的 Windows x64 编译和正式隔离回归，并把状态从“进行中”改为“已完成”；
-2. 实现 User-Agent、Client Hints、Locale、Timezone 和 `navigator.platform`，优先保证 JS API 与网络请求的一致性；
+2. 实现 Locale、Timezone 和 `navigator.platform`，优先保证 JS API 与网络请求的一致性；
 3. 实现 Screen/DPR 与 WebGL 信息，并增加真实网页探测测试；
 4. 再处理 Canvas、Audio、Fonts、ClientRects、WebGL 像素和 WebRTC 等高兼容性风险点；
 5. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；

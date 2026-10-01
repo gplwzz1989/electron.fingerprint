@@ -20,7 +20,7 @@
 | FP-01 | `navigator.hardwareConcurrency` | Window、Worker、ServiceWorker 的 Navigator | `005-hardware-concurrency-fingerprint.patch` | 已完成，持续回归 |
 | FP-02 | `navigator.deviceMemory` | `navigator.deviceMemory` | `005-hardware-concurrency-fingerprint.patch` | 已完成，持续回归 |
 | FP-03 | User-Agent | `navigator.userAgent`、请求 User-Agent | `002-user-agent-fingerprint.patch` | 已完成，持续回归 |
-| FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | `002-user-agent-fingerprint.patch` | 未开始 |
+| FP-04 | Client Hints | `navigator.userAgentData`、`Sec-CH-UA*` | Chromium 原生 `UserAgentOverride` | 已完成，持续回归 |
 | FP-05 | Locale 与 Timezone | `navigator.language`、`Accept-Language`、Intl 时区 | `018-timezone.patch` 与 Chromium 原生参数 | 未开始 |
 | FP-06 | Navigator 平台 | `navigator.platform` | `002-user-agent-fingerprint.patch` | 未开始 |
 | FP-07 | Screen 与 DPR | `screen.*`、`devicePixelRatio` | 参考项目声明了参数，但未找到完整生效路径 | 未开始，需先补齐设计 |
@@ -56,3 +56,14 @@
 | Profile A | 只返回 A 的配置值 |
 | Profile B | 只返回 B 的配置值 |
 | Window 与 Worker | 同一 Renderer 配置下保持一致 |
+
+## FP-04 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A | `navigator.userAgentData.brands`、高熵 `uaFullVersion` 和 `Sec-CH-UA` 使用 A 的 Chromium 版本 |
+| Profile B | 使用 B 的 Chromium 版本，不读取 A 的值 |
+| `modules.clientHints=false` | 保留 Chromium 原生 Client Hints |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生 Client Hints |
+| 高熵值查询 | `getHighEntropyValues(['uaFullVersion'])` 返回配置版本 |
+| 安全上下文与 `Accept-CH` 协商 | 允许请求高熵 Client Hints；未协商时不扩大请求头范围 |
