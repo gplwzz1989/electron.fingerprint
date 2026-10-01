@@ -65,12 +65,12 @@ std::optional<double> FindNumber(const base::Value::Dict& parent,
 bool ParseModules(const base::Value::Dict& value,
                   ModuleFlags* modules,
                   std::string* error_message) {
-#define READ_MODULE(name, field)                              \
-  do {                                                        \
+#define READ_MODULE(name, field)                         \
+  do {                                                    \
     const auto result = FindBool(value, name, error_message); \
-    if (!result)                                              \
-      return false;                                           \
-    modules->field = *result;                                 \
+    if (!result)                                           \
+      return false;                                       \
+    modules->field = *result;                             \
   } while (false)
   READ_MODULE("ua", ua);
   READ_MODULE("clientHints", client_hints);
@@ -196,8 +196,7 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   config.screen.avail_height = *avail_height;
   config.screen.device_scale_factor = *scale;
 
-  const auto* webgl_vendor =
-      FindString(*graphics, "webglVendor", error_message);
+  const auto* webgl_vendor = FindString(*graphics, "webglVendor", error_message);
   const auto* webgl_renderer =
       FindString(*graphics, "webglRenderer", error_message);
   if (!webgl_vendor || !webgl_renderer)
