@@ -1,0 +1,26 @@
+From 5a3fba2a6ee09a8478d4ac01e6ef1e846f8dc5ba Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 23:27:35 +0800
+Subject: [PATCH] fp: avoid forced navigator webdriver flag
+
+---
+ third_party/blink/renderer/core/frame/navigator.cc | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 1a73d4a8f097f..4ec7a8b521a20 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -101,9 +101,6 @@ bool Navigator::cookieEnabled() const {
+ }
+ 
+ bool Navigator::webdriver() const {
+-  if (RuntimeEnabledFeatures::AutomationControlledEnabled())
+-    return true;
+-
+   bool automation_enabled = false;
+   probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);
+   return automation_enabled;
+-- 
+2.47.0.windows.2
+

@@ -155,3 +155,4 @@ fp_apply_session_offline_audio_noise.patch
 fp_apply_session_font_platform_filtering.patch
 fp_apply_session_client_rects_noise.patch
 fp_apply_session_webgl_read_pixels_noise.patch
+fp_disable_forced_webdriver.patch
