@@ -1930,6 +1930,76 @@ describe('session module', () => {
       expect(values[3]).to.deep.equal(values[0]);
     });
 
+    it('keeps fingerprint values and request headers consistent across page, worker, and service worker', async () => {
+      const userAgent = 'FingerprintAgent/138.0';
+      const ses = session.fromPartition(`fingerprint-context-${Math.random()}`) as any;
+      ses.setFingerprintConfig({ ...profile, id: 'profile-context', browser: { ...profile.browser, userAgent } });
+
+      const requests = new Map<string, http.IncomingHttpHeaders[]>();
+      const server = http.createServer((req, res) => {
+        const requestPath = new URL(req.url ?? '/', 'http://localhost').pathname;
+        const pathRequests = requests.get(requestPath) ?? [];
+        pathRequests.push(req.headers);
+        requests.set(requestPath, pathRequests);
+
+        if (requestPath === '/worker.js') {
+          res.setHeader('Content-Type', 'application/javascript');
+          res.end(`self.onmessage = async () => {
+            await fetch('/worker-probe');
+            postMessage({ hardwareConcurrency: navigator.hardwareConcurrency, userAgent: navigator.userAgent });
+          };`);
+        } else if (requestPath === '/sw.js') {
+          res.setHeader('Content-Type', 'application/javascript');
+          res.end(`self.addEventListener('message', event => {
+            event.waitUntil((async () => {
+              await fetch('/service-worker-probe');
+              event.ports[0].postMessage({ hardwareConcurrency: navigator.hardwareConcurrency, userAgent: navigator.userAgent });
+            })());
+          });`);
+        } else {
+          res.end('ok');
+        }
+      });
+      defer(() => server.close());
+
+      const { url } = await listen(server);
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      await w.loadURL(`${url}/index.html`);
+      const values = await w.webContents.executeJavaScript(`(async () => {
+        const page = { hardwareConcurrency: navigator.hardwareConcurrency, userAgent: navigator.userAgent };
+        await fetch('/page-probe');
+        const worker = await new Promise(resolve => {
+          const worker = new Worker('/worker.js');
+          worker.onmessage = event => { worker.terminate(); resolve(event.data); };
+          worker.postMessage('probe');
+        });
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.ready;
+        const serviceWorker = await new Promise(resolve => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = event => resolve(event.data);
+          registration.active.postMessage('probe', [channel.port2]);
+        });
+        return { page, worker, serviceWorker };
+      })()`);
+
+      expect(values).to.deep.equal({
+        page: { hardwareConcurrency: 8, userAgent },
+        worker: { hardwareConcurrency: 8, userAgent },
+        serviceWorker: { hardwareConcurrency: 8, userAgent }
+      });
+
+      for (const requestPath of ['/index.html', '/page-probe', '/worker.js', '/worker-probe', '/sw.js', '/service-worker-probe']) {
+        const pathRequests = requests.get(requestPath);
+        const headers = pathRequests?.[pathRequests.length - 1];
+        expect(headers, requestPath).to.not.equal(undefined);
+        expect(headers!['user-agent']).to.equal(userAgent);
+        expect(headers!['accept-language']).to.equal('zh-CN,zh;q=0.9');
+      }
+
+      await w.webContents.executeJavaScript('navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(registrations.map(registration => registration.unregister())))');
+    });
+
     it('isolates screen and devicePixelRatio between sessions', async () => {
       const sessionA = session.fromPartition(`fingerprint-screen-a-${Math.random()}`) as any;
       const sessionB = session.fromPartition(`fingerprint-screen-b-${Math.random()}`) as any;
