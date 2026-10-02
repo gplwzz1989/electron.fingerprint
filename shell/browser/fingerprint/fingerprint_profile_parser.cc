@@ -4,6 +4,7 @@
 
 #include "shell/browser/fingerprint/fingerprint_profile_parser.h"
 
+#include <initializer_list>
 #include <string_view>
 #include <utility>
 
@@ -13,6 +14,27 @@ namespace {
 void SetError(std::string* error_message, std::string message) {
   if (error_message)
     *error_message = std::move(message);
+}
+
+bool ValidateKeys(const base::Value::Dict& value,
+                  std::string_view section,
+                  std::initializer_list<std::string_view> allowed_keys,
+                  std::string* error_message) {
+  for (const auto& entry : value) {
+    bool known_key = false;
+    for (const auto allowed_key : allowed_keys) {
+      if (entry.first == allowed_key) {
+        known_key = true;
+        break;
+      }
+    }
+    if (!known_key) {
+      SetError(error_message, "Fingerprint 配置包含不支持字段: " +
+                                  std::string(section) + "." + entry.first);
+      return false;
+    }
+  }
+  return true;
 }
 
 const base::Value::Dict* FindDict(const base::Value::Dict& parent,
@@ -65,12 +87,12 @@ std::optional<double> FindNumber(const base::Value::Dict& parent,
 bool ParseModules(const base::Value::Dict& value,
                   ModuleFlags* modules,
                   std::string* error_message) {
-#define READ_MODULE(name, field)                         \
-  do {                                                    \
+#define READ_MODULE(name, field)                              \
+  do {                                                        \
     const auto result = FindBool(value, name, error_message); \
-    if (!result)                                           \
-      return false;                                       \
-    modules->field = *result;                             \
+    if (!result)                                              \
+      return false;                                           \
+    modules->field = *result;                                 \
   } while (false)
   READ_MODULE("ua", ua);
   READ_MODULE("clientHints", client_hints);
@@ -82,6 +104,7 @@ bool ParseModules(const base::Value::Dict& value,
   READ_MODULE("canvas", canvas);
   READ_MODULE("audio", audio);
   READ_MODULE("fonts", fonts);
+  READ_MODULE("webrtc", webrtc);
 #undef READ_MODULE
   return true;
 }
@@ -92,6 +115,13 @@ bool ParseModules(const base::Value::Dict& value,
 std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
     const base::Value::Dict& profile,
     std::string* error_message) {
+  if (!ValidateKeys(profile, "profile",
+                    {"schemaVersion", "id", "enabled", "browser", "locale",
+                     "hardware", "screen", "graphics", "noise", "modules"},
+                    error_message)) {
+    return std::nullopt;
+  }
+
   FingerprintConfig config;
 
   const auto schema_version = FindInt(profile, "schemaVersion", error_message);
@@ -121,6 +151,28 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
       !modules) {
     return std::nullopt;
   }
+  if (!ValidateKeys(*browser, "browser",
+                    {"family", "chromiumMajor", "userAgent", "acceptLanguage"},
+                    error_message) ||
+      !ValidateKeys(*locale, "locale", {"language", "languages", "timezone"},
+                    error_message) ||
+      !ValidateKeys(*hardware, "hardware",
+                    {"hardwareConcurrency", "deviceMemory", "platform"},
+                    error_message) ||
+      !ValidateKeys(
+          *screen, "screen",
+          {"width", "height", "availWidth", "availHeight", "deviceScaleFactor"},
+          error_message) ||
+      !ValidateKeys(*graphics, "graphics", {"webglVendor", "webglRenderer"},
+                    error_message) ||
+      !ValidateKeys(*noise, "noise", {"seed", "canvas", "audio", "rects"},
+                    error_message) ||
+      !ValidateKeys(*modules, "modules",
+                    {"ua", "clientHints", "locale", "timezone", "navigator",
+                     "screen", "webgl", "canvas", "audio", "fonts", "webrtc"},
+                    error_message)) {
+    return std::nullopt;
+  }
 
   const auto* family = FindString(*browser, "family", error_message);
   const auto chromium_major = FindInt(*browser, "chromiumMajor", error_message);
@@ -138,19 +190,30 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   }
   config.browser.chromium_major = *chromium_major;
   config.browser.accept_language = *accept_language;
-  if (const auto* user_agent = browser->FindString("userAgent"))
-    config.browser.user_agent = *user_agent;
+  if (const auto* user_agent_value = browser->Find("userAgent")) {
+    if (!user_agent_value->is_none() && !user_agent_value->is_string()) {
+      SetError(error_message, "Fingerprint userAgent 必须是字符串或 null");
+      return std::nullopt;
+    }
+    if (const auto* user_agent = user_agent_value->GetIfString())
+      config.browser.user_agent = *user_agent;
+  }
 
   const auto* language = FindString(*locale, "language", error_message);
   const auto* timezone = FindString(*locale, "timezone", error_message);
   const auto* languages = locale->FindList("languages");
   if (!language || !timezone || !languages || languages->empty())
     return std::nullopt;
+  if (language->size() < 2) {
+    SetError(error_message, "Fingerprint language 至少需要 2 个字符");
+    return std::nullopt;
+  }
   config.locale.language = *language;
   config.locale.timezone = *timezone;
   for (const auto& item : *languages) {
-    if (!item.is_string()) {
-      SetError(error_message, "Fingerprint languages 必须是字符串数组");
+    if (!item.is_string() || item.GetString().size() < 2) {
+      SetError(error_message,
+               "Fingerprint languages 必须是长度至少为 2 的字符串数组");
       return std::nullopt;
     }
     config.locale.languages.push_back(item.GetString());
@@ -196,7 +259,8 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   config.screen.avail_height = *avail_height;
   config.screen.device_scale_factor = *scale;
 
-  const auto* webgl_vendor = FindString(*graphics, "webglVendor", error_message);
+  const auto* webgl_vendor =
+      FindString(*graphics, "webglVendor", error_message);
   const auto* webgl_renderer =
       FindString(*graphics, "webglRenderer", error_message);
   if (!webgl_vendor || !webgl_renderer)
