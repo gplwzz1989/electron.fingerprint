@@ -198,11 +198,16 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   const auto* languages = locale->FindList("languages");
   if (!language || !timezone || !languages || languages->empty())
     return std::nullopt;
+  if (language->size() < 2) {
+    SetError(error_message, "Fingerprint language 至少需要 2 个字符");
+    return std::nullopt;
+  }
   config.locale.language = *language;
   config.locale.timezone = *timezone;
   for (const auto& item : *languages) {
-    if (!item.is_string()) {
-      SetError(error_message, "Fingerprint languages 必须是字符串数组");
+    if (!item.is_string() || item.GetString().size() < 2) {
+      SetError(error_message,
+               "Fingerprint languages 必须是长度至少为 2 的字符串数组");
       return std::nullopt;
     }
     config.locale.languages.push_back(item.GetString());
