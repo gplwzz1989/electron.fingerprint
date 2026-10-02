@@ -2284,6 +2284,28 @@ describe('session module', () => {
     });
   });
 
+  describe('navigator.webdriver fingerprinting', () => {
+    afterEach(closeAllWindows);
+
+    it('does not force navigator.webdriver when AutomationControlled is enabled', async () => {
+      const originalFeatures = app.commandLine.getSwitchValue('enable-blink-features');
+      const features = originalFeatures ? `${originalFeatures},AutomationControlled` : 'AutomationControlled';
+      app.commandLine.appendSwitch('enable-blink-features', features);
+      try {
+        const window = new BrowserWindow({ show: false });
+        await window.loadURL('data:text/html,<title>webdriver</title>');
+        const webdriver = await window.webContents.executeJavaScript('navigator.webdriver');
+        expect(webdriver).to.equal(false);
+      } finally {
+        if (originalFeatures) {
+          app.commandLine.appendSwitch('enable-blink-features', originalFeatures);
+        } else {
+          app.commandLine.removeSwitch('enable-blink-features');
+        }
+      }
+    });
+  });
+
   describe('ses.setSSLConfig()', () => {
     it('can disable cipher suites', async () => {
       const ses = session.fromPartition('' + Math.random());
