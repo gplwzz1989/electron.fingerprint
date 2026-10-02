@@ -59,6 +59,7 @@ base::Value::Dict FingerprintConfig::ToValue() const {
   modules_value.Set("canvas", modules.canvas);
   modules_value.Set("audio", modules.audio);
   modules_value.Set("fonts", modules.fonts);
+  modules_value.Set("webrtc", modules.webrtc);
 
   base::Value::Dict value;
   value.Set("schemaVersion", schema_version);

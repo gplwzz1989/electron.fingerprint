@@ -82,6 +82,7 @@ bool ParseModules(const base::Value::Dict& value,
   READ_MODULE("canvas", canvas);
   READ_MODULE("audio", audio);
   READ_MODULE("fonts", fonts);
+  READ_MODULE("webrtc", webrtc);
 #undef READ_MODULE
   return true;
 }

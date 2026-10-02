@@ -61,6 +61,7 @@ struct ModuleFlags {
   bool canvas = false;
   bool audio = false;
   bool fonts = false;
+  bool webrtc = false;
 };
 
 struct FingerprintConfig {

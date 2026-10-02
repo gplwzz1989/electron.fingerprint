@@ -23,10 +23,10 @@
 | Profile Schema | 版本 `1` |
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
-| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects |
+| 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects、WebRTC IP 处理策略 |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、WebRTC 等 |
-| 编译状态 | FP-12 已验证；FP-13～FP-17 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
+| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
+| 编译状态 | FP-12 已验证；FP-13～FP-18 代码、测试和文档已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -163,7 +163,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
-| WebRTC 网络地址 | 当前没有可生效字段 | 未实现 | 尚未处理 ICE 候选和非代理 UDP 地址暴露 |
+| WebRTC 网络地址 | `modules.webrtc` | 已实现，待验证 | 启用时将 Session 的 RendererPreferences 设为 `disable_non_proxied_udp`；真实 ICE 候选和代理组合仍待验证 |
 
 ### 4.1 当前已生效的指纹点
 
@@ -194,6 +194,7 @@ Element.getClientRects()
 Element.getBoundingClientRect()
 Range.getClientRects()
 Range.getBoundingClientRect()
+WebRTC IP handling policy
 ```
 
 生效条件同时包括：
@@ -274,6 +275,12 @@ Rect 结果。当前偏移约束在 ±0.001 CSS 像素范围内，不改变元�
 WebGL 像素噪声在 `profile.enabled === true`、`modules.webgl === true` 且 `noise.seed`
 非空时生效。当前只处理 `RGBA + UNSIGNED_BYTE`，并保留 `GL_PACK_ALIGNMENT` 的行填充；
 未设置 Profile、Profile 未启用、模块关闭或使用其他格式时保留原生 `readPixels()` 结果。
+
+WebRTC 网络地址策略在 `profile.enabled === true` 且 `modules.webrtc === true` 时，
+通过 Electron 的 `RendererPreferences` 设置为 `disable_non_proxied_udp`，避免 WebRTC
+使用非代理 UDP 暴露本地网络地址；未设置 Profile、Profile 未启用或模块关闭时保留
+Chromium 原生策略。该实现仍需通过真实 ICE 候选和代理组合验证，不能仅凭策略值宣称
+所有网络地址场景都已阻断。
 
 `navigator.webdriver` 不新增 Profile 字段。在 Blink 的 `AutomationControlled` 功能开启时，
 不再直接强制返回 `true`，而是保留现有自动化探针的显式覆盖结果；普通页面保持原生
@@ -385,6 +392,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的 `OfflineAudioContext` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生采样率和渲染结果；
 - 不同 Session 的字体平台过滤可以分别使用各自目标平台，模块关闭或无 Profile 时保留原生字体选择；
 - 不同 Session 的 WebGL `readPixels()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生结果；
+- 不同 Session 的 WebRTC IP 处理策略可以分别启用或关闭，模块关闭或无 Profile 时保留原生策略；
 - 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
 - Headless UA 不再主动包含 `HeadlessChrome` 产品名；
 - V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；
@@ -408,7 +416,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - FP-13～FP-17 的完整增量编译和运行时定向测试；
 - FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
 - FP-17 的 ServiceWorker 启动、重启和跨进程请求头回归；
-- ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
+- ServiceWorker、跨进程 Network 请求头和 WebRTC 真实 ICE 候选的验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
 现有 Windows 构建工作流仍是手动触发的预留入口；当前状态应标记为“基础验证和增量构建通过，完整回归待验证”。
@@ -423,13 +431,13 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 已覆盖 User-Agent、Client Hints、Locale 和 Timezone 的已实现路径，但不代表所有协商请求头场景；
 - WebGL 像素当前仅实现 `RGBA + UNSIGNED_BYTE` 读回路径，完整格式覆盖仍待验证；
 - 已隐藏 Headless、CDP 或 WebDriver 特征；
-- 已阻断 WebRTC 本地网络地址暴露。
+- WebRTC 真实 ICE 候选和代理组合验证尚未完成。
 
 ### 8.2 建议优先级
 
 建议后续按以下顺序推进：
 
-1. 验证 WebGL 像素、FP-16/FP-17 运行时实现，并处理 WebRTC 等高兼容性风险点；
+1. 验证 WebGL 像素、FP-16/FP-17/FP-18 运行时实现，并处理 WebRTC 等高兼容性风险点；
 2. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
 3. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 

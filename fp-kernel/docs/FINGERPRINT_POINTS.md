@@ -34,12 +34,12 @@
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 已实现，待编译和运行验证 |
 | FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `fp_hide_headless_chrome_product_name.patch`、`fp_reduce_v8_runtime_inspector_exposure.patch` | 已实现，待编译和运行验证 |
 | FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | `ElectronBrowserClient::AppendExtraCommandLineSwitches` 与 Session NetworkContext | 已实现，待编译和运行验证 |
-| FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `default-webrtc-ip-handling-policy.patch` | 未开始，属于网络隐私边界 |
+| FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `ElectronBrowserClient::OverrideWebPreferences`（参考 `default-webrtc-ip-handling-policy.patch`） | 已实现，待编译和真实 ICE 候选验证 |
 
 ## 每个指纹点的完成门槛
 
 1. 明确配置字段、默认值、合法范围和关闭条件。
-2. 只修改该指纹点的 Chromium 入口，保留现有中文注释和无关代码。
+2. 只修改该指纹点对应的 Chromium 或 Electron 入口，保留现有中文注释和无关代码。
 3. 完成无 Profile、Profile A、Profile B 三组单点验证。
 4. 完成至少一个跨上下文或跨 Session 的隔离验证。
 5. 在 `fp-kernel/docs/PATCH_REGISTRY.md` 记录补丁编号、源文件和验证结果。
@@ -173,3 +173,11 @@
 | 页面、普通 Worker、ServiceWorker | `hardwareConcurrency` 和 `navigator.userAgent` 使用同一 Session 配置 |
 | 页面、普通 Worker、ServiceWorker 请求 | `User-Agent` 和 `Accept-Language` 请求头保持一致 |
 | 无 Profile 或配置关闭 | 保留 Chromium 原生值和请求头行为 |
+
+## FP-18 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Profile A 且 `modules.webrtc=true` | WebRTC IP 处理策略为 `disable_non_proxied_udp` |
+| Profile B 且 `modules.webrtc=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |
+| 无 Profile 或 `enabled=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |

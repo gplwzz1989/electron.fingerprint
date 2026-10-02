@@ -1872,7 +1872,7 @@ describe('session module', () => {
       screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
       graphics: { webglVendor: 'Google Inc. (Intel)', webglRenderer: 'ANGLE (Intel)' },
       noise: { seed: 'test-profile-stable', canvas: false, audio: false, rects: false },
-      modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false }
+      modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false, webrtc: false }
     };
 
     it('stores and clears a profile on one session', () => {
@@ -1887,6 +1887,30 @@ describe('session module', () => {
     it('rejects invalid hardware values', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
+    });
+
+    it('isolates WebRTC IP handling policy between sessions', async () => {
+      const sessionA = session.fromPartition(`fingerprint-webrtc-a-${Math.random()}`) as any;
+      const sessionB = session.fromPartition(`fingerprint-webrtc-b-${Math.random()}`) as any;
+      const nativeSession = session.fromPartition(`fingerprint-webrtc-native-${Math.random()}`);
+      const disabledSession = session.fromPartition(`fingerprint-webrtc-disabled-${Math.random()}`) as any;
+      sessionA.setFingerprintConfig({ ...profile, id: 'profile-webrtc-a', modules: { ...profile.modules, webrtc: true } });
+      sessionB.setFingerprintConfig({ ...profile, id: 'profile-webrtc-b', modules: { ...profile.modules, webrtc: false } });
+      disabledSession.setFingerprintConfig({ ...profile, id: 'profile-webrtc-disabled', enabled: false, modules: { ...profile.modules, webrtc: true } });
+
+      const windows = [
+        new BrowserWindow({ show: false, webPreferences: { session: sessionA } }),
+        new BrowserWindow({ show: false, webPreferences: { session: sessionB } }),
+        new BrowserWindow({ show: false, webPreferences: { session: nativeSession } }),
+        new BrowserWindow({ show: false, webPreferences: { session: disabledSession } })
+      ];
+      await Promise.all(windows.map(w => w.loadURL('data:text/html,<title>fingerprint</title>')));
+      const policies = await Promise.all(windows.map(w => (w.webContents as any).getWebRTCIPHandlingPolicy()));
+
+      expect(policies[0]).to.equal('disable_non_proxied_udp');
+      expect(policies[1]).to.not.equal('disable_non_proxied_udp');
+      expect(policies[2]).to.equal(policies[1]);
+      expect(policies[3]).to.equal(policies[1]);
     });
 
     it('rejects changes after the first renderer is created', async () => {

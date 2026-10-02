@@ -431,6 +431,17 @@ void ElectronBrowserClient::OverrideWebPreferences(
       web_contents->GetMutableRendererPrefs();
   renderer_prefs->can_accept_load_drops = false;
 
+  auto* browser_context =
+      static_cast<ElectronBrowserContext*>(web_contents->GetBrowserContext());
+  const auto* fingerprint_config =
+      browser_context->fingerprint_context()->GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.webrtc) {
+    renderer_prefs->webrtc_ip_handling_policy =
+        blink::ToWebRTCIPHandlingPolicy(
+            blink::kWebRTCIPHandlingDisableNonProxiedUdp);
+  }
+
   ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
   prefs->in_forced_colors = native_theme->InForcedColorsMode();
   prefs->preferred_color_scheme =

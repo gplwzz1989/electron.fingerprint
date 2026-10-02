@@ -75,7 +75,7 @@
     "modules": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ua", "clientHints", "locale", "timezone", "navigator", "screen", "webgl", "canvas", "audio", "fonts"],
+      "required": ["ua", "clientHints", "locale", "timezone", "navigator", "screen", "webgl", "canvas", "audio", "fonts", "webrtc"],
       "properties": {
         "ua": { "type": "boolean" },
         "clientHints": { "type": "boolean" },
@@ -86,7 +86,8 @@
         "webgl": { "type": "boolean" },
         "canvas": { "type": "boolean" },
         "audio": { "type": "boolean" },
-        "fonts": { "type": "boolean" }
+        "fonts": { "type": "boolean" },
+        "webrtc": { "type": "boolean" }
       }
     }
   }
