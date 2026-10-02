@@ -181,3 +181,4 @@
 | Profile A 且 `modules.webrtc=true` | WebRTC IP 处理策略为 `disable_non_proxied_udp` |
 | Profile B 且 `modules.webrtc=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |
+| `modules.webrtc=true` 的 ICE 收集 | 不产生非代理 UDP 主机候选 |

@@ -1919,6 +1919,44 @@ describe('session module', () => {
       expect(policies[3]).to.equal(policies[1]);
     });
 
+    it('does not gather non-proxied UDP host candidates when enabled', async () => {
+      const ses = session.fromPartition(`fingerprint-webrtc-candidates-${Math.random()}`) as any;
+      ses.setFingerprintConfig({ ...profile, id: 'profile-webrtc-candidates', modules: { ...profile.modules, webrtc: true } });
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      await w.loadURL('data:text/html,<title>fingerprint</title>');
+
+      const candidates = await w.webContents.executeJavaScript(`(async () => {
+        const peerConnection = new RTCPeerConnection({ iceServers: [] });
+        const candidates = [];
+        peerConnection.onicecandidate = event => {
+          if (event.candidate) candidates.push(event.candidate.candidate);
+        };
+        peerConnection.createDataChannel('fingerprint-probe');
+        await peerConnection.setLocalDescription(await peerConnection.createOffer());
+        await new Promise(resolve => {
+          const timeout = setTimeout(resolve, 3000);
+          if (peerConnection.iceGatheringState === 'complete') {
+            clearTimeout(timeout);
+            resolve();
+            return;
+          }
+          peerConnection.addEventListener('icegatheringstatechange', () => {
+            if (peerConnection.iceGatheringState === 'complete') {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
+        const sdpCandidates = (peerConnection.localDescription?.sdp ?? '')
+          .split('\\r\\n')
+          .filter(line => line.startsWith('a=candidate:'));
+        peerConnection.close();
+        return [...candidates, ...sdpCandidates];
+      })()`);
+
+      expect(candidates.some(candidate => candidate.includes(' udp ') && candidate.includes(' typ host '))).to.equal(false);
+    });
+
     it('rejects changes after the first renderer is created', async () => {
       const ses = session.fromPartition(`fingerprint-locked-${Math.random()}`) as any;
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });

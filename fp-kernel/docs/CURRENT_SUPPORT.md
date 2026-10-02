@@ -392,6 +392,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的字体平台过滤可以分别使用各自目标平台，模块关闭或无 Profile 时保留原生字体选择；
 - 不同 Session 的 WebGL `readPixels()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生结果；
 - 不同 Session 的 WebRTC IP 处理策略可以分别启用或关闭，模块关闭或无 Profile 时保留原生策略；
+- `modules.webrtc=true` 时的 ICE 收集不会产生非代理 UDP 主机候选；
 - 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
 - Headless UA 不再主动包含 `HeadlessChrome` 产品名；
 - V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；
