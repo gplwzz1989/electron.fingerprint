@@ -4,6 +4,7 @@
 
 #include "shell/browser/fingerprint/fingerprint_profile_parser.h"
 
+#include <initializer_list>
 #include <string_view>
 #include <utility>
 
@@ -13,6 +14,27 @@ namespace {
 void SetError(std::string* error_message, std::string message) {
   if (error_message)
     *error_message = std::move(message);
+}
+
+bool ValidateKeys(const base::Value::Dict& value,
+                  std::string_view section,
+                  std::initializer_list<std::string_view> allowed_keys,
+                  std::string* error_message) {
+  for (const auto& entry : value) {
+    bool known_key = false;
+    for (const auto allowed_key : allowed_keys) {
+      if (entry.first == allowed_key) {
+        known_key = true;
+        break;
+      }
+    }
+    if (!known_key) {
+      SetError(error_message, "Fingerprint 配置包含不支持字段: " +
+                                  std::string(section) + "." + entry.first);
+      return false;
+    }
+  }
+  return true;
 }
 
 const base::Value::Dict* FindDict(const base::Value::Dict& parent,
@@ -93,6 +115,13 @@ bool ParseModules(const base::Value::Dict& value,
 std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
     const base::Value::Dict& profile,
     std::string* error_message) {
+  if (!ValidateKeys(profile, "profile",
+                    {"schemaVersion", "id", "enabled", "browser", "locale",
+                     "hardware", "screen", "graphics", "noise", "modules"},
+                    error_message)) {
+    return std::nullopt;
+  }
+
   FingerprintConfig config;
 
   const auto schema_version = FindInt(profile, "schemaVersion", error_message);
@@ -120,6 +149,28 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   const auto* modules = FindDict(profile, "modules", error_message);
   if (!browser || !locale || !hardware || !screen || !graphics || !noise ||
       !modules) {
+    return std::nullopt;
+  }
+  if (!ValidateKeys(*browser, "browser",
+                    {"family", "chromiumMajor", "userAgent", "acceptLanguage"},
+                    error_message) ||
+      !ValidateKeys(*locale, "locale", {"language", "languages", "timezone"},
+                    error_message) ||
+      !ValidateKeys(*hardware, "hardware",
+                    {"hardwareConcurrency", "deviceMemory", "platform"},
+                    error_message) ||
+      !ValidateKeys(*screen, "screen",
+                    {"width", "height", "availWidth", "availHeight",
+                     "deviceScaleFactor"},
+                    error_message) ||
+      !ValidateKeys(*graphics, "graphics", {"webglVendor", "webglRenderer"},
+                    error_message) ||
+      !ValidateKeys(*noise, "noise", {"seed", "canvas", "audio", "rects"},
+                    error_message) ||
+      !ValidateKeys(*modules, "modules",
+                    {"ua", "clientHints", "locale", "timezone", "navigator",
+                     "screen", "webgl", "canvas", "audio", "fonts", "webrtc"},
+                    error_message)) {
     return std::nullopt;
   }
 

@@ -333,9 +333,9 @@ Browser Process 解析器当前只接受：
 
 ### 5.3 Schema 与运行时校验的差异
 
-Schema 声明顶层和各子对象不允许未知字段，但当前 C++ 解析器主要检查必需字段、
-类型和部分范围，没有完整执行 `additionalProperties: false`。因此，“通过
-`setFingerprintConfig()`”目前不等于“完全通过 JSON Schema 校验”。
+Schema 声明顶层和各子对象不允许未知字段，C++ 解析器现在也会拒绝这些字段；但
+它仍未完整复制所有 JSON Schema 的格式约束。因此，“通过 `setFingerprintConfig()`”
+仍不等于“完全通过 JSON Schema 校验”。
 
 另外，部分字段的格式约束也没有完全复制到 C++ 解析器，例如语言字符串的最小长度
 和若干字符串内容格式。后续如果将 Profile 作为稳定对外协议，应统一 Schema 校验

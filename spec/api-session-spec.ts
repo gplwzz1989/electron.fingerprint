@@ -1888,6 +1888,8 @@ describe('session module', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, platform: 'Android' } })).to.throw('平台');
+      expect(() => ses.setFingerprintConfig({ ...profile, unexpected: true })).to.throw('不支持字段');
+      expect(() => ses.setFingerprintConfig({ ...profile, browser: { ...profile.browser, unexpected: true } })).to.throw('不支持字段');
     });
 
     it('isolates WebRTC IP handling policy between sessions', async () => {
