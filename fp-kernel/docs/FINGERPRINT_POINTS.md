@@ -32,7 +32,7 @@
 | FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 已完成，持续回归 |
 | FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 已实现，待编译和运行验证 |
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 已实现，待编译和运行验证 |
-| FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `010-headless.patch`、`001-disable-runtime.enable.patch` | 未开始，需单独评估兼容性 |
+| FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `fp_hide_headless_chrome_product_name.patch`、`fp_reduce_v8_runtime_inspector_exposure.patch` | 已实现，待编译和运行验证 |
 | FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | 参考项目的统一转发思路 | 未开始 |
 | FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `default-webrtc-ip-handling-policy.patch` | 未开始，属于网络隐私边界 |
 
@@ -156,3 +156,12 @@
 | --- | --- |
 | `AutomationControlled` 开启 | `navigator.webdriver` 保持 `false` |
 | 显式自动化探针覆盖 | 保留探针返回的自动化状态 |
+
+## FP-16 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| Headless UA | User-Agent 产品名不包含 `HeadlessChrome` |
+| Runtime Agent | 不主动暴露 Runtime bindings、console message 和 enabled 状态 |
+| 非 Headless 页面 | 保持 Chromium 原生 User-Agent 行为 |
+| 未启用远程调试 | 不新增额外 Runtime Agent 暴露 |

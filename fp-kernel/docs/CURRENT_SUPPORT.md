@@ -14,7 +14,7 @@
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
-硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas、Audio 与字体部分指纹点的早期版本。
+硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas、Audio 与字体部分指纹点的早期版本，并已加入 Headless UA 与 V8 Runtime Agent 的最小补丁，兼容性仍待验证。
 
 | 评估项 | 当前结论 |
 | --- | --- |
@@ -25,8 +25,8 @@
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | WebGL 像素、WebRTC 等 |
-| 编译状态 | FP-12 已验证；FP-13～FP-15 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
+| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、WebRTC 等 |
+| 编译状态 | FP-12 已验证；FP-13～FP-16 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -161,7 +161,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | ClientRects | `noise.rects` | **已生效** | 对 Element 与 Range 的 DOM Rect 查询应用 Session seed 的稳定微小偏移；无效、关闭或无 Profile 时保留原生值 |
 | WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，待验证 | 对 `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 应用 Session seed 噪声；其他格式保留原生结果 |
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
-| Headless/CDP 特征 | 当前没有可生效字段 | 未实现 | 尚未处理 Headless UA、Runtime Agent 等特征 |
+| Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 部分具备基础传输 | 普通 Worker 的 `hardwareConcurrency` 已测试；ServiceWorker、请求头和其他上下文尚未完成一致性验证 |
 | WebRTC 网络地址 | 当前没有可生效字段 | 未实现 | 尚未处理 ICE 候选和非代理 UDP 地址暴露 |
 
@@ -279,6 +279,14 @@ WebGL 像素噪声在 `profile.enabled === true`、`modules.webgl === true` 且 
 不再直接强制返回 `true`，而是保留现有自动化探针的显式覆盖结果；普通页面保持原生
 `false` 行为。
 
+Headless UA 不新增 Profile 字段。Headless 浏览器的默认产品名由 `HeadlessChrome` 改为
+`Chrome`，因此默认 User-Agent 不再主动暴露 Headless 产品标记；该修改只作用于 Headless
+UA 生成路径，不自动改变其他平台指纹。
+
+V8 Runtime Agent 不新增 Profile 字段。补丁关闭 Runtime Agent 的 binding 注入、console
+message 转发和 enabled 状态报告，降低页面通过 Runtime 域观察到的特征；该修改可能影响
+DevTools、CDP 客户端和自动化工具，必须在增量编译后做兼容性回归。
+
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
 
@@ -378,6 +386,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的字体平台过滤可以分别使用各自目标平台，模块关闭或无 Profile 时保留原生字体选择；
 - 不同 Session 的 WebGL `readPixels()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生结果；
 - 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
+- Headless UA 不再主动包含 `HeadlessChrome` 产品名；
+- V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -393,7 +403,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- FP-13～FP-15 的完整增量编译和运行时定向测试；
+- FP-13～FP-16 的完整增量编译和运行时定向测试；
+- FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
@@ -415,7 +426,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 建议后续按以下顺序推进：
 
-1. 验证 WebGL 像素实现并处理 WebRTC 等高兼容性风险点；
+1. 验证 WebGL 像素和 FP-16 运行时实现，并处理 WebRTC 等高兼容性风险点；
 2. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
 3. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 
@@ -442,6 +453,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_apply_session_client_rects_noise.patch` | ClientRects 噪声补丁 |
 | `patches/chromium/fp_apply_session_webgl_read_pixels_noise.patch` | WebGL `readPixels()` 像素噪声补丁 |
 | `patches/chromium/fp_disable_forced_webdriver.patch` | `navigator.webdriver` 强制标记修复补丁 |
+| `patches/chromium/fp_hide_headless_chrome_product_name.patch` | Headless UA 产品名隐藏补丁 |
+| `patches/chromium/fp_reduce_v8_runtime_inspector_exposure.patch` | V8 Runtime Agent 暴露收敛补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |
