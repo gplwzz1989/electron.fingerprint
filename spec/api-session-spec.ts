@@ -1870,7 +1870,7 @@ describe('session module', () => {
       screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
       graphics: { webglVendor: 'Google Inc. (Intel)', webglRenderer: 'ANGLE (Intel)' },
       noise: { seed: 'test-profile-stable', canvas: false, audio: false, rects: false },
-      modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false }
+      modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false, webrtc: false }
     };
 
     it('stores and clears a profile on one session', () => {
@@ -1880,6 +1880,16 @@ describe('session module', () => {
       expect(ses.getFingerprintConfig()).to.deep.equal(profile);
       ses.clearFingerprintConfig();
       expect(ses.getFingerprintConfig()).to.equal(null);
+    });
+
+    it('preserves the optional Runtime inspector setting', () => {
+      const ses = session.fromPartition(`fingerprint-runtime-inspector-${Math.random()}`) as any;
+      const configuredProfile = {
+        ...profile,
+        modules: { ...profile.modules, runtimeInspector: true }
+      };
+      ses.setFingerprintConfig(configuredProfile);
+      expect(ses.getFingerprintConfig()).to.deep.equal(configuredProfile);
     });
 
     it('rejects invalid hardware values', () => {
@@ -2099,6 +2109,49 @@ describe('session module', () => {
       expect(values[0]).to.equal('Win32');
       expect(values[1]).to.equal('MacIntel');
       expect(values[2]).to.equal(values[3]);
+    });
+
+    it('applies screen and devicePixelRatio per session and preserves native values when disabled', async () => {
+      const sesA = session.fromPartition(`fingerprint-screen-a-${Math.random()}`) as any;
+      const sesB = session.fromPartition(`fingerprint-screen-b-${Math.random()}`) as any;
+      const sesDisabled = session.fromPartition(`fingerprint-screen-disabled-${Math.random()}`) as any;
+      const sesNative = session.fromPartition(`fingerprint-screen-native-${Math.random()}`) as any;
+      sesA.setFingerprintConfig(profile);
+      const screenB = { width: 1111, height: 777, availWidth: 1111, availHeight: 737, deviceScaleFactor: 1.25 };
+      sesB.setFingerprintConfig({ ...profile, screen: screenB });
+      sesDisabled.setFingerprintConfig({
+        ...profile,
+        screen: screenB,
+        modules: { ...profile.modules, screen: false }
+      });
+      const windows = [sesA, sesB, sesDisabled, sesNative].map((ses) =>
+        new BrowserWindow({ show: false, webPreferences: { session: ses } }));
+      windows.forEach((window) => defer(() => window.destroy()));
+      const fixture = path.join(__dirname, 'fixtures', 'blank.html');
+      await Promise.all(windows.map((window) => window.loadFile(fixture)));
+      const values = await Promise.all(windows.map((window) =>
+        window.webContents.executeJavaScript(`({
+          width: screen.width,
+          height: screen.height,
+          availWidth: screen.availWidth,
+          availHeight: screen.availHeight,
+          devicePixelRatio: window.devicePixelRatio
+        })`)));
+      expect(values[0]).to.deep.equal({
+        width: 1920,
+        height: 1080,
+        availWidth: 1920,
+        availHeight: 1040,
+        devicePixelRatio: 1
+      });
+      expect(values[1]).to.deep.equal({
+        width: screenB.width,
+        height: screenB.height,
+        availWidth: screenB.availWidth,
+        availHeight: screenB.availHeight,
+        devicePixelRatio: 1.25
+      });
+      expect(values[2]).to.deep.equal(values[3]);
     });
 
     it('rejects changes after the first renderer is created', async () => {

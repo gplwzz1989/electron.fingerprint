@@ -86,7 +86,8 @@
         "webgl": { "type": "boolean" },
         "canvas": { "type": "boolean" },
         "audio": { "type": "boolean" },
-        "fonts": { "type": "boolean" }
+        "fonts": { "type": "boolean" },
+        "runtimeInspector": { "type": "boolean" }
       }
     }
   }

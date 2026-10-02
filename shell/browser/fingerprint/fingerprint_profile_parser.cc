@@ -106,6 +106,8 @@ bool ParseModules(const base::Value::Dict& value,
   READ_MODULE("fonts", fonts);
   READ_MODULE("webrtc", webrtc);
 #undef READ_MODULE
+  if (const auto runtime_inspector = value.FindBool("runtimeInspector"))
+    modules->runtime_inspector = *runtime_inspector;
   return true;
 }
 
@@ -167,10 +169,11 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
                     error_message) ||
       !ValidateKeys(*noise, "noise", {"seed", "canvas", "audio", "rects"},
                     error_message) ||
-      !ValidateKeys(*modules, "modules",
-                    {"ua", "clientHints", "locale", "timezone", "navigator",
-                     "screen", "webgl", "canvas", "audio", "fonts", "webrtc"},
-                    error_message)) {
+      !ValidateKeys(
+          *modules, "modules",
+          {"ua", "clientHints", "locale", "timezone", "navigator", "screen",
+           "webgl", "canvas", "audio", "fonts", "webrtc", "runtimeInspector"},
+          error_message)) {
     return std::nullopt;
   }
 
