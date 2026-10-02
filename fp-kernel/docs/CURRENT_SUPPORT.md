@@ -26,7 +26,7 @@
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
 | 仍未真正覆盖的主要项目 | WebGL 像素、WebRTC 等 |
-| 编译状态 | FP-12 已验证；FP-13/FP-14 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
+| 编译状态 | FP-12 已验证；FP-13～FP-15 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -160,7 +160,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | Fonts | `hardware.platform`、`modules.fonts` | **已生效** | 按 Session 目标平台替代和隐藏代表性字体，影响 CSS 字体选择与 Canvas 文本渲染；无效、未启用或模块禁用时保留原生值 |
 | ClientRects | `noise.rects` | **已生效** | 对 Element 与 Range 的 DOM Rect 查询应用 Session seed 的稳定微小偏移；无效、关闭或无 Profile 时保留原生值 |
 | WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，待验证 | 对 `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 应用 Session seed 噪声；其他格式保留原生结果 |
-| `navigator.webdriver` | 当前没有可生效字段 | 未实现 | 尚未接入自动化标记覆盖 |
+| `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 当前没有可生效字段 | 未实现 | 尚未处理 Headless UA、Runtime Agent 等特征 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 部分具备基础传输 | 普通 Worker 的 `hardwareConcurrency` 已测试；ServiceWorker、请求头和其他上下文尚未完成一致性验证 |
 | WebRTC 网络地址 | 当前没有可生效字段 | 未实现 | 尚未处理 ICE 候选和非代理 UDP 地址暴露 |
@@ -275,6 +275,10 @@ WebGL 像素噪声在 `profile.enabled === true`、`modules.webgl === true` 且 
 非空时生效。当前只处理 `RGBA + UNSIGNED_BYTE`，并保留 `GL_PACK_ALIGNMENT` 的行填充；
 未设置 Profile、Profile 未启用、模块关闭或使用其他格式时保留原生 `readPixels()` 结果。
 
+`navigator.webdriver` 不新增 Profile 字段。在 Blink 的 `AutomationControlled` 功能开启时，
+不再直接强制返回 `true`，而是保留现有自动化探针的显式覆盖结果；普通页面保持原生
+`false` 行为。
+
 补丁在进程内对启动参数中的配置进行一次解析，并缓存解析结果。该设计保证同一个
 Renderer 及其普通 Worker 使用同一配置，但也意味着当前不能在页面运行期间动态切换值。
 
@@ -373,6 +377,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 不同 Session 的 `OfflineAudioContext` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生采样率和渲染结果；
 - 不同 Session 的字体平台过滤可以分别使用各自目标平台，模块关闭或无 Profile 时保留原生字体选择；
 - 不同 Session 的 WebGL `readPixels()` 可以分别使用各自 seed，模块关闭或无 Profile 时保留原生结果；
+- 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -388,7 +393,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- FP-13/FP-14 的完整增量编译和运行时定向测试；
+- FP-13～FP-15 的完整增量编译和运行时定向测试；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
@@ -436,6 +441,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_apply_session_font_platform_filtering.patch` | 字体平台过滤补丁 |
 | `patches/chromium/fp_apply_session_client_rects_noise.patch` | ClientRects 噪声补丁 |
 | `patches/chromium/fp_apply_session_webgl_read_pixels_noise.patch` | WebGL `readPixels()` 像素噪声补丁 |
+| `patches/chromium/fp_disable_forced_webdriver.patch` | `navigator.webdriver` 强制标记修复补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |

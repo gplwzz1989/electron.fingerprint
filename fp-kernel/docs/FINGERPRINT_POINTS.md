@@ -31,7 +31,7 @@
 | FP-12 | Fonts | 字体可用性和字体集合 | `006-font-fingerprint.patch` | 已完成，持续回归 |
 | FP-13 | ClientRects | `getClientRects`、`getBoundingClientRect`、Range | `014-client-rects.patch` | 已完成，持续回归 |
 | FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 已实现，待编译和运行验证 |
-| FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 未开始 |
+| FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 已实现，待编译和运行验证 |
 | FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `010-headless.patch`、`001-disable-runtime.enable.patch` | 未开始，需单独评估兼容性 |
 | FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | 参考项目的统一转发思路 | 未开始 |
 | FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `default-webrtc-ip-handling-policy.patch` | 未开始，属于网络隐私边界 |
@@ -149,3 +149,10 @@
 | Profile A/B | `RGBA + UNSIGNED_BYTE` 的 WebGL `readPixels()` 分别使用各自 seed 生成不同结果 |
 | `modules.webgl=false` | 保留 Chromium 原生 WebGL 像素结果 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 WebGL 像素结果 |
+
+## FP-15 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| `AutomationControlled` 开启 | `navigator.webdriver` 保持 `false` |
+| 显式自动化探针覆盖 | 保留探针返回的自动化状态 |
