@@ -71,6 +71,7 @@
 #include "services/network/public/cpp/self_deleting_url_loader_factory.h"
 #include "services/network/public/cpp/url_loader_factory_builder.h"
 #include "shell/app/electron_crash_reporter_client.h"
+#include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 #include "shell/browser/api/electron_api_app.h"
 #include "shell/browser/api/electron_api_crash_reporter.h"
 #include "shell/browser/api/electron_api_protocol.h"
