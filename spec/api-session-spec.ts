@@ -1884,6 +1884,16 @@ describe('session module', () => {
       expect(ses.getFingerprintConfig()).to.equal(null);
     });
 
+    it('preserves the optional Runtime inspector setting', () => {
+      const ses = session.fromPartition(`fingerprint-runtime-inspector-${Math.random()}`) as any;
+      const configuredProfile = {
+        ...profile,
+        modules: { ...profile.modules, runtimeInspector: true }
+      };
+      ses.setFingerprintConfig(configuredProfile);
+      expect(ses.getFingerprintConfig()).to.deep.equal(configuredProfile);
+    });
+
     it('rejects invalid hardware values', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();

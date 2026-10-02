@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Fri, 2 Oct 2026 11:58:36 +0800
+Subject: [PATCH] fp: configure Runtime inspector exposure
+
+---
+ .../inspector/thread_debugger_common_impl.cc  | 28 ++++++++++++++++++-
+ .../inspector/thread_debugger_common_impl.h   |  2 ++
+ 2 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc b/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc
+index 5633978633d76..7a9ea40bda09b 100644
+--- a/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc
++++ b/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc
+@@ -5,8 +5,11 @@
+ #include "third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h"
+ 
+ #include <memory>
++#include <optional>
+ 
+ #include "base/check.h"
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
+ #include "base/rand_util.h"
+ #include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom-blink.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_evaluation_result.h"
+@@ -55,11 +58,34 @@
+ #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+ namespace blink {
+ 
++namespace {
++
++bool ReadRuntimeInspectorSetting() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (!command_line->HasSwitch("fingerprint-config")) return false;
++
++  std::optional<base::Value> config = base::JSONReader::Read(
++      command_line->GetSwitchValueASCII("fingerprint-config"));
++  if (!config || !config->is_dict()) return false;
++
++  const base::Value::Dict* modules = config->GetDict().FindDict("modules");
++  return modules && modules->FindBool("runtimeInspector").value_or(false);
++}
++
++}  // namespace
++
+ ThreadDebuggerCommonImpl::ThreadDebuggerCommonImpl(v8::Isolate* isolate)
+-    : ThreadDebugger(isolate), isolate_(isolate) {}
++    : ThreadDebugger(isolate),
++      isolate_(isolate),
++      reduce_runtime_inspector_exposure_(ReadRuntimeInspectorSetting()) {}
+ 
+ ThreadDebuggerCommonImpl::~ThreadDebuggerCommonImpl() = default;
+ 
++bool ThreadDebuggerCommonImpl::shouldReduceRuntimeInspectorExposure() {
++  return reduce_runtime_inspector_exposure_;
++}
++
+ // static
+ mojom::ConsoleMessageLevel
+ ThreadDebuggerCommonImpl::V8MessageLevelToMessageLevel(
+diff --git a/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h b/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h
+index dac9241c4969..838bdcde304f 100644
+--- a/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h
++++ b/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h
+@@ -99,6 +99,7 @@ class ThreadDebuggerCommonImpl : public ThreadDebugger {
+       v8::Isolate* isolate,
+       v8::Local<v8::String> label,
+       const v8::LocalVector<v8::Value>& args) override;
++  bool shouldReduceRuntimeInspectorExposure() override;
+ 
+   void startRepeatingTimer(double,
+                            v8_inspector::V8InspectorClient::TimerCallback,
+@@ -125,6 +126,7 @@ class ThreadDebuggerCommonImpl : public ThreadDebugger {
+   Vector<std::unique_ptr<TaskRunnerTimer<ThreadDebuggerCommonImpl>>> timers_;
+   Vector<v8_inspector::V8InspectorClient::TimerCallback> timer_callbacks_;
+   Vector<void*> timer_data_;
++  bool reduce_runtime_inspector_exposure_ = false;
+ };
+ 
+ }  // namespace blink
+--
+2.47.0.windows.2

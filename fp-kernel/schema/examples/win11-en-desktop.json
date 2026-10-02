@@ -8,5 +8,5 @@
   "screen": { "width": 2560, "height": 1440, "availWidth": 2560, "availHeight": 1400, "deviceScaleFactor": 1 },
   "graphics": { "webglVendor": "Google Inc. (Intel)", "webglRenderer": "ANGLE (Intel, Intel(R) UHD Graphics, D3D11)" },
   "noise": { "seed": "win11-en-desktop-stable", "canvas": false, "audio": false, "rects": false },
-  "modules": { "ua": true, "clientHints": true, "locale": true, "timezone": true, "navigator": true, "screen": true, "webgl": true, "canvas": false, "audio": false, "fonts": false, "webrtc": false }
+  "modules": { "ua": true, "clientHints": true, "locale": true, "timezone": true, "navigator": true, "screen": true, "webgl": true, "canvas": false, "audio": false, "fonts": false, "webrtc": false, "runtimeInspector": false }
 }

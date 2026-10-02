@@ -60,6 +60,9 @@ base::Value::Dict FingerprintConfig::ToValue() const {
   modules_value.Set("audio", modules.audio);
   modules_value.Set("fonts", modules.fonts);
   modules_value.Set("webrtc", modules.webrtc);
+  if (modules.runtime_inspector.has_value()) {
+    modules_value.Set("runtimeInspector", *modules.runtime_inspector);
+  }
 
   base::Value::Dict value;
   value.Set("schemaVersion", schema_version);

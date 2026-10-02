@@ -87,7 +87,8 @@
         "canvas": { "type": "boolean" },
         "audio": { "type": "boolean" },
         "fonts": { "type": "boolean" },
-        "webrtc": { "type": "boolean" }
+        "webrtc": { "type": "boolean" },
+        "runtimeInspector": { "type": "boolean" }
       }
     }
   }

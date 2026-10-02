@@ -157,4 +157,4 @@ fp_apply_session_client_rects_noise.patch
 fp_apply_session_webgl_read_pixels_noise.patch
 fp_disable_forced_webdriver.patch
 fp_hide_headless_chrome_product_name.patch
-fp_reduce_v8_runtime_inspector_exposure.patch
+fp_configurable_runtime_inspector_exposure.patch

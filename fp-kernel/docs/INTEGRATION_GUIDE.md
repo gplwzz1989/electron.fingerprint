@@ -38,8 +38,9 @@ ses.clearFingerprintConfig()
 - Chromium 基线：`138.0.7204.185`；
 - 目标平台：Windows x64；
 - 原生模块：同一 Electron 主版本通常可以复用，但仍必须执行项目自己的原生模块回归；
-- 远程调试：FP-16 会收敛 V8 Runtime Inspector 的部分暴露，依赖 CDP Runtime 绑定注入
-  或实时控制台事件的工具需要单独验证。
+- 远程调试：FP-16 的 Runtime Inspector 收敛是可选运行时参数；`modules.runtimeInspector`
+  未设置或为 `false` 时保持原生 CDP Runtime，只有为 `true` 时依赖 Runtime 绑定注入或
+  实时控制台事件的工具需要单独验证。
 
 ## 3. 推荐替换方式：使用运行时覆盖目录
 
@@ -161,7 +162,8 @@ const profile = {
     canvas: true,
     audio: true,
     fonts: true,
-    webrtc: true
+    webrtc: true,
+    runtimeInspector: false
   }
 }
 
@@ -240,7 +242,7 @@ ses.setFingerprintConfig(profile)
 | `screen` | `width`、`height`、`availWidth`、`availHeight`、`deviceScaleFactor` | 屏幕信息和 DPR |
 | `graphics` | `webglVendor`、`webglRenderer` | WebGL 调试信息中的 GPU 标识 |
 | `noise` | `seed`、`canvas`、`audio`、`rects` | 噪声种子和 Canvas、Audio、ClientRects 开关 |
-| `modules` | `ua`、`clientHints`、`locale`、`timezone`、`navigator`、`screen`、`webgl`、`canvas`、`audio`、`fonts`、`webrtc` | 各指纹模块的独立开关 |
+| `modules` | `ua`、`clientHints`、`locale`、`timezone`、`navigator`、`screen`、`webgl`、`canvas`、`audio`、`fonts`、`webrtc`、`runtimeInspector` | 各指纹模块的独立开关；`runtimeInspector` 控制 Runtime Inspector 暴露收敛 |
 
 重要规则：
 
@@ -251,6 +253,8 @@ ses.setFingerprintConfig(profile)
 - `deviceScaleFactor` 必须大于 `0`；
 - `browser.chromiumMajor` 当前必须为 `138`；
 - 未启用的模块回退到 Chromium 原生值；
+- `modules.runtimeInspector` 是可选运行时参数，未设置或为 `false` 时保持原生 CDP Runtime，设置为 `true` 时才收敛 Runtime Inspector 暴露；
+- Runtime Inspector 收敛不影响 CDP `Page`、`Input` 等鼠标键盘自动化接口；
 - Profile 含有未知字段时会被拒绝，不会静默忽略。
 
 如果要让页面 User-Agent 和请求 User-Agent 同时变化，应设置非空的
@@ -335,8 +339,8 @@ ses.setFingerprintConfig({
   设置的。
 - 启动器仍使用旧 Electron：确认 `ELECTRON_OVERRIDE_DIST_PATH` 设置在启动项目的同一
   PowerShell 会话中。
-- DevTools 或自动化工具行为变化：重点检查 CDP `Runtime.addBinding`、
-  `Runtime.consoleAPICalled` 和执行上下文事件。
+- DevTools 或自动化工具行为变化：确认是否显式设置了 `modules.runtimeInspector=true`；如未设置
+  或为 `false`，重点检查 CDP `Runtime.addBinding`、`Runtime.consoleAPICalled` 和执行上下文事件。
 
 ## 10. 正式交付注意事项
 
@@ -345,5 +349,5 @@ ses.setFingerprintConfig({
 1. 使用正式发布配置重新构建，而不是直接把测试目录打包发布；
 2. 保留与目标 Electron 版本匹配的完整运行时文件；
 3. 重新执行项目的原生模块、窗口、网络、自动更新和崩溃恢复测试；
-4. 对使用 CDP 的自动化流程执行 Runtime 域兼容性回归；
+4. 对显式启用 `modules.runtimeInspector=true` 的 CDP 自动化流程执行 Runtime 域兼容性回归；
 5. 完成 Windows 签名和发布包验证。

@@ -14,7 +14,7 @@
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
-硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas、Audio 与字体部分指纹点的早期版本，并已加入 Headless UA 与 V8 Runtime Agent 的最小补丁，兼容性仍待验证。
+硬件指纹、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas、Audio 与字体部分指纹点的早期版本，并已加入 Headless UA 与可选的 V8 Runtime Inspector 收敛补丁，兼容性仍待验证。
 
 | 评估项 | 当前结论 |
 | --- | --- |
@@ -26,6 +26,7 @@
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects、WebRTC IP 处理策略 |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
 | 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
+| FP-16 默认行为 | `modules.runtimeInspector` 未设置或为 `false` 时保持原生 CDP Runtime；只有显式为 `true` 时收敛 Runtime Inspector 暴露 |
 | 编译状态 | FP-12 已验证；FP-13～FP-18 代码、测试和文档已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
@@ -395,7 +396,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - `modules.webrtc=true` 时的 ICE 收集不会产生非代理 UDP 主机候选；
 - 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
 - Headless UA 不再主动包含 `HeadlessChrome` 产品名；
-- V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；
+- `modules.runtimeInspector=true` 时，V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；未设置或为 `false` 时保持原生 CDP Runtime；
 - 页面、普通 Worker 和 ServiceWorker 使用同一 Session 的硬件值和 User-Agent；
 - 页面、普通 Worker 和 ServiceWorker 请求使用同一 Session 的 User-Agent 与 `Accept-Language`；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
@@ -430,7 +431,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 已完成全量浏览器指纹伪装；
 - 已覆盖 User-Agent、Client Hints、Locale 和 Timezone 的已实现路径，但不代表所有协商请求头场景；
 - WebGL 像素当前仅实现 `RGBA + UNSIGNED_BYTE` 读回路径，完整格式覆盖仍待验证；
-- 已隐藏 Headless、CDP 或 WebDriver 特征；
+- 已默认隐藏 Headless 产品名；Runtime Inspector 收敛仅在 `modules.runtimeInspector=true` 时生效，不能宣称已强制隐藏所有 CDP 特征；
 - WebRTC 真实 ICE 候选和代理组合验证尚未完成。
 
 ### 8.2 建议优先级
@@ -465,7 +466,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_apply_session_webgl_read_pixels_noise.patch` | WebGL `readPixels()` 像素噪声补丁 |
 | `patches/chromium/fp_disable_forced_webdriver.patch` | `navigator.webdriver` 强制标记修复补丁 |
 | `patches/chromium/fp_hide_headless_chrome_product_name.patch` | Headless UA 产品名隐藏补丁 |
-| `patches/chromium/fp_reduce_v8_runtime_inspector_exposure.patch` | V8 Runtime Agent 暴露收敛补丁 |
+| `patches/v8/fp_reduce_v8_runtime_inspector_exposure.patch` | V8 Runtime Inspector 暴露收敛补丁 |
+| `patches/chromium/fp_configurable_runtime_inspector_exposure.patch` | 从 Session Profile 读取 `modules.runtimeInspector` 的 Chromium 补丁 |
 | `shell/browser/api/electron_api_session.cc` | 设置 Profile 时同步更新已有 NetworkContext 的 `Accept-Language` |
 | `fp-kernel/schema/fingerprint-profile.schema.json` | Profile Schema 版本 1 |
 | `spec/api-session-spec.ts` | Session 指纹 API 和隔离测试 |

@@ -5,6 +5,7 @@
 #ifndef ELECTRON_SHELL_BROWSER_FINGERPRINT_FINGERPRINT_CONFIG_H_
 #define ELECTRON_SHELL_BROWSER_FINGERPRINT_FINGERPRINT_CONFIG_H_
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,7 @@ struct ModuleFlags {
   bool audio = false;
   bool fonts = false;
   bool webrtc = false;
+  std::optional<bool> runtime_inspector;
 };
 
 struct FingerprintConfig {

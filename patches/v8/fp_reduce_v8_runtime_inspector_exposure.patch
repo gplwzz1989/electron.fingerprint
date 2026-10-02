@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Fri, 2 Oct 2026 08:32:32 +0800
+Subject: [PATCH] fp: reduce V8 Runtime inspector exposure
+
+---
+ include/v8-inspector.h                 |  1 +
+ src/inspector/v8-runtime-agent-impl.cc | 13 ++++++++++---
+ src/inspector/v8-runtime-agent-impl.h  |  5 ++++ -
+ 3 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/include/v8-inspector.h b/include/v8-inspector.h
+index 0992cb1c3cb..db05242744a 100644
+--- a/include/v8-inspector.h
++++ b/include/v8-inspector.h
+@@ -293,6 +293,7 @@ class V8_EXPORT V8InspectorClient {
+                                  const StringView& message,
+                                  const StringView& url, unsigned lineNumber,
+                                  unsigned columnNumber, V8StackTrace*) {}
++  virtual bool shouldReduceRuntimeInspectorExposure() { return false; }
+   virtual v8::MaybeLocal<v8::Value> memoryInfo(v8::Isolate*,
+                                                v8::Local<v8::Context>) {
+     return v8::MaybeLocal<v8::Value>();
+diff --git a/src/inspector/v8-runtime-agent-impl.cc b/src/inspector/v8-runtime-agent-impl.cc
+index 24d69d3264e..524b68a6a96 100644
+--- a/src/inspector/v8-runtime-agent-impl.cc
++++ b/src/inspector/v8-runtime-agent-impl.cc
+@@ -894,6 +894,8 @@ protocol::DictionaryValue* getOrCreateDictionary(
+ Response V8RuntimeAgentImpl::addBinding(
+     const String16& name, std::optional<int> executionContextId,
+     std::optional<String16> executionContextName) {
++  if (m_inspector->client()->shouldReduceRuntimeInspectorExposure())
++    return Response::Success();
+   if (executionContextId.has_value()) {
+     if (executionContextName.has_value()) {
+       return Response::InvalidParams(
+@@ -1041,6 +1043,7 @@ void V8RuntimeAgentImpl::bindingCalled(const String16& name,
+ }
+ 
+ void V8RuntimeAgentImpl::addBindings(InspectedContext* context) {
++  if (m_inspector->client()->shouldReduceRuntimeInspectorExposure()) return;
+   const String16 contextName = context->humanReadableName();
+   if (!m_enabled) return;
+   protocol::DictionaryValue* bindings =
+@@ -1093,8 +1096,10 @@ Response V8RuntimeAgentImpl::enable() {
+   m_session->reportAllContexts(this);
+   V8ConsoleMessageStorage* storage =
+       m_inspector->ensureConsoleMessageStorage(m_session->contextGroupId());
+-  for (const auto& message : storage->messages()) {
+-    if (!reportMessage(message.get(), false)) break;
++  if (!m_inspector->client()->shouldReduceRuntimeInspectorExposure()) {
++    for (const auto& message : storage->messages()) {
++      if (!reportMessage(message.get(), false)) break;
++    }
+   }
+   return Response::Success();
+ }
+@@ -1170,7 +1175,9 @@ void V8RuntimeAgentImpl::inspect(
+ }
+ 
+ void V8RuntimeAgentImpl::messageAdded(V8ConsoleMessage* message) {
+-  if (m_enabled) reportMessage(message, true);
++  if (!m_inspector->client()->shouldReduceRuntimeInspectorExposure() &&
++      m_enabled)
++    reportMessage(message, true);
+ }
+ 
+ bool V8RuntimeAgentImpl::reportMessage(V8ConsoleMessage* message,
+diff --git a/src/inspector/v8-runtime-agent-impl.h b/src/inspector/v8-runtime-agent-impl.h
+index b0efbe69a86..e64dc008a0b 100644
+--- a/src/inspector/v8-runtime-agent-impl.h
++++ b/src/inspector/v8-runtime-agent-impl.h
+@@ -160,7 +160,10 @@ class V8RuntimeAgentImpl : public protocol::Runtime::Backend {
+                std::unique_ptr<protocol::DictionaryValue> hints,
+                int executionContextId);
+   void messageAdded(V8ConsoleMessage*);
+-  bool enabled() const { return m_enabled; }
++  bool enabled() const {
++    return !m_inspector->client()->shouldReduceRuntimeInspectorExposure() &&
++           m_enabled;
++  }
+ 
+  private:
+   bool reportMessage(V8ConsoleMessage*, bool generatePreview);
+--
+2.47.0.windows.2
