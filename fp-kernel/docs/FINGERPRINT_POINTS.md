@@ -33,7 +33,7 @@
 | FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 已实现，待编译和运行验证 |
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 已实现，待编译和运行验证 |
 | FP-16 | Headless 与 CDP 特征 | Headless UA、Runtime Agent | `fp_hide_headless_chrome_product_name.patch`、`fp_reduce_v8_runtime_inspector_exposure.patch` | 已实现，待编译和运行验证 |
-| FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | 参考项目的统一转发思路 | 未开始 |
+| FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | `ElectronBrowserClient::AppendExtraCommandLineSwitches` 与 Session NetworkContext | 已实现，待编译和运行验证 |
 | FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `default-webrtc-ip-handling-policy.patch` | 未开始，属于网络隐私边界 |
 
 ## 每个指纹点的完成门槛
@@ -165,3 +165,11 @@
 | Runtime Agent | 不主动暴露 Runtime bindings、console message 和 enabled 状态 |
 | 非 Headless 页面 | 保持 Chromium 原生 User-Agent 行为 |
 | 未启用远程调试 | 不新增额外 Runtime Agent 暴露 |
+
+## FP-17 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| 页面、普通 Worker、ServiceWorker | `hardwareConcurrency` 和 `navigator.userAgent` 使用同一 Session 配置 |
+| 页面、普通 Worker、ServiceWorker 请求 | `User-Agent` 和 `Accept-Language` 请求头保持一致 |
+| 无 Profile 或配置关闭 | 保留 Chromium 原生值和请求头行为 |

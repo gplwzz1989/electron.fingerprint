@@ -25,8 +25,8 @@
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、WebRTC 等 |
-| 编译状态 | FP-12 已验证；FP-13～FP-16 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
+| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、WebRTC 等 |
+| 编译状态 | FP-12 已验证；FP-13～FP-17 代码、测试和补丁已提交，Electron 增量编译与运行测试待验证 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -162,7 +162,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，待验证 | 对 `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 应用 Session seed 噪声；其他格式保留原生结果 |
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
-| Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 部分具备基础传输 | 普通 Worker 的 `hardwareConcurrency` 已测试；ServiceWorker、请求头和其他上下文尚未完成一致性验证 |
+| Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
 | WebRTC 网络地址 | 当前没有可生效字段 | 未实现 | 尚未处理 ICE 候选和非代理 UDP 地址暴露 |
 
 ### 4.1 当前已生效的指纹点
@@ -388,6 +388,8 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 开启 Blink `AutomationControlled` 功能时，`navigator.webdriver` 保持 `false`，显式自动化探针仍可覆盖；
 - Headless UA 不再主动包含 `HeadlessChrome` 产品名；
 - V8 Runtime Agent 不主动暴露 bindings、console message 和 enabled 状态；
+- 页面、普通 Worker 和 ServiceWorker 使用同一 Session 的硬件值和 User-Agent；
+- 页面、普通 Worker 和 ServiceWorker 请求使用同一 Session 的 User-Agent 与 `Accept-Language`；
 - 无 Profile、`enabled=false` 的 Session 使用原始值；
 - Window 与普通 Worker 的值保持一致。
 
@@ -403,8 +405,9 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- FP-13～FP-16 的完整增量编译和运行时定向测试；
+- FP-13～FP-17 的完整增量编译和运行时定向测试；
 - FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
+- FP-17 的 ServiceWorker 启动、重启和跨进程请求头回归；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 的一致性验证；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
@@ -426,7 +429,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 建议后续按以下顺序推进：
 
-1. 验证 WebGL 像素和 FP-16 运行时实现，并处理 WebRTC 等高兼容性风险点；
+1. 验证 WebGL 像素、FP-16/FP-17 运行时实现，并处理 WebRTC 等高兼容性风险点；
 2. 将 C++ 解析器与 JSON Schema 的未知字段、字符串格式和范围约束统一起来；
 3. 在每个指纹点完成“无 Profile、Profile A、Profile B、禁用模块、跨上下文”测试后，再更新支持矩阵。
 

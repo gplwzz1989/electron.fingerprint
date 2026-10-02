@@ -19,5 +19,6 @@
 | FP-14 | 已实现，待验证 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 已使用 Session seed 生成稳定像素噪声；Session 隔离、模块关闭/无 Profile 回退测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 | FP-15 | 已实现，待验证 | `AutomationControlled` 开启时不再强制暴露 `navigator.webdriver=true`，保留显式自动化探针覆盖；定向测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 | FP-16 | 已实现，待验证 | Headless UA 已隐藏 `HeadlessChrome` 产品名；V8 Runtime Agent 已降低 bindings、console message 和 enabled 状态暴露；补丁登记已完成，Electron 增量编译、DevTools/自动化兼容性和运行测试待验证 |
+| FP-17 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 的指纹配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`；端到端回归测试已补充，增量编译和运行验证待完成 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
