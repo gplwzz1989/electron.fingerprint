@@ -171,8 +171,11 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   config.hardware.hardware_concurrency = *hardware_concurrency;
   config.hardware.device_memory_gb = *device_memory;
   config.hardware.platform = *platform;
-  if (config.hardware.platform != "Win32") {
-    SetError(error_message, "Fingerprint 首版仅支持 Win32 平台");
+  if (config.hardware.platform != "Win32" &&
+      config.hardware.platform != "MacIntel" &&
+      config.hardware.platform != "Linux x86_64") {
+    SetError(error_message,
+             "Fingerprint 平台必须为 Win32、MacIntel 或 Linux x86_64");
     return std::nullopt;
   }
 

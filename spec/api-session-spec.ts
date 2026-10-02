@@ -1887,6 +1887,7 @@ describe('session module', () => {
     it('rejects invalid hardware values', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
+      expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, platform: 'Android' } })).to.throw('平台');
     });
 
     it('isolates WebRTC IP handling policy between sessions', async () => {
