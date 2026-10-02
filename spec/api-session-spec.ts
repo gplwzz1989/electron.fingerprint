@@ -1890,6 +1890,7 @@ describe('session module', () => {
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, platform: 'Android' } })).to.throw('平台');
       expect(() => ses.setFingerprintConfig({ ...profile, unexpected: true })).to.throw('不支持字段');
       expect(() => ses.setFingerprintConfig({ ...profile, browser: { ...profile.browser, unexpected: true } })).to.throw('不支持字段');
+      expect(() => ses.setFingerprintConfig({ ...profile, browser: { ...profile.browser, userAgent: 123 } })).to.throw('字符串或 null');
       expect(() => ses.setFingerprintConfig({ ...profile, locale: { ...profile.locale, language: 'z' } })).to.throw('至少需要 2 个字符');
       expect(() => ses.setFingerprintConfig({ ...profile, locale: { ...profile.locale, languages: ['z'] } })).to.throw('长度至少为 2');
     });

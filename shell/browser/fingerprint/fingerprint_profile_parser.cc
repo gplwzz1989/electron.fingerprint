@@ -190,8 +190,14 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   }
   config.browser.chromium_major = *chromium_major;
   config.browser.accept_language = *accept_language;
-  if (const auto* user_agent = browser->FindString("userAgent"))
-    config.browser.user_agent = *user_agent;
+  if (const auto* user_agent_value = browser->Find("userAgent")) {
+    if (!user_agent_value->is_none() && !user_agent_value->is_string()) {
+      SetError(error_message, "Fingerprint userAgent 必须是字符串或 null");
+      return std::nullopt;
+    }
+    if (const auto* user_agent = user_agent_value->GetIfString())
+      config.browser.user_agent = *user_agent;
+  }
 
   const auto* language = FindString(*locale, "language", error_message);
   const auto* timezone = FindString(*locale, "timezone", error_message);
