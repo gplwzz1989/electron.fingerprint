@@ -1009,6 +1009,14 @@ void Session::SetFingerprintConfig(gin_helper::ErrorThrower thrower,
     return;
   }
   browser_context_->fingerprint_context()->SetConfig(std::move(*config));
+  const auto* fingerprint_config =
+      browser_context_->fingerprint_context()->GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.locale) {
+    browser_context_->GetDefaultStoragePartition()
+        ->GetNetworkContext()
+        ->SetAcceptLanguage(fingerprint_config->browser.accept_language);
+  }
 }
 
 v8::Local<v8::Value> Session::GetFingerprintConfig(v8::Isolate* isolate) {

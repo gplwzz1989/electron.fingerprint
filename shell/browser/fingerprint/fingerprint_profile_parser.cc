@@ -20,7 +20,7 @@ bool ValidateKeys(const base::Value::Dict& value,
                   std::string_view section,
                   std::initializer_list<std::string_view> allowed_keys,
                   std::string* error_message) {
-  for (const auto& entry : value) {
+  for (const auto entry : value) {
     bool known_key = false;
     for (const auto allowed_key : allowed_keys) {
       if (entry.first == allowed_key) {

@@ -23,3 +23,5 @@
 | FP-18 | 已实现，待验证 | `modules.webrtc` 已在 Electron `RendererPreferences` 入口启用 `disable_non_proxied_udp`；Session 隔离、模块关闭、无 Profile 回退和真实 ICE 候选测试已补充，增量编译与运行验证待完成 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
+
+2026-10-02 已将构建目录中的补充改动同步回主仓库：Navigator 设备内存补丁及登记、Session 的 UA/Client Hints/语言入口、指纹类型的编译适配，以及 WebGL 缓冲区检查和 V8 Runtime 方法定义的后续修复补丁。保留原有完整测试与配置字段；Chromium/V8 子模块的其他版本差异不纳入提交。这次归档不表示最新 Release 构建和全部功能已重新实测通过。

@@ -71,6 +71,7 @@
 #include "services/network/public/cpp/self_deleting_url_loader_factory.h"
 #include "services/network/public/cpp/url_loader_factory_builder.h"
 #include "shell/app/electron_crash_reporter_client.h"
+#include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 #include "shell/browser/api/electron_api_app.h"
 #include "shell/browser/api/electron_api_crash_reporter.h"
 #include "shell/browser/api/electron_api_protocol.h"
@@ -612,7 +613,7 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
         std::string serialized_config;
         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
                                     &serialized_config)) {
-          command_line->AppendSwitchASCII(options::kFingerprintConfig,
+          command_line->AppendSwitchASCII(switches::kFingerprintConfig,
                                           serialized_config);
         }
       }
@@ -1066,6 +1067,12 @@ std::string ElectronBrowserClient::GetUserAgent() {
 
 void ElectronBrowserClient::SetUserAgent(const std::string& user_agent) {
   user_agent_override_ = user_agent;
+}
+
+std::string ElectronBrowserClient::GetUserAgentBasedOnPolicy(
+    content::BrowserContext* context) {
+  auto* browser_context = static_cast<ElectronBrowserContext*>(context);
+  return browser_context->GetUserAgent();
 }
 
 blink::UserAgentMetadata ElectronBrowserClient::GetUserAgentMetadata() {

@@ -1894,6 +1894,20 @@ describe('session module', () => {
       expect(ses.getFingerprintConfig()).to.deep.equal(configuredProfile);
     });
 
+    it('保留显式关闭的调试器选项并拒绝无效类型', () => {
+      const ses = session.fromPartition(`fingerprint-runtime-inspector-false-${Math.random()}`) as any;
+      const configuredProfile = {
+        ...profile,
+        modules: { ...profile.modules, runtimeInspector: false }
+      };
+      ses.setFingerprintConfig(configuredProfile);
+      expect(ses.getFingerprintConfig()).to.deep.equal(configuredProfile);
+      expect(() => ses.setFingerprintConfig({
+        ...profile,
+        modules: { ...profile.modules, runtimeInspector: 'false' }
+      })).to.throw();
+    });
+
     it('rejects invalid hardware values', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();

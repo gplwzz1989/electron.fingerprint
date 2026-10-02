@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Fri, 2 Oct 2026 23:00:00 +0800
+Subject: [PATCH] 将 Runtime enabled 方法移至实现文件以修复类型不完整的编译错误
+
+diff --git a/src/inspector/v8-runtime-agent-impl.cc b/src/inspector/v8-runtime-agent-impl.cc
+index 524b68a6a96..44cd710e180 100644
+--- a/src/inspector/v8-runtime-agent-impl.cc
++++ b/src/inspector/v8-runtime-agent-impl.cc
+@@ -351,6 +351,11 @@ V8RuntimeAgentImpl::V8RuntimeAgentImpl(
+ 
+ V8RuntimeAgentImpl::~V8RuntimeAgentImpl() = default;
+ 
++bool V8RuntimeAgentImpl::enabled() const {
++  return !m_inspector->client()->shouldReduceRuntimeInspectorExposure() &&
++         m_enabled;
++}
++
+ void V8RuntimeAgentImpl::evaluate(
+     const String16& expression, std::optional<String16> objectGroup,
+     std::optional<bool> includeCommandLineAPI, std::optional<bool> silent,
+diff --git a/src/inspector/v8-runtime-agent-impl.h b/src/inspector/v8-runtime-agent-impl.h
+index e64dc008a0b..4bb212766c3 100644
+--- a/src/inspector/v8-runtime-agent-impl.h
++++ b/src/inspector/v8-runtime-agent-impl.h
+@@ -160,10 +160,7 @@ class V8RuntimeAgentImpl : public protocol::Runtime::Backend {
+                std::unique_ptr<protocol::DictionaryValue> hints,
+                int executionContextId);
+   void messageAdded(V8ConsoleMessage*);
+-  bool enabled() const {
+-    return !m_inspector->client()->shouldReduceRuntimeInspectorExposure() &&
+-           m_enabled;
+-  }
++  bool enabled() const;
+ 
+  private:
+   bool reportMessage(V8ConsoleMessage*, bool generatePreview);
+

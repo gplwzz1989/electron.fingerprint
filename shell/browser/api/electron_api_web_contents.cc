@@ -23,6 +23,7 @@
 #include "base/json/json_reader.h"
 #include "base/no_destructor.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -921,15 +922,26 @@ void WebContents::InitWithSessionAndOptions(
   // Note that an application locale set to the browser process might be
   // different with the one set to the preference list.
   // (e.g. overridden with --lang)
-  std::string accept_languages =
-      g_browser_process->GetApplicationLocale() + ",";
-  for (auto const& language : electron::GetPreferredLanguages()) {
-    if (language == g_browser_process->GetApplicationLocale())
-      continue;
-    accept_languages += language + ",";
+  const auto* browser_context =
+      static_cast<ElectronBrowserContext*>(web_contents()->GetBrowserContext());
+  const auto* fingerprint_config =
+      browser_context->fingerprint_context()->GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.locale &&
+      !fingerprint_config->locale.languages.empty()) {
+    prefs->accept_languages =
+        base::JoinString(fingerprint_config->locale.languages, ",");
+  } else {
+    std::string accept_languages =
+        g_browser_process->GetApplicationLocale() + ",";
+    for (auto const& language : electron::GetPreferredLanguages()) {
+      if (language == g_browser_process->GetApplicationLocale())
+        continue;
+      accept_languages += language + ",";
+    }
+    accept_languages.pop_back();
+    prefs->accept_languages = accept_languages;
   }
-  accept_languages.pop_back();
-  prefs->accept_languages = accept_languages;
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   // Update font settings.
@@ -2698,8 +2710,13 @@ void WebContents::ForcefullyCrashRenderer() {
 void WebContents::SetUserAgent(const std::string& user_agent) {
   blink::UserAgentOverride ua_override;
   ua_override.ua_string_override = user_agent;
-  if (!user_agent.empty())
-    ua_override.ua_metadata_override = embedder_support::GetUserAgentMetadata();
+  if (!user_agent.empty()) {
+    auto metadata = embedder_support::GetUserAgentMetadata();
+    if (const auto* config =
+            GetBrowserContext()->fingerprint_context()->GetConfig())
+      fingerprint::ApplyClientHintsOverride(*config, &metadata);
+    ua_override.ua_metadata_override = std::move(metadata);
+  }
 
   web_contents()->SetUserAgentOverride(ua_override, false);
 }

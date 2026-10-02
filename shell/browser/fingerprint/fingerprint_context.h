@@ -8,13 +8,14 @@
 #include <cstdint>
 #include <optional>
 
-#include "shell/browser/fingerprint/fingerprint_config.h"
+#include "electron/shell/browser/fingerprint/fingerprint_config.h"
 
 namespace electron::fingerprint {
 
 class FingerprintContext {
  public:
-  FingerprintContext() = default;
+  FingerprintContext();
+  ~FingerprintContext();
   FingerprintContext(const FingerprintContext&) = delete;
   FingerprintContext& operator=(const FingerprintContext&) = delete;
 

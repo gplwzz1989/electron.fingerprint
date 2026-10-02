@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Fri, 2 Oct 2026 23:00:00 +0800
+Subject: [PATCH] 修复指纹 WebGL 噪声处理的缓冲区编译检查
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index ea1a43e4c70b1..4910ab4aee04c 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -259,14 +259,16 @@ void ApplyFingerprintWebGLNoise(const String& seed,
+                        String::FromUTF8("webgl"));
+ 
+   if (row_size == aligned_row_size) {
+-    NoisePixels(token_hash, base::span<uint8_t>(data, pixel_data_size), width,
+-                height);
++    NoisePixels(token_hash,
++                UNSAFE_BUFFERS(base::span<uint8_t>(data, pixel_data_size)),
++                width, height);
+     return;
+   }
+ 
+   std::vector<uint8_t> contiguous_pixels(pixel_data_size);
+   for (GLsizei y = 0; y < height; ++y) {
+-    std::copy_n(data + static_cast<size_t>(y) * aligned_row_size, row_size,
++    std::copy_n(UNSAFE_BUFFERS(data + static_cast<size_t>(y) * aligned_row_size),
++                row_size,
+                 contiguous_pixels.begin() +
+                     static_cast<size_t>(y) * row_size);
+   }
+@@ -274,7 +276,8 @@ void ApplyFingerprintWebGLNoise(const String& seed,
+               height);
+   for (GLsizei y = 0; y < height; ++y) {
+     std::copy_n(contiguous_pixels.begin() + static_cast<size_t>(y) * row_size,
+-                row_size, data + static_cast<size_t>(y) * aligned_row_size);
++                row_size,
++                UNSAFE_BUFFERS(data + static_cast<size_t>(y) * aligned_row_size));
+   }
+ }
+

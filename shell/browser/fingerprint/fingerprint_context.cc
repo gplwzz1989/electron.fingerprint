@@ -8,6 +8,10 @@
 
 namespace electron::fingerprint {
 
+FingerprintContext::FingerprintContext() = default;
+
+FingerprintContext::~FingerprintContext() = default;
+
 void FingerprintContext::SetConfig(FingerprintConfig config) {
   config_ = std::move(config);
   ++revision_;

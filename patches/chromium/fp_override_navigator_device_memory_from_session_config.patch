@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Thu, 1 Oct 2026 00:00:00 +0800
+Subject: fp: override navigator device memory from session config
+
+读取 Renderer 启动参数中的 Session 指纹配置，在 Navigator 入口覆盖
+deviceMemory；未启用或配置无效时保留 Chromium 原始值。
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.cc b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+index 2876aad29853b..7cc6340bcd12d 100644
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.cc
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_device_memory.h"
+ 
++#include <optional>
++
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ #include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
+ #include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
+@@ -12,8 +16,52 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
+ namespace blink {
++namespace {
++
++std::optional<float> GetFingerprintDeviceMemoryOverride() {
++  static const std::optional<float> override_value =
++      []() -> std::optional<float> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    if (!root.FindBool("enabled").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* modules = root.FindDict("modules");
++    if (!modules || !modules->FindBool("navigator").value_or(false))
++      return std::nullopt;
++
++    const base::Value::Dict* hardware = root.FindDict("hardware");
++    if (!hardware)
++      return std::nullopt;
++
++    const std::optional<int> device_memory =
++        hardware->FindInt("deviceMemory");
++    if (!device_memory || *device_memory < 1 || *device_memory > 1024)
++      return std::nullopt;
++
++    return static_cast<float>(*device_memory);
++  }();
++
++  return override_value;
++}
++
++}  // namespace
+ 
+ float NavigatorDeviceMemory::deviceMemory() const {
++  if (const std::optional<float> override_value =
++          GetFingerprintDeviceMemoryOverride()) {
++    return *override_value;
++  }
++
+   return ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+ }
+

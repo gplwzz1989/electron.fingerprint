@@ -6,7 +6,43 @@
 
 #include <utility>
 
+#include "base/strings/string_number_conversions.h"
+#include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+
 namespace electron::fingerprint {
+
+LocaleFingerprint::LocaleFingerprint() = default;
+
+LocaleFingerprint::LocaleFingerprint(const LocaleFingerprint&) = default;
+
+LocaleFingerprint::~LocaleFingerprint() = default;
+
+ModuleFlags::ModuleFlags() = default;
+
+ModuleFlags::ModuleFlags(const ModuleFlags&) = default;
+
+ModuleFlags& ModuleFlags::operator=(const ModuleFlags&) = default;
+
+FingerprintConfig::FingerprintConfig() = default;
+
+FingerprintConfig::FingerprintConfig(const FingerprintConfig&) = default;
+
+FingerprintConfig::~FingerprintConfig() = default;
+
+void ApplyClientHintsOverride(const FingerprintConfig& config,
+                              blink::UserAgentMetadata* metadata) {
+  if (!metadata || !config.enabled || !config.modules.client_hints)
+    return;
+
+  const std::string major_version =
+      base::NumberToString(config.browser.chromium_major);
+  const std::string full_version = major_version + ".0.0.0";
+  for (auto& brand : metadata->brand_version_list)
+    brand.version = major_version;
+  for (auto& brand : metadata->brand_full_version_list)
+    brand.version = full_version;
+  metadata->full_version = full_version;
+}
 
 base::Value::Dict FingerprintConfig::ToValue() const {
   base::Value::Dict browser_value;

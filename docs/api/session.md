@@ -1269,7 +1269,7 @@ Returns `string` - The user agent for this session.
 
 #### `ses.setFingerprintConfig(config)`
 
-* `config` Object
+* `config` `Record<string, any>`
 
 Sets the Fingerprint Profile for this session. The configuration is scoped to
 the session's BrowserContext and must be set before the first navigation.
@@ -1281,7 +1281,7 @@ The first schema version supports the fields documented in
 
 #### `ses.getFingerprintConfig()`
 
-Returns `Object | null` - The configured Fingerprint Profile, or `null` when
+Returns `Record<string, any> | null` - The configured Fingerprint Profile, or `null` when
 the session has no profile.
 
 #### `ses.clearFingerprintConfig()`
