@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>多标签指纹浏览器</title>
+  <link rel="stylesheet" href="browser.css">
+</head>
+<body>
+  <header id="browser-chrome">
+    <div class="tabs-row">
+      <div id="tabs" role="tablist" aria-label="独立指纹标签"></div>
+      <label class="profile-picker">
+        <span class="sr-only">新标签使用的指纹配置</span>
+        <select id="profile-picker"></select>
+      </label>
+      <button id="new-tab" type="button">新建标签</button>
+      <button id="dashboard" type="button">配置管理</button>
+    </div>
+    <form id="navigation" class="navigation">
+      <button id="back" type="button" aria-label="后退" disabled>后退</button>
+      <button id="forward" type="button" aria-label="前进" disabled>前进</button>
+      <button id="reload" type="button" disabled>刷新</button>
+      <label class="address-field">
+        <span class="sr-only">当前标签网址</span>
+        <input id="address" placeholder="请输入 http 或 https 网址" autocomplete="off" spellcheck="false">
+      </label>
+      <button id="go" type="submit" disabled>打开</button>
+    </form>
+    <div class="tab-info">
+      <div id="fingerprint-summary">每个标签独立存储数据，独立加载指纹。</div>
+      <div class="details"><span id="data-dir"></span><span id="status" role="status" aria-live="polite"></span></div>
+    </div>
+  </header>
+  <main class="empty-browser">
+    <h1>多标签指纹浏览器</h1>
+    <p>选择指纹配置，点击“新建标签”开始浏览。</p>
+    <p>即使使用同一个配置，新建标签也不会共享 Cookie、缓存和本地存储。</p>
+  </main>
+  <script src="browser.js"></script>
+</body>
+</html>

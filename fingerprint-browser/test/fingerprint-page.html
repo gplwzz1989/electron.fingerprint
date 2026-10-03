@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>标签指纹实测</title>
+  <style>
+    body { margin: 0; padding: 20px 32px; background: #10141c; color: #f2f5f8; font: 14px "Microsoft YaHei", sans-serif; }
+    h1 { margin: 0 0 12px; font-size: 28px; }
+    p { color: #a9b7cb; }
+    table { width: 100%; border-collapse: collapse; background: #182130; }
+    th, td { text-align: left; padding: 8px 16px; border-bottom: 1px solid #354052; }
+    th { width: 240px; color: #a9b7cb; font-weight: 400; }
+    td { color: #9dc0ff; font: 14px Consolas, "Microsoft YaHei", monospace; overflow-wrap: anywhere; }
+    #ready { color: #69d5ad; }
+  </style>
+</head>
+<body>
+  <h1>当前标签的真实页面指纹</h1>
+  <p>下表由本页面读取浏览器接口生成，不是配置预览，也没有改写浏览器指纹接口。</p>
+  <table id="signals"></table>
+  <p id="ready">正在读取…</p>
+  <script>
+    async function readFingerprint () {
+      const canvas = document.createElement('canvas')
+      const gl = canvas.getContext('webgl')
+      const debug = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      const headers = await (await fetch('/headers')).json()
+      const signals = {
+        language: navigator.language,
+        languages: [...navigator.languages],
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory,
+        platform: navigator.platform,
+        screenWidth: screen.width,
+        screenHeight: screen.height,
+        webglVendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : '不可用',
+        webglRenderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : '不可用',
+        acceptLanguage: headers.acceptLanguage,
+        userAgent: navigator.userAgent
+      }
+      const labels = {
+        language: '主语言', languages: '语言列表', timezone: '时区', hardwareConcurrency: '处理器线程数',
+        deviceMemory: '设备内存（GB）', platform: '平台', screenWidth: '屏幕宽度', screenHeight: '屏幕高度',
+        webglVendor: '显卡厂商', webglRenderer: '显卡渲染器', acceptLanguage: '请求语言', userAgent: '浏览器标识'
+      }
+      for (const [key, value] of Object.entries(signals)) {
+        const row = document.createElement('tr')
+        const label = document.createElement('th')
+        const cell = document.createElement('td')
+        label.textContent = labels[key]
+        cell.textContent = Array.isArray(value) ? value.join(', ') : String(value)
+        row.append(label, cell)
+        document.querySelector('#signals').append(row)
+      }
+      window.testSignals = signals
+      document.querySelector('#ready').textContent = '页面读取成功 · 可切换顶部标签对比指纹'
+    }
+    void readFingerprint()
+  </script>
+</body>
+</html>

@@ -972,6 +972,10 @@ bool ElectronBrowserClient::HandleExternalProtocol(
     content::RenderFrameHost* initiator_document,
     const net::IsolationInfo& isolation_info,
     mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) {
+  if (!is_primary_main_frame && !has_user_gesture) {
+    // 与 Chrome、Edge 一致，阻止网页隐藏 iframe 在没有用户操作时唤起外部协议。
+    return true;
+  }
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&HandleExternalProtocolInUI, url,

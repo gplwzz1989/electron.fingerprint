@@ -1,0 +1,17 @@
+{
+  "name": "fingerprint-browser",
+  "productName": "指纹浏览器",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于本地指纹版 Electron 的多配置浏览器",
+  "main": "main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "test": "node test/profile-store.test.js && node test/profile-repository.test.js && node test/environment-repository.test.js",
+    "test:tabs": "node scripts/test-tabs.js",
+    "test:environments": "node scripts/test-environments.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
