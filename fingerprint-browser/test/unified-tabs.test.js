@@ -262,6 +262,7 @@ async function run () {
   async function finishWizard (expectSuccess = true) {
     await click('#wizard-form button[type="submit"]')
     await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-form button[type=submit]')?.textContent.includes('创建环境')"), '网络设置未能进入创建确认页。')
+    await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent = ''")
     await click('#wizard-form button[type="submit"]')
     if (expectSuccess) await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#environments' && document.querySelector('#toast').textContent.includes('已创建')"), '环境创建向导未完成实际启动。')
   }
