@@ -7,9 +7,8 @@ Unicode true
 !define APP_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser"
 Name "${APP_NAME}"
 OutFile "${OUTPUT_FILE}"
-InstallDir "$LOCALAPPDATA\Programs\栖界\指纹浏览器"
-InstallDirRegKey HKCU "${APP_KEY}" "InstallLocation"
-RequestExecutionLevel user
+InstallDir "$PROGRAMFILES64\栖界\指纹浏览器"
+RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 SetOverwrite on
 !define MUI_ICON "${PAYLOAD_DIR}\resources\app\assets\saas.ico"
@@ -33,6 +32,11 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "栖界"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
 Function .onInit
+  SetRegView 64
+  ReadRegStr $0 HKLM "${APP_KEY}" "InstallLocation"
+  ${If} $0 != ""
+    StrCpy $INSTDIR $0
+  ${EndIf}
   ${IfNot} ${RunningX64}
     MessageBox MB_ICONSTOP "此安装包需要 64 位 Windows 系统。"
     Abort
@@ -44,7 +48,7 @@ Function .onInit
 FunctionEnd
 
 Section "安装客户端"
-  SetShellVarContext current
+  SetShellVarContext all
   SetOutPath "$INSTDIR"
   File /r "${PAYLOAD_DIR}\*.*"
   WriteUninstaller "$INSTDIR\卸载.exe"
@@ -52,19 +56,20 @@ Section "安装客户端"
   CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\指纹浏览器.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\指纹浏览器.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\卸载.lnk" "$INSTDIR\卸载.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
-  WriteRegStr HKCU "${APP_KEY}" "DisplayName" "${APP_NAME}"
-  WriteRegStr HKCU "${APP_KEY}" "DisplayVersion" "${APP_VERSION}"
-  WriteRegStr HKCU "${APP_KEY}" "Publisher" "栖界"
-  WriteRegStr HKCU "${APP_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${APP_KEY}" "DisplayIcon" "$INSTDIR\resources\app\assets\saas.ico"
-  WriteRegStr HKCU "${APP_KEY}" "UninstallString" '"$INSTDIR\卸载.exe"'
-  WriteRegStr HKCU "${APP_KEY}" "QuietUninstallString" '"$INSTDIR\卸载.exe" /S'
-  WriteRegDWORD HKCU "${APP_KEY}" "NoModify" 1
-  WriteRegDWORD HKCU "${APP_KEY}" "NoRepair" 1
+  WriteRegStr HKLM "${APP_KEY}" "DisplayName" "${APP_NAME}"
+  WriteRegStr HKLM "${APP_KEY}" "DisplayVersion" "${APP_VERSION}"
+  WriteRegStr HKLM "${APP_KEY}" "Publisher" "栖界"
+  WriteRegStr HKLM "${APP_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${APP_KEY}" "DisplayIcon" "$INSTDIR\resources\app\assets\saas.ico"
+  WriteRegStr HKLM "${APP_KEY}" "UninstallString" '"$INSTDIR\卸载.exe"'
+  WriteRegStr HKLM "${APP_KEY}" "QuietUninstallString" '"$INSTDIR\卸载.exe" /S'
+  WriteRegDWORD HKLM "${APP_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${APP_KEY}" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
-  SetShellVarContext current
+  SetRegView 64
+  SetShellVarContext all
   !include "${UNINSTALL_FILES}"
   Delete "$INSTDIR\卸载.exe"
   RMDir "$INSTDIR"
@@ -72,5 +77,5 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\卸载.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
-  DeleteRegKey HKCU "${APP_KEY}"
+  DeleteRegKey HKLM "${APP_KEY}"
 SectionEnd

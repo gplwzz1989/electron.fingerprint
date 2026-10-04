@@ -77,7 +77,7 @@ try {
   & $ResourceEditor $program --set-icon (Join-Path $application 'assets/saas.ico') --set-version-string ProductName $metadata.productName --set-version-string FileDescription $metadata.productName --set-version-string CompanyName '栖界' --set-version-string OriginalFilename '指纹浏览器.exe' --set-version-string InternalName $metadata.productName --set-file-version $version --set-product-version $version
   if ($LASTEXITCODE -ne 0) { throw '应用品牌资源更新失败。' }
   $commit = git -C $workspaceRoot rev-parse HEAD
-  @{ product = $metadata.productName; version = $version; sourceCommit = $commit; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $RuntimeRoot 'electron.exe')).Hash; executableSha256 = (Get-FileHash -LiteralPath $program).Hash; dataDirectory = '%APPDATA%\栖界\指纹浏览器' } |
+  @{ product = $metadata.productName; version = $version; sourceCommit = $commit; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $RuntimeRoot 'electron.exe')).Hash; executableSha256 = (Get-FileHash -LiteralPath $program).Hash; installDirectory = '%ProgramFiles%\栖界\指纹浏览器'; dataDirectory = '%LOCALAPPDATA%\Programs\栖界\指纹浏览器' } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'release-manifest.json') -Encoding utf8NoBOM
 
   # 卸载只删除安装包内的文件和空目录，用户数据和额外文件不会被递归删除。

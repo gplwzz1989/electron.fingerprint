@@ -9,13 +9,15 @@
     "start": "node scripts/start.js",
     "package": "pwsh -NoProfile -File scripts/package.ps1",
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
+    "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
     "test": "node test/profile-store.test.js && node test/profile-repository.test.js && node test/environment-repository.test.js && node test/workspace-access.test.js && node test/environment-checkpoint.test.js",
     "test:tabs": "node scripts/test-tabs.js",
     "test:environments": "node scripts/test-environments.js"
   },
   "scripts说明": {
     "package": "生成 Windows 安装包和便携包，统一使用 SaaS 图标及产品信息；固定文件名覆盖更新，清理历史版本产物，并通知资源管理器刷新图标缓存。需要 PowerShell 7、Release 内核、NSIS 和资源编辑工具。",
-    "test:package": "验证安装包、客户端及卸载器图标、产品信息和快捷方式，并验证安装、启动、默认用户数据目录、卸载及数据保留。当前账户已安装客户端时不执行此验证。"
+    "test:package": "在管理员终端验证安装包、客户端及卸载器图标、产品信息和快捷方式，并验证安装、启动、默认用户数据目录、卸载及数据保留。本机已安装客户端时不执行此验证。",
+    "test:package:data": "无需管理员权限，启动发行程序验证默认数据目录及新建环境的 profile 数据目录。程序默认安装在 Program Files，可在安装器中更改；数据默认位于本机用户的 AppData/Local/Programs/栖界/指纹浏览器。"
   },
   "engines": {
     "node": ">=22"

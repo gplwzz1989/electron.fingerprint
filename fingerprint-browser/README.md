@@ -33,7 +33,7 @@ npm start
 
 网页会话统一拒绝唤起外部程序，包括隐藏子框架的自定义协议请求。2026-10-04 已确认抖音创作者中心会请求 `bitbrowser://cc/`，旧 Testing 与旧便携包不包含此前的内核修复；当前 Release 已包含修复，无需重新编译 Chromium。显式指定旧运行时也会由应用层拒绝外部协议权限。
 
-开发启动、便携版和安装版统一将配置及会话数据保存到用户目录下的应用目录：Windows 为 `%APPDATA%\栖界\指纹浏览器`，macOS 为 `~/Library/Application Support/栖界/指纹浏览器`，Linux 为 `${XDG_CONFIG_HOME:-~/.config}/栖界/指纹浏览器`。可设置 `FP_BROWSER_DATA_DIR` 使用其他可写目录；原项目 `.data` 和旧应用目录中的数据不会删除或自动迁移，需要继续使用时可将此变量设置为原目录。
+开发启动、便携版和安装版统一将配置及会话数据保存到用户目录下的应用目录：Windows 为 `%LOCALAPPDATA%\Programs\栖界\指纹浏览器`，macOS 为 `~/Library/Application Support/栖界/指纹浏览器`，Linux 为 `${XDG_CONFIG_HOME:-~/.config}/栖界/指纹浏览器`。配置 `profiles.json`、环境记录 `environments.json` 以及环境的 profile 数据 `tabs/<环境 UUID>` 均位于这个数据目录。可设置 `FP_BROWSER_DATA_DIR` 使用其他可写目录；原项目 `.data` 和旧应用目录中的数据不会删除或自动迁移，需要继续使用时可将此变量设置为原目录。
 
 旧 Testing 内核不支持 `modules.runtimeInspector` 时，只对该选项为 `false` 的配置使用旧版默认行为，并在界面显示兼容提示；这不代表旧内核实现了该开关。显式设为 `true` 时会提示更新内核，不会静默丢弃配置。浏览器默认 User-Agent 使用与当前 Chromium 一致的 Chrome 标识，不暴露 Electron 版本。没有默认关闭浏览器沙箱。
 
@@ -59,7 +59,7 @@ npm start
 
 固定输出为仓库 `dist/指纹浏览器-安装包.exe`、`dist/指纹浏览器-便携版.zip` 及对应校验文件，展开目录为 `dist/fingerprint-browser-win-x64`。每次打包覆盖现有产物并清理本应用的历史版本包和输出目录，不再添加日期或版本后缀。含有用户配置或环境数据的目录会阻止自动清理。
 
-安装程序提供中文界面，默认安装到当前用户的 `%LOCALAPPDATA%\Programs\栖界\指纹浏览器`，创建桌面和开始菜单快捷方式；卸载保留应用数据及安装目录内额外的用户文件。
+安装程序提供中文界面，程序默认安装到 `%ProgramFiles%\栖界\指纹浏览器`（通常为 `C:\Program Files\栖界\指纹浏览器`），安装时可在目录页面修改路径。安装和卸载需要管理员权限，快捷方式和卸载登记面向本机用户；程序日常启动无需管理员权限。数据使用上述用户目录，卸载保留应用数据及安装目录内额外的用户文件。
 
 ## 测试
 
@@ -68,6 +68,7 @@ npm test
 npm run test:tabs
 npm run test:environments
 npm run test:package
+npm run test:package:data
 ```
 
 统一标签原生测试直接加载真实项目，在同一窗口打开两个独立环境，核对固定首页、单环境单标签、环境定位、无横向滚动条、视图布局、关闭状态和返回首页行为，并使用独立测试数据，不覆盖日常配置。结果在仓库的 `dist/electron-diagnostics/tabs`。
