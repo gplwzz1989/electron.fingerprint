@@ -263,6 +263,34 @@ async function closeEnvironment (environment) {
   }
 }
 
+function confirmEnvironmentDeletion (environment) {
+  if (!environment) return toast('找不到该环境，请刷新环境列表。')
+  const running = environment.state === '运行中'
+  dialog('删除浏览器环境', `<p>确定删除“${escapeHTML(environment.name)}”吗？</p><div class="notice error" style="margin-top:18px">将删除这个环境的本地数据，包括登录状态、Cookie、缓存和指纹快照，删除后不可恢复。配置模板会保留。${running ? '<br>此环境正在运行，确认后将先关闭环境再删除。' : ''}</div>`, btn('取消', 'close-overlay') + btn(running ? '关闭并删除' : '确认删除', 'confirm-delete-env', 'danger', `data-id="${environment.id}"`))
+}
+
+async function deleteEnvironment (environment, button) {
+  if (!environment) return toast('找不到该环境，请刷新环境列表。')
+  button.disabled = true
+  try {
+    if (environment.state === '运行中') {
+      const closed = await window.browserApi.closeEnvironment(environment.id)
+      if (!closed?.ok) return toast(closed?.error || '关闭环境失败，未执行删除。')
+    }
+    const response = await window.browserApi.deleteEnvironment(environment.id)
+    if (!response?.ok) return toast(response?.error || '删除环境失败，请重试。')
+    selected.delete(environment.id)
+    applyEnvironmentSnapshot(response.environments)
+    closeOverlay()
+    navigate('environments')
+    toast(response.deletionPending ? '环境已删除；被占用的本地数据将在下次启动时清理。' : '环境和本地数据已删除。')
+  } catch {
+    toast('删除环境失败，请重试。')
+  } finally {
+    button.disabled = false
+  }
+}
+
 async function updateSelected (operation) {
   const ids = [...selected]
   if (!ids.length) return
@@ -308,7 +336,7 @@ function filteredEnvironments() {
 function environmentRows() {
   const list = filteredEnvironments()
   if (!list.length) return `<tr><td colspan="8"><div class="empty">${icon('search')}<h2>没有找到匹配的环境</h2><p>试试其他关键词，或清除分组和状态筛选。</p>${btn('清除筛选', 'reset-filters')}</div></td></tr>`
-  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${e.group}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${e.ip}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
+  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${e.group}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${e.ip}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}${btn('删除', 'delete-env', 'small danger', `data-id="${e.id}" aria-label="删除${escapeHTML(e.name)}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
 }
 function environmentPage(empty = false) {
   return `${heading('浏览器环境', '管理业务的独立会话，保持登录状态和团队访问有序。', btn('导入环境', 'import', '', '', 'upload') + btn('新建环境', 'create', 'primary', '', 'plus'))}${metrics()}
@@ -419,6 +447,8 @@ document.addEventListener('click', event => {
     case 'onboarding': onboarding(); break
     case 'launch': currentEnvironment = e; void launchEnvironment(e); break
     case 'close-env': void closeEnvironment(e); break
+    case 'delete-env': confirmEnvironmentDeletion(environments.find(item => item.id === target.dataset.id)); break
+    case 'confirm-delete-env': void deleteEnvironment(environments.find(item => item.id === target.dataset.id), target); break
     case 'reset-filters': filter = 'all'; searchTerm = ''; groupFilter = '全部分组'; selected.clear(); render(); break
     case 'clear-selection': selected.clear(); refreshRows(); break
     case 'bulk-launch': void updateSelected('open'); break

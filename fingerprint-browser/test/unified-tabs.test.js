@@ -182,6 +182,48 @@ async function run () {
   assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').disabled"), true, '返回首页后指纹图标没有停用。')
   await invoke(dashboard, 'closeTab', first.id)
   await record('关闭环境、状态同步和返回首页通过')
+
+  const templatesBeforeDelete = (await invoke(dashboard, 'listProfiles')).profiles.length
+  await dashboard.webContents.executeJavaScript("location.hash = '#environments'")
+  const deleteSelector = id => `[data-action="delete-env"][data-id="${id}"]`
+  async function click (selector) {
+    await waitFor(async () => await dashboard.webContents.executeJavaScript(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), '环境删除操作入口没有显示。')
+    await dashboard.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`)
+  }
+  await click(`[data-select="${second.environmentId}"]`)
+  await click(deleteSelector(second.environmentId))
+  const confirmation = await dashboard.webContents.executeJavaScript("document.querySelector('#overlay-root').textContent")
+  assert.ok(confirmation.includes('不可恢复') && confirmation.includes('Cookie'), '删除确认没有说明本地数据会被清理。')
+  await fs.writeFile(path.join(output, 'environment-delete-confirmation.png'), (await dashboard.webContents.capturePage()).toPNG())
+  await click('#overlay-root [data-action="close-overlay"]')
+  assert.ok((await invoke(dashboard, 'listEnvironments')).environments.some(item => item.id === second.environmentId), '取消删除后环境被移除。')
+  await fs.access(path.join(second.dataDir, 'fingerprint.json'))
+  await click(deleteSelector(second.environmentId))
+  await click('#overlay-root [data-action="confirm-delete-env"]')
+  await waitFor(async () => !(await invoke(dashboard, 'listEnvironments')).environments.some(item => item.id === second.environmentId), '确认后环境没有从列表移除。')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#bulkbar')?.hidden === true"), '删除后没有清除环境勾选状态。')
+  await fs.access(path.join(first.dataDir, 'fingerprint.json'))
+
+  await invoke(dashboard, 'reopenEnvironment', first.environmentId)
+  await invoke(dashboard, 'showDashboard')
+  const deniedDelete = await dashboard.webContents.executeJavaScript(`window.browserApi.deleteEnvironment(${JSON.stringify(first.environmentId)})`)
+  assert.equal(deniedDelete.ok, false, '后台没有阻止直接删除运行中的环境。')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(deleteSelector(first.environmentId))})?.closest('tr')?.textContent.includes('运行中')`), '环境运行状态没有同步。')
+  await click(deleteSelector(first.environmentId))
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('[data-action=confirm-delete-env]').textContent"), '关闭并删除', '运行中的环境没有提示先关闭再删除。')
+  await click('#overlay-root [data-action="confirm-delete-env"]')
+  await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.length === 0, '运行中的环境未完成关闭和删除。')
+  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 0, '删除环境后仍存在网页标签。')
+  assert.equal((await invoke(dashboard, 'listProfiles')).profiles.length, templatesBeforeDelete, '删除环境误删了配置模板。')
+  assert.equal(JSON.parse(await fs.readFile(path.join(process.env.FP_BROWSER_DATA_DIR, 'environments.json'), 'utf8')).length, 0, '环境删除没有持久化。')
+  for (const deleted of [first, second]) {
+    let directoryExists = false
+    try { await fs.access(deleted.dataDir); directoryExists = true } catch {}
+    if (!directoryExists) continue
+    const pending = JSON.parse(await fs.readFile(path.join(process.env.FP_BROWSER_DATA_DIR, 'environment-deletions.json'), 'utf8'))
+    assert.ok(pending.some(item => item.id === deleted.environmentId), '被占用的环境数据没有登记待清理任务。')
+  }
+  await record('环境删除入口、取消确认、关闭后删除、数据清理和模板保留通过')
   result.ok = true
   await record('全部统一标签回归完成')
   clearTimeout(timeout)
