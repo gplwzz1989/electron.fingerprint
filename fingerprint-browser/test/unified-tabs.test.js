@@ -10,6 +10,9 @@ const result = { ok: false, stages: [] }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const timeout = setTimeout(() => { app.exit(1) }, 60000)
 let server
+const wizardProxyRequests = []
+const wizardDirectRequests = []
+const wizardProxyAuthorization = 'Basic ' + Buffer.from('wizard-user:wizard-secret').toString('base64')
 const permissionHandlers = new Map()
 const externalDecisions = []
 app.on('session-created', profileSession => {
@@ -87,7 +90,17 @@ async function run () {
   await record('不同数据目录重复启动互斥与已有窗口恢复激活通过')
 
   const page = await fs.readFile(path.join(__dirname, 'fingerprint-page.html'))
-  server = http.createServer((_request, response) => {
+  server = http.createServer((request, response) => {
+    if (request.url.startsWith('http://wizard-proxy.invalid/')) {
+      const authorized = request.headers['proxy-authorization'] === wizardProxyAuthorization
+      wizardProxyRequests.push({ url: request.url, authorized })
+      if (!authorized) {
+        response.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="proxy-check"' })
+        response.end()
+        return
+      }
+    }
+    if (request.url.startsWith('/?wizard=')) wizardDirectRequests.push(request.url)
     response.setHeader('Content-Type', 'text/html; charset=utf-8')
     response.end(page)
   })
@@ -224,6 +237,74 @@ async function run () {
     assert.ok(pending.some(item => item.id === deleted.environmentId), '被占用的环境数据没有登记待清理任务。')
   }
   await record('环境删除入口、取消确认、关闭后删除、数据清理和模板保留通过')
+
+  async function wizardInput (name, value) {
+    await dashboard.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#wizard-form [name=${name}]')
+      input.value = ${JSON.stringify(value)}
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+  }
+  async function startWizard (name, targetUrl) {
+    await invoke(dashboard, 'showDashboard')
+    await dashboard.webContents.executeJavaScript("location.hash = '#environments'")
+    await click('[data-action="create"]')
+    await wizardInput('name', name)
+    await wizardInput('url', targetUrl)
+    await click('#wizard-form button[type="submit"]')
+    await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('#wizard-proxy-mode'))"), '创建向导没有进入网络设置。')
+  }
+  async function finishWizard (expectSuccess = true) {
+    await click('#wizard-form button[type="submit"]')
+    await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-form button[type=submit]')?.textContent.includes('创建环境')"), '网络设置未能进入创建确认页。')
+    await click('#wizard-form button[type="submit"]')
+    if (expectSuccess) await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#environments' && document.querySelector('#toast').textContent.includes('已创建')"), '环境创建向导未完成实际启动。')
+  }
+  async function chooseHttpProxy (address) {
+    await dashboard.webContents.executeJavaScript("(() => { const mode = document.querySelector('#wizard-proxy-mode'); mode.value = 'http'; mode.dispatchEvent(new Event('change', { bubbles: true })) })()")
+    await wizardInput('proxyServer', address)
+  }
+  await startWizard('向导直连环境', `${url}?wizard=direct`)
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-proxy-mode').value"), 'direct', '新建环境没有默认选择直连。')
+  assert.equal(await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[name=proxyServer], [data-action=check-proxy]'))"), false, '直连仍被要求填写或检查代理。')
+  await finishWizard()
+  await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.some(item => item.profileName === '向导直连环境' && item.status === 'open'), '向导无法直接创建无代理环境。')
+  const directEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导直连环境')
+  assert.equal(directEnvironment.proxy.mode, 'direct', '直连环境保存了错误代理模式。')
+  assert.ok(wizardDirectRequests.includes('/?wizard=direct'), '直连环境没有使用本机网络。')
+  await record('创建向导默认直连及本机网络请求通过')
+
+  await startWizard('向导代理环境', 'http://wizard-proxy.invalid/')
+  await chooseHttpProxy(`socks5://127.0.0.1:${server.address().port}`)
+  await click('#wizard-form button[type="submit"]')
+  assert.ok(await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('#wizard-proxy-mode'))"), '与代理类型不符的地址未被拦截。')
+  await wizardInput('proxyServer', url.replace(/\/$/, ''))
+  await wizardInput('proxyUsername', 'wizard-user')
+  await wizardInput('proxyPassword', 'wizard-secret')
+  await wait(100)
+  await fs.writeFile(path.join(output, 'wizard-proxy-settings.png'), (await dashboard.webContents.capturePage()).toPNG())
+  await click('#wizard-form button[type="submit"]')
+  await click('[data-action="wizard-back"]')
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('[name=proxyServer]').value"), url.replace(/\/$/, ''), '返回上一步丢失了代理设置。')
+  await finishWizard()
+  await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.some(item => item.profileName === '向导代理环境' && item.status === 'open'), '向导没有使用代理创建环境。')
+  const proxyEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导代理环境')
+  assert.deepEqual(proxyEnvironment.proxy, { mode: 'http', server: url.replace(/\/$/, ''), username: 'wizard-user', password: 'wizard-secret' }, '向导代理设置没有完整保存到环境快照。')
+  assert.ok(wizardProxyRequests.some(request => request.authorized), '环境请求没有经过代理并完成账户认证。')
+  const savedProxyEnvironment = JSON.parse(await fs.readFile(path.join(process.env.FP_BROWSER_DATA_DIR, 'environments.json'), 'utf8')).find(item => item.id === proxyEnvironment.id)
+  assert.deepEqual(savedProxyEnvironment.proxy, proxyEnvironment.proxy, '环境代理设置没有持久化。')
+
+  const unavailableProxy = http.createServer()
+  await new Promise(resolve => unavailableProxy.listen(0, '127.0.0.1', resolve))
+  const unavailableAddress = `http://127.0.0.1:${unavailableProxy.address().port}`
+  await new Promise(resolve => unavailableProxy.close(resolve))
+  await startWizard('向导无效代理环境', `${url}?wizard=proxy-failure`)
+  await chooseHttpProxy(unavailableAddress)
+  await finishWizard(false)
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent.includes('已阻止直连')"), '代理连接失败没有提示阻止直连。')
+  assert.equal(wizardDirectRequests.includes('/?wizard=proxy-failure'), false, '代理失败后流量被静默改为直连。')
+  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 2, '无效代理环境仍打开了网页标签。')
+  await record('向导默认直连、真实代理与认证、配置持久化和连接失败阻止直连通过')
   result.ok = true
   await record('全部统一标签回归完成')
   clearTimeout(timeout)
@@ -233,6 +314,7 @@ async function run () {
 
 void run().catch(async error => {
   result.error = error.message
+  result.errorStack = error.stack
   await record('检查失败')
   server?.close()
   clearTimeout(timeout)

@@ -52,12 +52,11 @@ let filter = 'all'
 let searchTerm = ''
 let groupFilter = '全部分组'
 let wizardStep = 1
-let proxyChecked = false
 let profiles = []
 let currentEnvironment = null
 let toastTimer
 let lastFocus
-let draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com' }
+let draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }
 let selected = new Set()
 let unifiedTabs = { activeId: null, tabs: [] }
 
@@ -196,6 +195,7 @@ function mapEnvironment (environment) {
     country: timezone,
     code: language.split('-')[1] || '本地',
     ip: '未检测',
+    proxyLabel: environment.proxy?.mode && environment.proxy.mode !== 'direct' ? environment.proxy.server : '直连（不使用代理）',
     owner: '我',
     state: environment.status === 'open' ? '运行中' : '已关闭',
     sync: '仅本地',
@@ -336,7 +336,7 @@ function filteredEnvironments() {
 function environmentRows() {
   const list = filteredEnvironments()
   if (!list.length) return `<tr><td colspan="8"><div class="empty">${icon('search')}<h2>没有找到匹配的环境</h2><p>试试其他关键词，或清除分组和状态筛选。</p>${btn('清除筛选', 'reset-filters')}</div></td></tr>`
-  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${e.group}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${e.ip}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}${btn('删除', 'delete-env', 'small danger', `data-id="${e.id}" aria-label="删除${escapeHTML(e.name)}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
+  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${e.group}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${escapeHTML(e.proxyLabel || e.ip)}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}${btn('删除', 'delete-env', 'small danger', `data-id="${e.id}" aria-label="删除${escapeHTML(e.name)}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
 }
 function environmentPage(empty = false) {
   return `${heading('浏览器环境', '管理业务的独立会话，保持登录状态和团队访问有序。', btn('导入环境', 'import', '', '', 'upload') + btn('新建环境', 'create', 'primary', '', 'plus'))}${metrics()}
@@ -344,13 +344,15 @@ function environmentPage(empty = false) {
   ${empty ? `<div class="empty">${icon('browser')}<h2>创建你的第一个浏览器环境</h2><p>为一个业务建立独立会话。名称、分组和代理可在创建时设置。</p>${btn('创建第一个环境', 'create', 'primary', '', 'plus')}</div>` : `<div class="table-toolbar"><label class="search-field">${icon('search')}<input id="env-search" aria-label="搜索环境名称、编号或负责人" placeholder="搜索环境名称、编号或负责人" value="${escapeHTML(searchTerm)}"></label><select class="filter" id="group-filter" aria-label="筛选业务分组">${['全部分组', '电商运营', '内容营销', '客户支持'].map(x => `<option ${x === groupFilter ? 'selected' : ''}>${x}</option>`).join('')}</select>${btn('重置', 'reset-filters', 'text small', 'id="environment-reset"')}<span class="toolbar-note">最近使用优先 · IP 检测服务未连接</span></div><div class="table-wrap"><table class="env-table"><thead><tr><th style="width:38px"><input type="checkbox" id="select-all" aria-label="选择当前筛选下的全部环境"></th><th>环境名称</th><th>代理与地区</th><th>负责人</th><th>同步状态</th><th>运行状态</th><th>最近使用</th><th>操作</th></tr></thead><tbody id="env-rows">${environmentRows()}</tbody></table></div><div class="bulkbar" id="bulkbar" ${selected.size ? '' : 'hidden'}><span id="selected-count">已选择 ${selected.size} 个环境</span>${btn('批量打开', 'bulk-launch', 'small', 'id="bulk-open-environments"')}${btn('批量关闭', 'bulk-close', 'small', 'id="bulk-close-environments"')}${btn('取消选择', 'clear-selection', 'text small')}</div><div class="table-footer"><span id="row-count">显示 ${filteredEnvironments().length} 个环境 · 共 ${environments.length} 个</span><div class="pagination"><span>20 条 / 页</span><span class="page-box">‹</span><span class="page-box current">1</span><span class="page-box">›</span></div></div>`}</section><p class="below-note">${icon('lock')}环境间隔离数据；同一环境内的网页标签共享登录会话。修改模板不会改变已有环境的指纹快照。</p>`
 }
 function createPage() {
-  const title = wizardStep === 1 ? '为新业务建立一个独立空间' : wizardStep === 2 ? '连接代理，确认访问地区' : '检查指纹配置并创建'
-  const subtitle = wizardStep === 1 ? '给环境一个便于识别的名称，再选择业务分组与保存方式。' : wizardStep === 2 ? '连接检查通过后再继续。使用代理时，连接失败会阻止启动。' : '推荐模板按宿主与运行时能力校验，创建后保存为稳定快照。'
+  const title = wizardStep === 1 ? '为新业务建立一个独立空间' : wizardStep === 2 ? '选择网络方式，按需配置代理' : '检查指纹配置并创建'
+  const subtitle = wizardStep === 1 ? '给环境一个便于识别的名称，再选择业务分组与保存方式。' : wizardStep === 2 ? '默认不使用代理，可以直接继续。启用代理后，创建时会检查真实连接，失败时不会改为直连。' : '推荐模板按宿主与运行时能力校验，创建后保存为稳定快照。'
+  const proxy = draft.proxy || { mode: 'direct', server: '', username: '', password: '' }
+  const proxyLabel = proxy.mode === 'direct' ? '直连（不使用代理）' : proxy.server || '待填写代理地址'
   let fields = ''
-  if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${['电商运营', '内容营销', '客户支持'].map(g => `<option ${g === draft.group ? 'selected' : ''}>${g}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="https://example.com" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
-  if (wizardStep === 2) fields = `<label class="field"><span>代理来源</span><select><option>从代理资源选择</option></select></label><label class="field"><span>代理资源<span class="required">*</span></span><div class="inline-check"><select name="proxy"><option>美国静态代理 03 · 纽约</option></select>${btn('检查连接', 'check-proxy', '', '', 'sync')}</div><small>演示地址 198.51.100.24 · HTTP 代理 · 凭据已隐藏</small></label><div id="proxy-feedback" class="notice ${proxyChecked ? 'success' : ''}">${icon(proxyChecked ? 'checkCircle' : 'globe')}${proxyChecked ? '演示检查通过 · 美国纽约 · 126 ms；这不是实际网络检测。' : '尚未检查连接。请先检查代理，再继续创建。'}</div><div class="form-divider"></div><div class="form-row"><label class="field"><span>时区</span><select><option>跟随代理地区 · 美国东部</option></select><small>具体时区：America/New_York</small></label><label class="field"><span>语言</span><select><option>英语（美国）</option></select><small>网页语言与请求语言保持一致。</small></label></div><div class="notice warning">${icon('alert')}代理变更可能影响访问地区。已创建环境不会自动更换指纹快照。</div>`
-  if (wizardStep === 3) fields = `<div class="template-option"><div><b>本机推荐模板 · 版本 1</b><p>Windows 桌面 · 真实能力校验后才能用于实际运行</p></div>${badge('推荐', 'blue')}</div><div class="definition-grid"><div><span>浏览器内核</span><b>当前兼容内核（设计占位）</b></div><div><span>操作系统模板</span><b>Windows 桌面</b></div><div><span>语言与时区</span><b>英语（美国） · 纽约</b></div><div><span>屏幕与缩放</span><b>1920 × 1080 · 1.0</b></div><div><span>会话</span><b>新建独立环境目录</b></div><div><span>指纹种子</span><b>每个环境生成并保持稳定</b></div></div><div class="form-divider"></div><div class="notice success">${icon('checkCircle')}演示配置检查完成：语言、时区、代理地区没有发现冲突。</div><div class="notice warning" style="margin-top:12px">${icon('alert')}模板通过校验不代表已通过所有网站检测。WebGL、字体与跨系统一致性需实机验证。</div><details class="advanced"><summary>查看高级指纹参数</summary><div class="definition-grid"><div><span>Canvas / Audio</span><b>稳定的环境种子</b></div><div><span>WebRTC</span><b>限制非代理 UDP</b></div><div><span>UA 与 Client Hints</span><b>跟随已验证运行时</b></div><div><span>GPU 与字体</span><b>本机兼容模板</b></div></div></details>`
-  return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '代理与地区', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>代理地区</span><b>美国 · 纽约</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">这是交互设计演示。不会创建真实浏览器目录、连接代理或上传数据。</p></aside></div>`
+  if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${['电商运营', '内容营销', '客户支持'].map(g => `<option ${g === draft.group ? 'selected' : ''}>${g}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="${escapeHTML(draft.url)}" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
+  if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label>${proxy.mode === 'http' ? `<div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div>` : '<div class="notice">支持无需账户认证的 SOCKS5 代理；需要账户认证时请使用 HTTP 代理。</div>'}<div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div>`
+  if (wizardStep === 3) fields = `<div class="template-option"><div><b>本机推荐模板 · 版本 1</b><p>Windows 桌面 · 真实能力校验后才能用于实际运行</p></div>${badge('推荐', 'blue')}</div><div class="definition-grid"><div><span>浏览器内核</span><b>当前兼容内核（设计占位）</b></div><div><span>操作系统模板</span><b>Windows 桌面</b></div><div><span>语言与时区</span><b>沿用默认指纹模板</b></div><div><span>屏幕与缩放</span><b>1920 × 1080 · 1.0</b></div><div><span>会话</span><b>新建独立环境目录</b></div><div><span>指纹种子</span><b>每个环境生成并保持稳定</b></div></div><div class="form-divider"></div><div class="notice success">${icon('checkCircle')}创建时会校验配置并应用所选网络方式。</div><div class="notice warning" style="margin-top:12px">${icon('alert')}模板通过校验不代表已通过所有网站检测。WebGL、字体与跨系统一致性需实机验证。</div><details class="advanced"><summary>查看高级指纹参数</summary><div class="definition-grid"><div><span>Canvas / Audio</span><b>稳定的环境种子</b></div><div><span>WebRTC</span><b>限制非代理 UDP</b></div><div><span>UA 与 Client Hints</span><b>跟随已验证运行时</b></div><div><span>GPU 与字体</span><b>本机兼容模板</b></div></div></details>`
+  return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络设置；代理连接失败时不会自动改为直连。</p></aside></div>`
 }
 function proxiesPage() {
   const items = [['美国静态代理 03', 'HTTP', '美国 · 纽约', '198.51.100.24:8080', '126 ms', '2', '可用'], ['英国业务代理 01', 'SOCKS5', '英国 · 伦敦', '203.0.113.56:1080', '158 ms', '1', '可用'], ['法国内容代理 02', 'HTTP', '法国 · 巴黎', '192.0.2.18:8080', '—', '1', '连接失败'], ['德国客服代理 01', 'HTTP', '德国 · 柏林', '203.0.113.80:8080', '142 ms', '1', '可用'], ['日本内容代理 01', 'SOCKS5', '日本 · 东京', '192.0.2.46:1080', '86 ms', '1', '可用']]
@@ -439,7 +441,7 @@ document.addEventListener('click', event => {
   const e = environments.find(item => item.id === target.dataset.id) || currentEnvironment
   if (target.closest('form') && target.tagName === 'BUTTON' && !target.hasAttribute('type')) event.preventDefault()
   switch (action) {
-    case 'create': wizardStep = 1; proxyChecked = false; draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com' }; navigate('create'); break
+    case 'create': wizardStep = 1; draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }; navigate('create'); break
     case 'return-env': case 'cancel-create': closeOverlay(); navigate('environments'); break
     case 'detail': currentEnvironment = e; showOverlay(detailDrawer(e)); break
     case 'diagnostic': currentEnvironment = e; showOverlay(detailDrawer(e, true)); break
@@ -454,7 +456,6 @@ document.addEventListener('click', event => {
     case 'bulk-launch': void updateSelected('open'); break
     case 'bulk-close': void updateSelected('close'); break
     case 'wizard-back': wizardStep--; render(); break
-    case 'check-proxy': proxyChecked = true; document.getElementById('proxy-feedback').className = 'notice success'; document.getElementById('proxy-feedback').innerHTML = icon('checkCircle') + '演示检查通过 · 美国纽约 · 126 ms；这不是实际网络检测。'; break
     case 'retry-diagnostic': toast('当前诊断服务尚未连接，请在代理资源中检查连接后重试。'); break
     case 'open-proxies': navigate('proxies'); break
     case 'retry-sync': toast('同步服务尚未连接，当前环境数据仍保存在本机。'); break
@@ -495,9 +496,15 @@ document.addEventListener('click', event => {
 document.addEventListener('input', event => {
   if (event.target.id === 'env-search') { searchTerm = event.target.value; refreshRows() }
   if (event.target.name === 'name' && event.target.closest('#wizard-form')) document.getElementById('preview-name').textContent = event.target.value
+  const proxyField = { proxyServer: 'server', proxyUsername: 'username', proxyPassword: 'password' }[event.target.name]
+  if (proxyField && event.target.closest('#wizard-form')) {
+    draft.proxy[proxyField] = event.target.value
+    document.getElementById('preview-proxy').textContent = draft.proxy.server.trim() || '待填写代理地址'
+  }
 })
 document.addEventListener('change', event => {
   const target = event.target
+  if (target.id === 'wizard-proxy-mode') { draft.proxy.mode = target.value; render() }
   if (target.id === 'group-filter') { groupFilter = target.value; refreshRows() }
   if (target.dataset.select) { target.checked ? selected.add(target.dataset.select) : selected.delete(target.dataset.select); refreshRows() }
   if (target.id === 'select-all') { filteredEnvironments().forEach(e => target.checked ? selected.add(e.id) : selected.delete(e.id)); refreshRows() }
@@ -505,8 +512,18 @@ document.addEventListener('change', event => {
 document.addEventListener('submit', async event => {
   event.preventDefault()
   if (event.target.id === 'wizard-form') {
-    if (wizardStep === 1) { const data = new FormData(event.target); draft = { name: String(data.get('name')).trim(), group: data.get('group'), storage: data.get('storage'), url: String(data.get('url') || 'https://example.com').trim() }; if (!draft.name) { toast('请输入环境名称。'); return } }
-    if (wizardStep === 2 && !proxyChecked) { toast('请先检查代理连接，再继续创建。'); document.querySelector('[data-action="check-proxy"]').focus(); return }
+    if (wizardStep === 1) { const data = new FormData(event.target); draft = { ...draft, name: String(data.get('name')).trim(), group: data.get('group'), storage: data.get('storage'), url: String(data.get('url') || 'https://example.com').trim() }; if (!draft.name) { toast('请输入环境名称。'); return } }
+    if (wizardStep === 2) {
+      const data = new FormData(event.target)
+      const mode = data.get('proxyMode')
+      draft.proxy = { mode, server: mode === 'direct' ? '' : String(data.get('proxyServer') || '').trim(), username: mode === 'http' ? String(data.get('proxyUsername') || '') : '', password: mode === 'http' ? String(data.get('proxyPassword') || '') : '' }
+      if (mode !== 'direct') {
+        try {
+          const address = new URL(draft.proxy.server)
+          if (!(mode === 'socks5' ? ['socks5:', 'socks5h:'] : ['http:', 'https:']).includes(address.protocol) || !address.hostname || (mode === 'socks5' && !address.port) || address.username || address.password) throw new Error()
+        } catch { toast('请填写与所选代理类型一致的有效地址，并在独立字段中填写账户和密码。'); return }
+      }
+    }
     if (wizardStep < 3) { wizardStep++; render(); return }
     try {
       const draftResponse = await window.browserApi.getDraft()
@@ -514,6 +531,7 @@ document.addEventListener('submit', async event => {
       const profile = draftResponse.profile
       profile.name = draft.name
       profile.url = draft.url || profile.url
+      profile.proxy = draft.proxy
       const saveResponse = await window.browserApi.saveProfile(profile)
       if (!saveResponse?.ok) throw new Error(saveResponse?.error || '保存浏览器配置失败。')
       profiles = saveResponse.profiles || profiles
