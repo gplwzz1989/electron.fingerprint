@@ -11,6 +11,7 @@ $outputRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist'))
 $payload = Join-Path $outputRoot 'fingerprint-browser-win-x64'
 $buildRoot = Join-Path $outputRoot 'installer-build'
 $installer = Join-Path $outputRoot '指纹浏览器-安装包.exe'
+$compiledInstaller = Join-Path $buildRoot '指纹浏览器-安装包.exe'
 $portable = Join-Path $outputRoot '指纹浏览器-便携版.zip'
 $failureMessage = '打包失败，请检查运行时、安装包编译工具和输出目录。'
 
@@ -88,9 +89,12 @@ try {
   $uninstallLines | Set-Content -LiteralPath $uninstallList -Encoding utf8NoBOM
 
   $failureMessage = '安装包编译失败，请查看 dist/installer-build/安装包编译.log。'
-  & $Compiler /INPUTCHARSET UTF8 /OUTPUTCHARSET UTF8 "/DPAYLOAD_DIR=$payload" "/DOUTPUT_FILE=$installer" "/DAPP_VERSION=$version" "/DUNINSTALL_FILES=$uninstallList" (Join-Path $PSScriptRoot 'installer.nsi') |
+  & $Compiler /INPUTCHARSET UTF8 /OUTPUTCHARSET UTF8 "/DPAYLOAD_DIR=$payload" "/DOUTPUT_FILE=$compiledInstaller" "/DAPP_VERSION=$version" "/DUNINSTALL_FILES=$uninstallList" (Join-Path $PSScriptRoot 'installer.nsi') |
     Out-File -LiteralPath (Join-Path $buildRoot '安装包编译.log') -Encoding utf8
   if ($LASTEXITCODE -ne 0) { throw '安装包编译失败。' }
+  # 先完成编译，再覆盖固定产物；旧安装器被占用时保留已编译的新包。
+  $failureMessage = '新安装包已编译，覆盖旧安装包失败，请关闭正在运行的安装器后重新打包。'
+  Copy-Item -LiteralPath $compiledInstaller -Destination $installer -Force
 
   $failureMessage = '生成便携包失败，请检查是否有程序正在占用旧包。'
   if (Test-Path -LiteralPath $portable) { Remove-Output $portable }
