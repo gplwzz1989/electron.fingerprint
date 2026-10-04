@@ -38,6 +38,11 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app-shell {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -195,6 +200,98 @@ h3 {
 
 .environment-card {
   padding: 13px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.environment-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  padding-top: 14px;
+}
+
+.search-field input,
+.environment-toolbar select {
+  min-width: 0;
+  height: 34px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.environment-bulkbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0 2px;
+}
+
+.environment-bulkbar span {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.environment-table {
+  gap: 7px;
+  padding-top: 12px;
+}
+
+.environment-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 11px;
+}
+
+.environment-selection {
+  padding-top: 3px;
+}
+
+.environment-selection input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.environment-details {
+  min-width: 0;
+}
+
+.environment-actions {
+  display: flex;
+  grid-column: 2;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.environment-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.environment-pagination > div {
+  display: flex;
+  gap: 6px;
 }
 
 .profile-card-top {
@@ -355,6 +452,12 @@ select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(114, 167, 255, 0.12);
+}
+
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .toggle-grid {

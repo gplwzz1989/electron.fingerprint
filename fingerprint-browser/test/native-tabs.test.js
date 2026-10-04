@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const http = require('node:http')
+const net = require('node:net')
 const { spawn } = require('node:child_process')
 const { app, BrowserWindow, webContents } = require('electron/main')
 
@@ -9,6 +10,7 @@ const output = process.env.FP_TABS_TEST_OUTPUT
 const keepOpen = process.argv.includes('--keep-open')
 const result = { ok: false, stages: [], tabs: [], screenshots: [] }
 let server
+const proxyServers = []
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const timeout = setTimeout(() => { void fail(new Error('多标签原生测试超时。')) }, 120000)
 let finished = false
@@ -23,6 +25,7 @@ async function fail (error) {
   result.error = error.message
   await record('检查失败')
   server?.close()
+  for (const proxy of proxyServers) proxy.close()
   app.exit(1)
 }
 async function invoke (window, method, payload) {
@@ -106,6 +109,32 @@ async function run () {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const url = `http://127.0.0.1:${server.address().port}/`
+  const proxyEndpoints = []
+  for (const [name, username, password] of [
+    ['代理一', 'proxy-user-1', 'proxy-pass-1'],
+    ['代理二', 'proxy-user-2', 'proxy-pass-2']
+  ]) {
+    const hits = []
+    const expectedAuthorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+    const proxy = http.createServer((request, response) => {
+      hits.push({ authorization: request.headers['proxy-authorization'] || '', url: request.url })
+      if (request.headers['proxy-authorization'] !== expectedAuthorization) {
+        response.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="fingerprint-browser"' })
+        response.end()
+        return
+      }
+      if (request.url.endsWith('/headers')) {
+        response.setHeader('Content-Type', 'application/json; charset=utf-8')
+        response.end(JSON.stringify({ acceptLanguage: request.headers['accept-language'] || '', proxy: name }))
+        return
+      }
+      response.setHeader('Content-Type', 'text/html; charset=utf-8')
+      response.end(page)
+    })
+    await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve))
+    proxyServers.push(proxy)
+    proxyEndpoints.push({ name, username, password, expectedAuthorization, hits, server: `http://127.0.0.1:${proxy.address().port}` })
+  }
   const saved = []
   for (const [name, cpu, language, timezone, width, height] of [
     ['标签甲 · 中文上海', 4, 'zh-CN', 'Asia/Shanghai', 1920, 1080],
@@ -263,22 +292,124 @@ async function run () {
   assert.equal(activeView.getBounds().height, contentHeight - 144, '窗口缩放后标签高度错误。')
   host.setSize(...currentSize)
   await record('新建、关闭、切换按钮、键盘、前进后退刷新及窗口缩放通过')
-  const editorId = await dashboard.webContents.executeJavaScript('document.querySelector("button[data-action=edit]").dataset.id')
-  const editorProfile = (await invoke(dashboard, 'listProfiles')).profiles.find(profile => profile.id === editorId)
-  await dashboard.webContents.executeJavaScript('document.querySelector("#profile-name").value = "管理表单保存回归"; document.querySelector("#profile-form").requestSubmit()')
-  await waitFor(async () => (await invoke(dashboard, 'listProfiles')).profiles.some(profile => profile.id === editorId && profile.name === '管理表单保存回归'), '管理表单无法保存配置。')
-  const editorSaved = (await invoke(dashboard, 'listProfiles')).profiles.find(profile => profile.id === editorId)
-  assert.equal(editorSaved.revision, editorProfile.revision + 1, '管理表单没有携带正确版本。')
-  await record('管理表单版本提交与内容安全策略回归通过')
+  const editorProfile = (await invoke(dashboard, 'listProfiles')).profiles[0]
+  const editorPayload = structuredClone(editorProfile)
+  editorPayload.name = '管理页保存回归'
+  const editorResponse = await invoke(dashboard, 'saveProfile', editorPayload)
+  assert.equal(editorResponse.profile.revision, editorProfile.revision + 1, '管理页保存没有携带正确版本。')
+  await record('管理页配置版本提交与内容安全策略回归通过')
+  await dashboard.webContents.executeJavaScript("location.hash = 'environments'")
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('#env-rows'))"), '高保真环境页没有加载。')
   const dashboardEnvironments = await invoke(dashboard, 'listEnvironments')
   const firstEnvironment = dashboardEnvironments.environments.find(environment => environment.id === snapshot.tabs[0].environmentId)
   assert.ok(firstEnvironment, '没有保存新建环境记录。')
   assert.equal(firstEnvironment.status, 'open', '正在使用的环境状态不正确。')
-  const environmentCards = await dashboard.webContents.executeJavaScript("document.querySelectorAll('#environments-list .environment-card').length")
+  const environmentCards = await dashboard.webContents.executeJavaScript("document.querySelectorAll('#env-rows .environment-card').length")
   assert.equal(environmentCards, dashboardEnvironments.environments.length, '管理页没有显示完整独立环境列表。')
+  const environmentTable = await dashboard.webContents.executeJavaScript(`({
+    rows: document.querySelectorAll('#env-rows .environment-row').length,
+    search: Boolean(document.querySelector('#env-search')),
+    statusFilter: Boolean(document.querySelector('[data-filter=running]')),
+    pagination: Boolean(document.querySelector('.pagination'))
+  })`)
+  assert.equal(environmentTable.rows, dashboardEnvironments.environments.length, '管理页环境表格行数不正确。')
+  assert.equal(environmentTable.search, true, '管理页没有显示环境搜索框。')
+  assert.equal(environmentTable.statusFilter, true, '管理页没有显示环境状态筛选。')
+  assert.equal(environmentTable.pagination, true, '管理页没有显示环境分页控件。')
+  const environmentCountBeforeCancel = dashboardEnvironments.environments.length
+  await dashboard.webContents.executeJavaScript("location.hash = 'environments'")
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('#env-search'))"), '返回环境列表失败。')
+  assert.equal((await invoke(dashboard, 'listEnvironments')).environments.length, environmentCountBeforeCancel, '取消创建环境后不应新增环境记录。')
+  await record('新建环境摘要确认和取消操作通过')
+  const secondEnvironmentId = snapshot.tabs[1].environmentId
+  await dashboard.webContents.executeJavaScript(`const input = document.querySelector('#env-search'); input.value = ${JSON.stringify(secondEnvironmentId)}; input.dispatchEvent(new Event('input', { bubbles: true }))`)
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelectorAll('#env-rows .environment-row').length === 1"), '环境搜索没有过滤列表。')
+  await dashboard.webContents.executeJavaScript("document.querySelector('#environment-reset').click()")
+  await waitFor(async () => await dashboard.webContents.executeJavaScript(`document.querySelectorAll('#env-rows .environment-row').length === ${dashboardEnvironments.environments.length}`), '环境筛选重置失败。')
+  await dashboard.webContents.executeJavaScript(`document.querySelector('input[data-action="select-environment"][data-id="${secondEnvironmentId}"]').click()`)
+  await dashboard.webContents.executeJavaScript("document.querySelector('#bulk-close-environments').click()")
+  await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.find(environment => environment.id === secondEnvironmentId)?.status === 'closed', '批量关闭环境失败。')
+  await dashboard.webContents.executeJavaScript(`document.querySelector('input[data-action="select-environment"][data-id="${secondEnvironmentId}"]').click()`)
+  await dashboard.webContents.executeJavaScript("document.querySelector('#bulk-open-environments').click()")
+  await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.find(environment => environment.id === secondEnvironmentId)?.status === 'open', '批量打开环境失败。')
+  await record('环境表格搜索、筛选、分页控件和批量开关通过')
+  const proxyTabs = []
+  for (const endpoint of proxyEndpoints) {
+    const { profile } = await invoke(dashboard, 'getDraft')
+    profile.name = `代理测试 · ${endpoint.name}`
+    profile.url = 'http://proxy-target.test/'
+    profile.proxy = { mode: 'http', server: endpoint.server, username: endpoint.username, password: endpoint.password }
+    const savedProxy = await invoke(dashboard, 'saveProfile', profile)
+    const launchedProxy = await invoke(dashboard, 'launchProfile', { id: savedProxy.profile.id })
+    const proxyTab = (await invoke(host, 'listTabs')).tabs.find(tab => tab.id === launchedProxy.tabId)
+    assert.ok(proxyTab, '代理环境没有创建网页标签。')
+    proxyTabs.push({ profile: savedProxy.profile, tab: proxyTab, endpoint })
+    const proxyContents = contentsFor(proxyTab)
+    await signalsFor(proxyContents)
+    await waitFor(() => endpoint.hits.some(hit => hit.authorization === endpoint.expectedAuthorization), `代理 ${endpoint.name} 没有完成 407 认证。`)
+    assert.equal(savedProxy.profile.proxy.username, endpoint.username, `代理 ${endpoint.name} 认证配置没有按环境保存。`)
+    assert.equal(endpoint.hits.some(hit => hit.authorization && hit.authorization !== endpoint.expectedAuthorization), false, `代理 ${endpoint.name} 认证信息发生串用。`)
+    assert.equal(proxyContents.session.storagePath, proxyTab.dataDir, '代理环境没有使用独立数据目录。')
+  }
+  for (const item of proxyTabs) await invoke(host, 'closeTab', item.tab.id)
+  await record('按环境代理设置、407 认证隔离和代理请求检测通过')
+  const beforeUnavailableProxy = (await invoke(dashboard, 'listEnvironments')).environments.length
+  const unavailableProbe = net.createServer()
+  await new Promise(resolve => unavailableProbe.listen(0, '127.0.0.1', resolve))
+  const unavailablePort = unavailableProbe.address().port
+  await new Promise(resolve => unavailableProbe.close(resolve))
+  const { profile: unavailableProfile } = await invoke(dashboard, 'getDraft')
+  unavailableProfile.name = '代理不可达阻断测试'
+  unavailableProfile.url = 'http://proxy-target.test/'
+  unavailableProfile.proxy = { mode: 'http', server: `http://127.0.0.1:${unavailablePort}` }
+  const unavailableSaved = await invoke(dashboard, 'saveProfile', unavailableProfile)
+  const unavailableResult = await dashboard.webContents.executeJavaScript(`window.browserApi.launchProfile(${JSON.stringify({ id: unavailableSaved.profile.id })})`)
+  assert.equal(unavailableResult.ok, false, '代理端口不可达时不应启动环境。')
+  assert.match(unavailableResult.error, /代理检测失败|代理连接超时/, '代理不可达错误提示不明确。')
+  assert.equal((await invoke(dashboard, 'listEnvironments')).environments.length, beforeUnavailableProxy, '代理不可达时不应留下环境记录。')
+  await record('代理不可达时启动前阻断通过')
+  process.env.FP_PROXY_TIMEOUT_MS = '500'
+  const hangingProxy = http.createServer(() => {})
+  await new Promise(resolve => hangingProxy.listen(0, '127.0.0.1', resolve))
+  const { profile: hangingProfile } = await invoke(dashboard, 'getDraft')
+  hangingProfile.name = '代理响应超时测试'
+  hangingProfile.url = 'http://proxy-target.test/'
+  hangingProfile.proxy = { mode: 'http', server: `http://127.0.0.1:${hangingProxy.address().port}` }
+  const hangingSaved = await invoke(dashboard, 'saveProfile', hangingProfile)
+  const hangingResult = await dashboard.webContents.executeJavaScript(`window.browserApi.launchProfile(${JSON.stringify({ id: hangingSaved.profile.id })})`)
+  assert.equal(hangingResult.ok, false, '代理不响应时不应无限等待。')
+  assert.match(hangingResult.error, /代理连接超时/, '代理响应超时错误提示不明确。')
+  const hangingTab = (await invoke(host, 'listTabs')).tabs.find(tab => tab.profileId === hangingSaved.profile.id)
+  if (hangingTab) await invoke(host, 'closeTab', hangingTab.id)
+  await new Promise(resolve => hangingProxy.close(resolve))
+  await record('代理无响应时加载超时通过')
   const firstDataDir = snapshot.tabs[0].dataDir
   const expectedLastUrl = first.getURL()
   await invoke(host, 'selectTab', snapshot.tabs[0].id)
+  const sameEnvironmentUrl = `${url}?same-environment=1`
+  const sameEnvironmentResponse = await invoke(host, 'newPageTab', {
+    environmentId: firstEnvironment.id,
+    url: sameEnvironmentUrl
+  })
+  const sameEnvironmentTab = sameEnvironmentResponse.tabs.find(tab => tab.environmentId === firstEnvironment.id && tab.id !== snapshot.tabs[0].id)
+  assert.ok(sameEnvironmentTab, '没有创建同一环境的第二个网页标签。')
+  assert.equal(sameEnvironmentTab.dataDir, firstDataDir, '同一环境网页标签没有复用数据目录。')
+  let sameEnvironmentContents
+  await waitFor(() => {
+    sameEnvironmentContents = webContents.getAllWebContents().find(contents => contents !== first && contents.session.storagePath === firstDataDir && contents.getURL() === sameEnvironmentUrl)
+    return Boolean(sameEnvironmentContents)
+  }, '找不到同一环境的第二个原生页面视图。')
+  assert.equal(sameEnvironmentContents.session.storagePath, first.session.storagePath, '同一环境网页标签没有复用持久化会话。')
+  await signalsFor(sameEnvironmentContents)
+  await first.executeJavaScript("localStorage.setItem('same-environment','共享')")
+  await first.session.cookies.set({ url, name: 'same-environment', value: '共享' })
+  assert.equal(await sameEnvironmentContents.executeJavaScript("localStorage.getItem('same-environment')"), '共享', '同一环境网页标签没有共享本地存储。')
+  assert.equal((await sameEnvironmentContents.session.cookies.get({ url, name: 'same-environment' })).length, 1, '同一环境网页标签没有共享 Cookie。')
+  await invoke(host, 'closeTab', sameEnvironmentTab.id)
+  const environmentAfterChildClose = (await invoke(dashboard, 'listEnvironments')).environments.find(environment => environment.id === firstEnvironment.id)
+  assert.equal(environmentAfterChildClose.status, 'open', '关闭同一环境的一个网页标签后环境状态不应关闭。')
+  assert.equal((await invoke(host, 'listTabs')).tabs.filter(tab => tab.environmentId === firstEnvironment.id).length, 1, '关闭网页标签后根标签没有保留。')
+  await record('同一环境网页标签共享会话、目录并可独立关闭通过')
   await first.executeJavaScript("localStorage.setItem('environment-reopen','保留')")
   await first.session.cookies.set({ url, name: 'environment-reopen', value: '保留' })
   await invoke(host, 'closeTab', snapshot.tabs[0].id)

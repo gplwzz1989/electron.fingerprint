@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { app, BrowserWindow, webContents } = require('electron/main')
+const { app, webContents } = require('electron/main')
 
 const mode = process.env.FP_RESTART_MODE
 const url = process.env.FP_RESTART_URL
@@ -30,8 +30,7 @@ async function run () {
     draft.url = url
     const saved = await invoke(dashboard, 'saveProfile', draft)
     await invoke(dashboard, 'launchProfile', { id: saved.profile.id })
-    const host = BrowserWindow.getAllWindows().find(window => window !== dashboard)
-    assert.ok(host, '首次启动没有创建环境窗口。')
+    const host = dashboard
     const snapshot = await invoke(host, 'listTabs')
     const tab = snapshot.tabs[0]
     const contents = contentsFor(tab)
@@ -46,7 +45,7 @@ async function run () {
   assert.equal(environments.environments.length, 1, '重启后环境记录数量不正确。')
   assert.equal(environments.environments[0].status, 'closed', '重启后环境没有恢复为已关闭状态。')
   const restored = await invoke(dashboard, 'reopenEnvironment', environments.environments[0].id)
-  const host = BrowserWindow.getAllWindows().find(window => window !== dashboard)
+  const host = dashboard
   const tab = restored.tabs.find(item => item.environmentId === environments.environments[0].id)
   const contents = contentsFor(tab)
   assert.equal(await contents.executeJavaScript("localStorage.getItem('restart-marker')"), '保留', '重启后本地存储没有恢复。')

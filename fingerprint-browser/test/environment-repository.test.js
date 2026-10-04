@@ -24,6 +24,30 @@ async function run () {
     assert.equal(reloaded.list()[0].status, 'closed', '异常退出后环境不应继续显示为使用中。')
     assert.equal(reloaded.list()[0].lastUrl, 'https://example.com/next')
     assert.deepEqual(reloaded.list()[0].fingerprint, created.fingerprint)
+
+    const failedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'fp-environments-failed-write-'))
+    try {
+      const failed = new EnvironmentRepository(failedRoot)
+      await failed.load()
+      const failingFileSystem = {
+        ...fs,
+        async rename (source, target) {
+          if (target === path.join(failedRoot, 'environments.json')) {
+            const error = new Error('模拟磁盘空间不足。')
+            error.code = 'ENOSPC'
+            throw error
+          }
+          await fs.rename(source, target)
+        }
+      }
+      failed.fileSystem = failingFileSystem
+      await assert.rejects(failed.create(profile('failed-write'), 'https://example.com/failed'), /磁盘空间不足/)
+      assert.equal(failed.list().length, 0, '环境写入失败后不应污染内存记录。')
+      assert.deepEqual(await fs.readdir(path.join(failedRoot, 'tabs')), [], '环境写入失败后应清理临时目录。')
+    } finally {
+      assert.ok(path.basename(failedRoot).startsWith('fp-environments-failed-write-'))
+      await fs.rm(failedRoot, { recursive: true, force: true })
+    }
     await reloaded.remove(created.id)
     assert.equal(reloaded.list().length, 0)
     await assert.rejects(fs.access(created.dataDir))

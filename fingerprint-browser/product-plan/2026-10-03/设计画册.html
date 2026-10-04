@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>指纹浏览器 · 商业产品设计画册</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1b293d;background:#f3f5f9}*{box-sizing:border-box}body{margin:0}main{max-width:1480px;margin:auto;padding:64px 40px}header{display:flex;justify-content:space-between;gap:30px;align-items:flex-end;margin-bottom:34px}.eyebrow{font-size:12px;color:#315bea;letter-spacing:3px;margin-bottom:15px}h1{font-size:38px;letter-spacing:-1px;margin:0 0 17px}p{color:#637083;font-size:14px;line-height:1.9;margin:0}a{color:inherit;text-decoration:none}.actions{display:flex;gap:10px;flex-wrap:wrap}.button{border:1px solid #d7deea;border-radius:8px;background:white;padding:12px 16px;font-size:13px;white-space:nowrap}.button.primary{color:white;background:#315bea;border-color:#315bea}.concept{border-radius:15px;overflow:hidden;border:1px solid #dfe5ef;background:white;margin-bottom:35px}.concept img{width:100%;display:block}.caption{padding:17px 20px;font-size:12px;color:#6d7a8f;border-top:1px solid #e4e9f2}.grid{display:grid;grid-template-columns:1fr 1fr;gap:26px}.tile{border:1px solid #dfe5ef;border-radius:12px;overflow:hidden;background:white;transition:box-shadow .15s}.tile:hover{box-shadow:0 6px 30px #2f446018}.tile img{display:block;width:100%;border-bottom:1px solid #e1e7f0}.tile-text{padding:19px 22px}.tile-text h2{font-size:16px;margin:0 0 9px}.tile-text p{font-size:12px}.index{display:inline-block;color:#315bea;font-size:11px;font-weight:600;margin-right:7px}.tile-text>a{font-size:11px;color:#315bea;display:inline-block;margin-top:12px}footer{padding:35px 0 0;font-size:12px;color:#728198;line-height:1.9}.note{padding:18px 22px;background:#edf2ff;border:1px solid #dbe5ff;border-radius:9px;margin-bottom:30px;color:#516791;font-size:12px;line-height:1.9}@media(max-width:800px){main{padding:35px 18px}header{display:block}h1{font-size:27px}.actions{margin-top:22px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">商业 SaaS · 产品设计提案 · 2026.10.03</div><h1>独立环境，团队有序协作。</h1><p>从技术 Demo 到可持续运营的商业产品。<br>Windows x64 · macOS Intel · macOS Apple Silicon</p></div><div class="actions"><a class="button" href="商业SaaS开发计划.md">完整开发计划</a><a class="button" href="设计交付规范.md">设计规范</a><a class="button primary" href="高保真原型.html">打开可交互原型 ↗</a></div></header>
+<div class="note">“栖界”为暂定名称。以下功能、团队、套餐与数据均为设计演示；三平台商业运行时、云同步和计费尚待开发与验收。截图来自真实页面渲染，视觉概念图使用内置图像生成工具制作。</div>
+<section class="concept"><a href="视觉概念图.png"><img src="视觉概念图.png" alt="商业指纹浏览器环境管理与创建流程的整体视觉概念图"></a><div class="caption">整体视觉方向：深石墨导航、冷白工作画布、钴蓝主操作。精确文案、数据与交互以以下原型页面为准。</div></section>
+<div class="grid" id="gallery"></div>
+<footer>本次交付：六款竞品对照、16 周开发路线、三平台交付与同步边界、设计规范、16 张关键界面图和可点击原型。<br>原型检查通过；真实用户测试和三平台运行时测试仍待实施。未修改现有应用代码、内核与日常数据。</footer>
+</main><script>
+const screens = [
+['01-工作台','工作台','最近环境、异常处理、团队动态。','overview'],
+['02-环境管理','环境管理','业务表格、搜索分组、运行与同步分开显示。','environments'],
+['03-创建环境-基本信息','创建环境 · 基本信息','以业务命名，本地优先，保存方式由用户决定。','create'],
+['04-创建环境-代理地区','创建环境 · 代理与地区','先检查代理，再继续创建；失败不静默直连。','create'],
+['05-创建环境-指纹配置','创建环境 · 指纹摘要','推荐模板与实际能力明确区分，高级设置渐进展开。','create'],
+['06-环境详情','环境详情','稳定快照、数据位置、同步版本和访问权限。','detail'],
+['07-代理资源','代理资源','检测结果、出口地区、绑定数量与凭据隐藏。','proxies'],
+['08-团队成员','成员与授权','角色和业务范围分别管理，敏感导出默认关闭。','members'],
+['09-操作记录','操作记录','按成员、设备和操作结果追踪，不记录敏感正文。','audit'],
+['10-订阅与用量','订阅与用量','环境、席位、同步空间清晰计量；价格为设计占位。','billing'],
+['11-客户端设置','客户端设置','数据迁移、更新、诊断和三平台能力状态。','settings'],
+['12-环境浏览器','环境浏览器','一个环境内多个网页标签共享登录会话。','browser'],
+['13-代理异常诊断','异常诊断','启动被阻止、原数据保留、错误原因与处理路径。','diagnostic'],
+['14-首次使用空态','首次使用空态','一句解释、一个明确的创建入口。','empty'],
+['15-工作空间引导','工作空间引导','设置业务空间，默认本地保存，减少首用阻力。','onboarding'],
+['16-批量操作','批量操作','展示选择数量，部分失败逐项处理。','environments']
+]
+document.getElementById('gallery').innerHTML = screens.map(([file,title,description,route],i)=>`<article class="tile"><a href="screens/${file}.png"><img src="screens/${file}.png" alt="${title}高保真界面设计图" loading="lazy"></a><div class="tile-text"><h2><span class="index">${String(i+1).padStart(2,'0')}</span>${title}</h2><p>${description}</p><a href="高保真原型.html#${route}">进入交互原型 →</a></div></article>`).join('')
+</script></body></html>

@@ -11,7 +11,7 @@ async function run () {
     FP_TABS_TEST_OUTPUT: output
   })
   await fs.mkdir(dataRoot, { recursive: true })
-  const child = spawn(executable, [path.resolve(__dirname, '..', 'test', 'native-tabs.test.js'), `--user-data-dir=${dataRoot}`, ...process.argv.slice(2)], options)
+  const child = spawn(executable, [path.resolve(__dirname, '..', 'test', 'unified-tabs.test.js'), `--user-data-dir=${dataRoot}`, ...process.argv.slice(2)], options)
   child.on('error', () => { console.error('无法启动标签测试，请检查 Electron 运行时。'); process.exitCode = 1 })
   child.on('exit', code => { process.exitCode = code ?? 1 })
 }

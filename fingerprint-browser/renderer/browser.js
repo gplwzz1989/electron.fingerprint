@@ -1,6 +1,7 @@
 const elements = {
   tabs: document.querySelector('#tabs'),
   profiles: document.querySelector('#profile-picker'),
+  newPageTab: document.querySelector('#new-page-tab'),
   newTab: document.querySelector('#new-tab'),
   address: document.querySelector('#address'),
   back: document.querySelector('#back'),
@@ -67,13 +68,15 @@ function render (snapshot) {
   elements.forward.disabled = !active?.canGoForward
   elements.reload.disabled = !active
   elements.go.disabled = !active
+  elements.newPageTab.disabled = !active
   if (active) {
     const fingerprint = active.fingerprint
-    elements.summary.textContent = `${active.profileName} · 版本 ${active.revision} · ${fingerprint.enabled ? '独立指纹' : '指纹关闭，使用原生值'} · ${fingerprint.locale.language} · ${fingerprint.locale.timezone} · ${fingerprint.hardware.hardwareConcurrency} 线程 · ${fingerprint.screen.width} × ${fingerprint.screen.height}`
+    const environmentTabs = state.tabs.filter(tab => tab.environmentId === active.environmentId).length
+    elements.summary.textContent = `${active.profileName} · ${environmentTabs} 个网页标签 · 版本 ${active.revision} · ${fingerprint.enabled ? '独立指纹' : '指纹关闭，使用原生值'} · ${fingerprint.locale.language} · ${fingerprint.locale.timezone} · ${fingerprint.hardware.hardwareConcurrency} 线程 · ${fingerprint.screen.width} × ${fingerprint.screen.height}`
     elements.dataDir.textContent = `独立目录：${active.dataDir}`
     elements.status.textContent = active.error || (active.loading ? '网页加载中…' : active.warning || '标签已就绪。')
   } else {
-    elements.summary.textContent = '选择配置新建标签；每个标签的数据目录和会话独立。'
+    elements.summary.textContent = '选择配置新建环境；同一环境可继续打开多个网页标签。'
     elements.dataDir.textContent = ''
     elements.status.textContent = ''
   }
@@ -119,6 +122,11 @@ elements.tabs.addEventListener('keydown', async event => {
 })
 elements.newTab.addEventListener('click', () => {
   void operate(() => window.browserApi.launchProfile({ id: elements.profiles.value }))
+})
+elements.newPageTab.addEventListener('click', () => {
+  const active = state.tabs.find(tab => tab.id === state.activeId)
+  if (!active) return
+  void operate(() => window.browserApi.newPageTab({ environmentId: active.environmentId }))
 })
 document.querySelector('#dashboard').addEventListener('click', () => { void operate(() => window.browserApi.showDashboard()) })
 document.querySelector('#navigation').addEventListener('submit', event => {

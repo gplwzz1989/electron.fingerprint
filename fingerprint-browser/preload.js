@@ -8,11 +8,13 @@ contextBridge.exposeInMainWorld('browserApi', {
   launchProfile: payload => ipcRenderer.invoke('profiles:launch', payload),
   listEnvironments: () => ipcRenderer.invoke('environments:list'),
   reopenEnvironment: id => ipcRenderer.invoke('environments:reopen', id),
+  closeEnvironment: id => ipcRenderer.invoke('environments:close', id),
   deleteEnvironment: id => ipcRenderer.invoke('environments:delete', id),
   listTabs: () => ipcRenderer.invoke('tabs:list'),
   selectTab: id => ipcRenderer.invoke('tabs:select', id),
   closeTab: id => ipcRenderer.invoke('tabs:close', id),
   navigateTab: payload => ipcRenderer.invoke('tabs:navigate', payload),
+  newPageTab: payload => ipcRenderer.invoke('tabs:new-page', payload),
   showDashboard: () => ipcRenderer.invoke('tabs:dashboard'),
   onTabsChanged: callback => {
     const listener = (_event, snapshot) => callback(snapshot)

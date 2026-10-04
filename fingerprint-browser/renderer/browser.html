@@ -4,18 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'">
-  <title>多标签指纹浏览器</title>
+  <title>已打开的环境</title>
   <link rel="stylesheet" href="browser.css">
 </head>
 <body>
   <header id="browser-chrome">
     <div class="tabs-row">
-      <div id="tabs" role="tablist" aria-label="独立指纹标签"></div>
-      <label class="profile-picker">
-        <span class="sr-only">新标签使用的指纹配置</span>
+      <div id="tabs" role="tablist" aria-label="浏览器网页标签"></div>
+      <label class="profile-picker" hidden>
+        <span class="sr-only">新环境使用的指纹配置</span>
         <select id="profile-picker"></select>
       </label>
-      <button id="new-tab" type="button">新建标签</button>
+      <button id="new-page-tab" type="button" disabled hidden>新建网页标签</button>
+      <button id="new-tab" type="button" hidden>新建环境</button>
       <button id="dashboard" type="button">配置管理</button>
     </div>
     <form id="navigation" class="navigation">
@@ -29,14 +30,13 @@
       <button id="go" type="submit" disabled>打开</button>
     </form>
     <div class="tab-info">
-      <div id="fingerprint-summary">每个标签独立存储数据，独立加载指纹。</div>
+      <div id="fingerprint-summary">当前环境网页标签共享会话，不同环境相互隔离。</div>
       <div class="details"><span id="data-dir"></span><span id="status" role="status" aria-live="polite"></span></div>
     </div>
   </header>
   <main class="empty-browser">
-    <h1>多标签指纹浏览器</h1>
-    <p>选择指纹配置，点击“新建标签”开始浏览。</p>
-    <p>即使使用同一个配置，新建标签也不会共享 Cookie、缓存和本地存储。</p>
+    <h1>已打开的环境</h1>
+    <p>环境标签由 SaaS 工作台统一管理。</p>
   </main>
   <script src="browser.js"></script>
 </body>

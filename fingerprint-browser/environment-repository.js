@@ -29,7 +29,8 @@ function normalizeEnvironment (record, dataRoot) {
     name: record.profileName,
     url: record.lastUrl || DEFAULT_URL,
     revision: record.profileRevision,
-    fingerprint: record.fingerprint
+    fingerprint: record.fingerprint,
+    proxy: record.proxy
   })
   if (!['open', 'closed'].includes(record.status)) throw new ProfileValidationError('环境状态无效。')
   if (!Number.isInteger(record.createdAt) || record.createdAt < 1) throw new ProfileValidationError('环境创建时间无效。')
@@ -40,6 +41,7 @@ function normalizeEnvironment (record, dataRoot) {
     profileName: profile.name,
     profileRevision: profile.revision,
     dataDir,
+    proxy: profile.proxy,
     fingerprint: profile.fingerprint,
     lastUrl: normalizeUrl(record.lastUrl || DEFAULT_URL),
     status: record.status,
@@ -179,6 +181,7 @@ class EnvironmentRepository {
           profileName: snapshot.name,
           profileRevision: snapshot.revision,
           dataDir,
+          proxy: snapshot.proxy,
           fingerprint: snapshot.fingerprint,
           lastUrl: snapshot.url,
           status: 'closed',
@@ -229,6 +232,7 @@ class EnvironmentRepository {
         profileName: profile.name,
         profileRevision: profile.revision,
         dataDir,
+        proxy: profile.proxy,
         fingerprint: profile.fingerprint,
         lastUrl,
         status: 'closed',

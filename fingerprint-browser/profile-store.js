@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto')
 
 const DEFAULT_URL = 'https://example.com'
+const DEFAULT_PROXY = { mode: 'direct', server: '', username: '', password: '' }
 
 const DEFAULT_PROFILE = {
   schemaVersion: 1,
@@ -207,6 +208,33 @@ function normalizeUrl (value) {
   return parsed.toString()
 }
 
+function createProxyConfig (input) {
+  if (input === undefined) return clone(DEFAULT_PROXY)
+  ensureObject(input, 'proxy')
+  ensureOnlyKeys(input, ['mode', 'server', 'username', 'password'], 'proxy')
+  const mode = input.mode === undefined ? 'direct' : input.mode
+  if (!['direct', 'http', 'socks5'].includes(mode)) fail('proxy.mode 只能是 direct、http 或 socks5。')
+  const server = input.server === undefined || input.server === null ? '' : String(input.server).trim()
+  const username = input.username === undefined || input.username === null ? '' : String(input.username)
+  const password = input.password === undefined || input.password === null ? '' : String(input.password)
+  if (mode === 'direct') {
+    if (server || username || password) fail('直连模式不能填写代理地址或认证信息。')
+    return clone(DEFAULT_PROXY)
+  }
+  ensureString(server, 'proxy.server')
+  let parsed
+  try {
+    parsed = new URL(server)
+  } catch {
+    fail('proxy.server 必须是有效的代理地址。')
+  }
+  const protocols = mode === 'socks5' ? ['socks5:', 'socks5h:'] : ['http:', 'https:']
+  if (!protocols.includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) {
+    fail(`proxy.server 必须使用 ${mode === 'socks5' ? 'socks5' : 'http'} 协议且不能内嵌认证信息。`)
+  }
+  return { mode, server, username, password }
+}
+
 function createProfileRecord (input = {}) {
   ensureObject(input, '浏览器配置记录')
   const source = input.fingerprint || input
@@ -218,7 +246,7 @@ function createProfileRecord (input = {}) {
   if (!name) fail('配置名称不能为空。')
   const url = normalizeUrl(input.url === undefined ? DEFAULT_URL : String(input.url).trim())
   const revision = Number.isInteger(input.revision) && input.revision > 0 ? input.revision : 1
-  return { id, name, url, revision, fingerprint }
+  return { id, name, url, revision, fingerprint, proxy: createProxyConfig(input.proxy) }
 }
 
 function getDefaultProfile () {
@@ -227,6 +255,7 @@ function getDefaultProfile () {
 
 module.exports = {
   DEFAULT_URL,
+  createProxyConfig,
   ProfileValidationError,
   createFingerprintProfile,
   createProfileRecord,

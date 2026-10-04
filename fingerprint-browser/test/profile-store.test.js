@@ -46,6 +46,15 @@ function run () {
   assert.equal(record.id, 'profile-test')
   assert.equal(record.revision, 3)
   assert.equal(record.fingerprint.id, 'profile-test')
+  const proxyRecord = createProfileRecord({
+    id: 'profile-proxy',
+    name: '代理配置',
+    proxy: { mode: 'http', server: 'http://127.0.0.1:8080', username: '用户', password: '密码' },
+    fingerprint: getDefaultProfile()
+  })
+  assert.deepEqual(proxyRecord.proxy, { mode: 'http', server: 'http://127.0.0.1:8080', username: '用户', password: '密码' })
+  assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'direct', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /直连模式/)
+  assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'socks5', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /socks5 协议/)
 
   const launch = getLaunchOptions({ FP_BROWSER_DATA_DIR: './数据目录', FP_ELECTRON_RUNTIME: './运行时', TEST_VALUE: '保留' })
   assert.ok(launch.args.includes(`--user-data-dir=${path.resolve('./数据目录')}`))

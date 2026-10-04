@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>原型流程自检</title></head>
+<body><h1>原型流程自检</h1><pre id="result">正在检查</pre><iframe id="frame" title="自检用原型" style="width:1440px;height:1050px;border:0"></iframe>
+<script>
+const frame = document.getElementById('frame')
+const results = []
+const pause = () => new Promise(resolve => setTimeout(resolve, 30))
+const check = (condition, name) => { results.push({ name, pass: Boolean(condition) }); if (!condition) throw new Error('检查未通过：' + name) }
+frame.src = '高保真原型.html#environments'
+frame.addEventListener('load', async () => {
+  try {
+    const w = frame.contentWindow, d = frame.contentDocument
+    const click = selector => d.querySelector(selector).click()
+    const go = async route => { w.location.hash = route; await pause() }
+    check(d.querySelectorAll('#env-rows tr').length === 8, '环境表格初始八条记录')
+    d.getElementById('env-search').value = '不存在的业务'
+    d.getElementById('env-search').dispatchEvent(new Event('input', { bubbles: true }))
+    check(d.getElementById('env-rows').textContent.includes('没有找到匹配的环境'), '无搜索结果有提示')
+    click('[data-action="reset-filters"]')
+    check(d.querySelectorAll('#env-rows tr').length === 8, '清除筛选恢复列表')
+    click('[data-select="QJ-1001"]')
+    check(!d.getElementById('bulkbar').hidden, '选择后显示批量操作')
+    click('[data-action="clear-selection"]')
+    click('[data-action="diagnostic"][data-id="QJ-1003"]')
+    check(d.querySelector('[role="dialog"]').textContent.includes('没有使用本机网络'), '代理异常诊断说明阻止直连')
+    d.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    check(!d.querySelector('[role="dialog"]'), '按退出键关闭诊断')
+    click('[data-action="create"]'); await pause()
+    d.querySelector('[name="name"]').value = '验收环境 <隔离>'
+    d.getElementById('wizard-form').requestSubmit()
+    check(d.querySelector('.step.active').textContent.includes('代理与地区'), '创建第二步显示代理设置')
+    d.getElementById('wizard-form').requestSubmit()
+    check(d.querySelector('.step.active').textContent.includes('代理与地区'), '未检查代理不能继续')
+    click('[data-action="check-proxy"]')
+    check(d.getElementById('proxy-feedback').textContent.includes('演示检查通过'), '代理检查显示明确演示反馈')
+    d.getElementById('wizard-form').requestSubmit()
+    check(d.querySelector('.step.active').textContent.includes('指纹配置'), '创建第三步显示指纹摘要')
+    d.getElementById('wizard-form').requestSubmit()
+    check(d.querySelector('[role="dialog"]').textContent.includes('验收环境 <隔离>'), '创建成功且名称按文本显示')
+    click('[data-action="return-env"]'); await pause()
+    check(d.querySelectorAll('#env-rows tr').length === 9, '创建后演示列表增加一条')
+    click('[data-action="launch"][data-id="QJ-1009"]'); await pause()
+    check(d.querySelector('.browser-envbar').textContent.includes('验收环境 <隔离>'), '打开环境进入正确的浏览器归属')
+    click('[data-action="new-browser-tab"]')
+    check(d.querySelectorAll('.browser-tab').length === 4, '可以创建同环境网页标签')
+    await go('members'); click('[data-action="invite"]')
+    d.querySelector('#invite-form [name="name"]').value = '测试成员'
+    d.querySelector('#invite-form [name="email"]').value = 'test@example.com'
+    d.getElementById('invite-form').requestSubmit()
+    check(d.querySelector('table').textContent.includes('test@example.com'), '邀请只增加演示记录')
+    const routes = ['overview', 'environments', 'proxies', 'members', 'audit', 'billing', 'settings', 'browser', 'empty', 'onboarding', 'detail', 'diagnostic']
+    for (const route of routes) { await go(route); check(d.querySelector('h1') !== null, '页面可渲染：' + route) }
+    await go('environments')
+    for (const width of [320, 768, 1024, 1440, 1920]) {
+      frame.style.width = width + 'px'; await pause()
+      check(d.documentElement.scrollWidth <= w.innerWidth, '页面无整体横向溢出：' + width)
+    }
+    const pairs = [['正文', '#192536', '#ffffff'], ['次级正文', '#637083', '#ffffff'], ['主按钮', '#ffffff', '#315bea'], ['成功标签', '#16734d', '#eaf7f0'], ['提醒标签', '#996014', '#fff4df'], ['错误标签', '#b94343', '#fff0f0']]
+    const lum = hex => { const c = hex.match(/\w\w/g).map(n => parseInt(n, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return c[0] * .2126 + c[1] * .7152 + c[2] * .0722 }
+    for (const [name, fg, bg] of pairs) { const a = lum(fg), b = lum(bg); const ratio = (Math.max(a,b) + .05) / (Math.min(a,b) + .05); check(ratio >= 4.5, '主要颜色对比度达标：' + name + ' ' + ratio.toFixed(2)) }
+    document.getElementById('result').textContent = JSON.stringify({ status: '通过', results }, null, 2)
+  } catch (error) {
+    document.getElementById('result').textContent = JSON.stringify({ status: '未通过', message: '原型有检查项未通过，请查看结果记录。', results }, null, 2)
+  }
+  document.documentElement.dataset.completed = 'true'
+})
+</script></body></html>

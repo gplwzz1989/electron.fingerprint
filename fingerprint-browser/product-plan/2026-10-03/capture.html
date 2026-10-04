@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>设计页面导出</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style></head>
+<body>
+<iframe id="frame" title="高保真设计画布"></iframe>
+<script>
+const params = new URLSearchParams(location.search)
+const frame = document.getElementById('frame')
+const page = params.get('page') || 'environments'
+frame.src = '高保真原型.html#' + page
+frame.addEventListener('load', () => {
+  const doc = frame.contentDocument
+  if (page === 'create') {
+    const step = Number(params.get('step') || 1)
+    if (step >= 2) doc.getElementById('wizard-form').requestSubmit()
+    if (step >= 2 && params.get('checked') === '1') doc.querySelector('[data-action="check-proxy"]').click()
+    if (step >= 3) {
+      doc.querySelector('[data-action="check-proxy"]').click()
+      doc.getElementById('wizard-form').requestSubmit()
+    }
+  }
+  if (params.get('selected') === '1') {
+    for (const id of ['QJ-1001', 'QJ-1002']) doc.querySelector(`[data-select="${id}"]`).click()
+  }
+  document.documentElement.dataset.ready = 'true'
+})
+</script>
+</body>
+</html>

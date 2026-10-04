@@ -1,0 +1,157 @@
+{
+  "status": "通过",
+  "results": [
+    {
+      "name": "环境表格初始八条记录",
+      "pass": true
+    },
+    {
+      "name": "无搜索结果有提示",
+      "pass": true
+    },
+    {
+      "name": "清除筛选恢复列表",
+      "pass": true
+    },
+    {
+      "name": "选择后显示批量操作",
+      "pass": true
+    },
+    {
+      "name": "代理异常诊断说明阻止直连",
+      "pass": true
+    },
+    {
+      "name": "按退出键关闭诊断",
+      "pass": true
+    },
+    {
+      "name": "创建第二步显示代理设置",
+      "pass": true
+    },
+    {
+      "name": "未检查代理不能继续",
+      "pass": true
+    },
+    {
+      "name": "代理检查显示明确演示反馈",
+      "pass": true
+    },
+    {
+      "name": "创建第三步显示指纹摘要",
+      "pass": true
+    },
+    {
+      "name": "创建成功且名称按文本显示",
+      "pass": true
+    },
+    {
+      "name": "创建后演示列表增加一条",
+      "pass": true
+    },
+    {
+      "name": "打开环境进入正确的浏览器归属",
+      "pass": true
+    },
+    {
+      "name": "可以创建同环境网页标签",
+      "pass": true
+    },
+    {
+      "name": "邀请只增加演示记录",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：overview",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：environments",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：proxies",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：members",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：audit",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：billing",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：settings",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：browser",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：empty",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：onboarding",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：detail",
+      "pass": true
+    },
+    {
+      "name": "页面可渲染：diagnostic",
+      "pass": true
+    },
+    {
+      "name": "页面无整体横向溢出：320",
+      "pass": true
+    },
+    {
+      "name": "页面无整体横向溢出：768",
+      "pass": true
+    },
+    {
+      "name": "页面无整体横向溢出：1024",
+      "pass": true
+    },
+    {
+      "name": "页面无整体横向溢出：1440",
+      "pass": true
+    },
+    {
+      "name": "页面无整体横向溢出：1920",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：正文 15.45",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：次级正文 5.03",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：主按钮 5.50",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：成功标签 5.30",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：提醒标签 4.77",
+      "pass": true
+    },
+    {
+      "name": "主要颜色对比度达标：错误标签 4.81",
+      "pass": true
+    }
+  ]
+}

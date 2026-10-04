@@ -1,7 +1,7 @@
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { randomUUID } = require('node:crypto')
-const { app, BrowserWindow, dialog, ipcMain } = require('electron/main')
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron/main')
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { ProfileRepository } = require('./profile-repository')
@@ -24,6 +24,45 @@ let environmentRepository = null
 let tabBrowser = null
 let quitting = false
 let startup = Promise.resolve()
+
+const APPLICATION_ID = 'com.qijie.fingerprintbrowser'
+const APPLICATION_ICON = process.platform === 'win32'
+  ? path.join(__dirname, 'assets', 'saas.ico')
+  : path.join(__dirname, 'assets', 'saas.png')
+
+async function ensureUserDataPath () {
+  const configuredPath = process.env.FP_BROWSER_DATA_DIR?.trim()
+  const candidates = configuredPath ? [path.resolve(configuredPath)] : [app.getPath('userData')]
+  if (!configuredPath && process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, '栖界', '指纹浏览器'))
+  }
+  if (!configuredPath) candidates.push(path.join(app.getPath('temp'), '栖界', '指纹浏览器'))
+
+  for (const candidate of candidates) {
+    try {
+      await fs.mkdir(candidate, { recursive: true })
+      const probePath = path.join(candidate, `.write-check-${process.pid}`)
+      const handle = await fs.open(probePath, 'w')
+      await handle.close()
+      await fs.unlink(probePath)
+      if (candidate !== app.getPath('userData')) {
+        app.setPath('userData', candidate)
+        app.setPath('sessionData', candidate)
+        console.warn(`[启动应用] 默认数据目录不可写，已切换到：${candidate}`)
+      }
+      return candidate
+    } catch (error) {
+      console.warn(`[启动应用] 数据目录不可用：${candidate}`, error?.message || error)
+    }
+  }
+  throw new ProfileValidationError('应用数据目录不可写，请检查用户目录权限或设置 FP_BROWSER_DATA_DIR。')
+}
+
+function startupErrorMessage (error) {
+  if (error instanceof ProfileValidationError) return error.message
+  if (error?.code === 'EACCES' || error?.code === 'EPERM') return '应用数据目录不可写，请检查用户目录权限后重试。'
+  return '无法读取或初始化浏览器配置，请检查应用数据目录后重试。'
+}
 
 function clone (value) {
   return JSON.parse(JSON.stringify(value))
@@ -77,15 +116,17 @@ function registerIpc () {
   // 只有本地管理页和标签栏可调用应用接口，远程网页不能操作其他标签。
   function assertTrusted (event) {
     if (quitting) throw new ProfileValidationError('应用正在退出，请稍后重新打开。')
+    const trustedUrl = event.senderFrame?.url?.split('#', 1)[0]
     if (![dashboardWindow?.webContents, tabBrowser?.window?.webContents].includes(event.sender) ||
-        event.senderFrame !== event.sender.mainFrame || !trustedPages.has(event.senderFrame.url)) {
+        event.senderFrame !== event.sender.mainFrame || !trustedPages.has(trustedUrl)) {
       throw new ProfileValidationError('当前页面无权操作浏览器配置或标签。')
     }
   }
-  for (const action of ['list', 'select', 'close', 'navigate', 'dashboard']) {
+  for (const action of ['list', 'select', 'close', 'navigate', 'new-page', 'dashboard']) {
     ipcMain.handle(`tabs:${action}`, async (event, payload) => {
       try {
         assertTrusted(event)
+        let actionResult = {}
         if (action === 'select') tabBrowser.select(payload)
         if (action === 'close') {
           await tabBrowser.close(payload)
@@ -95,12 +136,17 @@ function registerIpc () {
           await tabBrowser.navigate(payload)
           dashboardWindow?.webContents.send('environments:changed')
         }
+        if (action === 'new-page') {
+          actionResult = await tabBrowser.openPageTab(payload?.environmentId, payload?.url)
+          dashboardWindow?.webContents.send('environments:changed')
+        }
         if (action === 'dashboard') {
           if (!dashboardWindow || dashboardWindow.isDestroyed()) await createDashboard()
+          tabBrowser.selectDashboard()
           dashboardWindow.show()
           dashboardWindow.focus()
         }
-        return { ok: true, ...tabBrowser.snapshot() }
+        return { ok: true, ...actionResult, ...tabBrowser.snapshot() }
       } catch (error) {
         return errorResult('操作标签', error, '标签操作失败，请重试。')
       }
@@ -132,6 +178,17 @@ function registerIpc () {
       return { ok: true, ...result, environments: environmentRepository.list(), ...tabBrowser.snapshot() }
     } catch (error) {
       return errorResult('恢复浏览器环境', error, '恢复浏览器环境失败，请检查环境目录。')
+    }
+  })
+
+  ipcMain.handle('environments:close', async (event, id) => {
+    try {
+      assertTrusted(event)
+      const result = await tabBrowser.closeEnvironment(id)
+      dashboardWindow?.webContents.send('environments:changed')
+      return { ok: true, environments: environmentRepository.list(), ...result }
+    } catch (error) {
+      return errorResult('关闭浏览器环境', error, '关闭浏览器环境失败，请重试。')
     }
   })
 
@@ -205,8 +262,10 @@ async function createDashboard () {
     height: 820,
     minWidth: 980,
     minHeight: 680,
-    title: '指纹浏览器',
+    title: '指纹浏览器 · 栖界工作空间',
     backgroundColor: '#0d1118',
+    icon: APPLICATION_ICON,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -214,6 +273,10 @@ async function createDashboard () {
       sandbox: true
     }
   })
+  dashboardWindow.on('closed', () => {
+    dashboardWindow = null
+  })
+  tabBrowser?.attachWindow(dashboardWindow)
   dashboardWindow.show()
   dashboardWindow.focus()
   dashboardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -224,11 +287,17 @@ async function createDashboard () {
 async function start () {
   await app.whenReady()
   try {
+    app.setAppUserModelId(APPLICATION_ID)
+    Menu.setApplicationMenu(null)
     app.userAgentFallback = defaultUserAgent()
+    await ensureUserDataPath()
     const { recovered } = await loadProfiles()
     environmentRepository = new EnvironmentRepository(app.getPath('userData'))
     await environmentRepository.load()
-    tabBrowser = new TabBrowser(app.getPath('userData'), environmentRepository)
+    tabBrowser = new TabBrowser(app.getPath('userData'), environmentRepository, {
+      getWindow: () => dashboardWindow,
+      onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
+    })
     registerIpc()
     await createDashboard()
     if (recovered) {
@@ -241,7 +310,7 @@ async function start () {
     }
   } catch (error) {
     console.error('[启动应用]', error)
-    dialog.showErrorBox('指纹浏览器启动失败', '无法读取或初始化浏览器配置，请检查应用数据目录后重试。')
+    dialog.showErrorBox('指纹浏览器启动失败', startupErrorMessage(error))
     app.quit()
     return
   }
