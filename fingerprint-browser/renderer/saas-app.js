@@ -65,6 +65,34 @@ function activeUnifiedTab () {
   return unifiedTabs.tabs.find(tab => tab.id === unifiedTabs.activeId) || null
 }
 
+function fingerprintTooltip (tab) {
+  if (!tab) return '选择环境标签后查看指纹参数与代理信息。'
+  const { browser, locale, hardware, screen, graphics, noise, modules } = tab.fingerprint
+  const proxy = tab.proxy || { mode: 'direct' }
+  const switches = { ua: '用户代理', clientHints: '客户端提示', locale: '语言', timezone: '时区', navigator: '设备', screen: '屏幕', webgl: '图形', canvas: '画布', audio: '音频', fonts: '字体', webrtc: '实时通信', runtimeInspector: '调试器兼容' }
+  const status = value => value ? '开启' : '关闭'
+  return [
+    `当前标签：${tab.profileName} · 配置版本 ${tab.revision}`,
+    `指纹状态：${tab.fingerprint.enabled ? '启用' : '停用，下列为保存配置，页面使用原生值'}`,
+    `代理：${{ direct: '直连（不使用代理）', http: '网页代理', socks5: '套接字代理' }[proxy.mode]}`,
+    ...(proxy.mode === 'direct' ? [] : [`代理地址：${proxy.server}`, `代理账户：${proxy.username || '未配置'}`, `代理密码：${proxy.hasPassword ? '已配置（已隐藏）' : '未配置'}`]),
+    `浏览器：${browser.family} · 内核主版本 ${browser.chromiumMajor}`,
+    `用户代理：${browser.userAgent || tab.userAgent || '使用内核默认值'}`,
+    `平台：${hardware.platform}`,
+    `语言：${locale.language} · 语言列表：${locale.languages.join('、')}`,
+    `请求语言：${browser.acceptLanguage || '使用内核默认值'}`,
+    `时区：${locale.timezone}`,
+    `硬件：${hardware.hardwareConcurrency} 线程 · 内存 ${hardware.deviceMemory} 吉字节`,
+    `屏幕：${screen.width} × ${screen.height} · 可用 ${screen.availWidth} × ${screen.availHeight} · 缩放 ${screen.deviceScaleFactor}`,
+    `图形厂商：${graphics.webglVendor || '使用原生值'}`,
+    `图形渲染器：${graphics.webglRenderer || '使用原生值'}`,
+    `噪声：画布${status(noise.canvas)} · 音频${status(noise.audio)} · 元素尺寸${status(noise.rects)}`,
+    `噪声种子：${noise.seed}`,
+    `模块：${Object.entries(modules).map(([key, enabled]) => `${switches[key]}${status(enabled)}`).join('、')}`,
+    ...(tab.warning ? [`兼容提示：${tab.warning}`] : [])
+  ].join('\n')
+}
+
 function renderUnifiedTabs (snapshot = { activeId: null, tabs: [] }) {
   unifiedTabs = snapshot
   const tabbar = document.getElementById('unified-tabs')
@@ -107,6 +135,13 @@ function renderUnifiedTabs (snapshot = { activeId: null, tabs: [] }) {
   const forward = document.getElementById('unified-forward')
   const reload = document.getElementById('unified-reload')
   const go = document.getElementById('unified-go')
+  const fingerprint = document.getElementById('unified-fingerprint')
+  if (fingerprint) {
+    if (!fingerprint.firstElementChild) fingerprint.innerHTML = icon('fingerprint')
+    fingerprint.disabled = !active
+    // 原生悬停提示可以显示在网页视图之上，避免普通网页浮层被遮挡。
+    fingerprint.title = fingerprintTooltip(active)
+  }
   if (address && document.activeElement !== address) address.value = active?.url || ''
   if (address) address.disabled = !active
   if (back) back.disabled = !active?.canGoBack

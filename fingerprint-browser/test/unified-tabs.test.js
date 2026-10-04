@@ -62,6 +62,7 @@ async function run () {
   await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('#unified-tabs'))"), '统一标签栏没有加载。')
   const initialChrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, title: document.querySelector('#unified-tabs .dashboard-tab .unified-tab-title')?.textContent })")
   assert.deepEqual(initialChrome, { tabs: 1, selected: 1, title: '首页' }, '启动首页标签状态不正确。')
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').disabled"), true, '首页不应显示可用的标签指纹信息。')
   await fs.writeFile(path.join(output, 'unified-home.png'), (await dashboard.webContents.capturePage()).toPNG())
   await record('统一窗口启动和固定首页标签通过')
 
@@ -78,6 +79,10 @@ async function run () {
     draft.name = name
     draft.url = url
     draft.fingerprint.hardware.hardwareConcurrency = cpu
+    if (cpu === 12) {
+      draft.url = 'http://fingerprint-tooltip-proxy.invalid/'
+      draft.proxy = { mode: 'http', server: url.replace(/\/$/, ''), username: '测试代理账户', password: '测试代理密码' }
+    }
     const saved = await invoke(dashboard, 'saveProfile', draft)
     profiles.push(saved.profile)
     await invoke(dashboard, 'launchProfile', { id: draft.id })
@@ -90,6 +95,25 @@ async function run () {
   const chrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, overflow: getComputedStyle(document.querySelector('#unified-tabs')).overflow })")
   assert.deepEqual(chrome, { tabs: 3, selected: 1, overflow: 'hidden' }, '环境标签栏布局不符合浏览器式管理。')
   await record('环境标签同窗创建、首页保留和无滚动条通过')
+
+  const tooltipFor = async () => await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').title")
+  assert.match(await tooltipFor(), /环境二 · 纽约.*配置版本 1/)
+  assert.match(await tooltipFor(), /12 线程/)
+  assert.match(await tooltipFor(), /代理：网页代理/)
+  assert.match(await tooltipFor(), /代理账户：测试代理账户/)
+  assert.match(await tooltipFor(), /代理密码：已配置（已隐藏）/)
+  assert.equal((await tooltipFor()).includes('测试代理密码'), false, '指纹提示不应显示代理明文密码。')
+  assert.equal(Object.hasOwn(snapshot.tabs[1].proxy, 'password'), false, '代理标签快照不应包含明文密码。')
+  await invoke(dashboard, 'selectTab', snapshot.tabs[0].id)
+  assert.match(await tooltipFor(), /环境一 · 上海/)
+  assert.match(await tooltipFor(), /4 线程/)
+  assert.match(await tooltipFor(), /代理：直连（不使用代理）/)
+  const proxyTooltip = await dashboard.webContents.executeJavaScript(`fingerprintTooltip({ ...activeUnifiedTab(), proxy: { mode: 'socks5', server: 'socks5://127.0.0.1:1080', username: '测试代理账户', hasPassword: true } })`)
+  assert.match(proxyTooltip, /代理地址：socks5:\/\/127.0.0.1:1080/)
+  assert.match(proxyTooltip, /代理账户：测试代理账户/)
+  assert.match(proxyTooltip, /代理密码：已配置（已隐藏）/)
+  assert.equal(Object.hasOwn(snapshot.tabs[0].proxy, 'password'), false, '标签快照不应包含代理明文密码。')
+  await record('地址栏指纹图标、标签快照切换和代理信息通过')
 
   const protocolContents = contentsFor(snapshot.tabs[0])
   const permissionHandler = permissionHandlers.get(protocolContents.session)
@@ -135,6 +159,7 @@ async function run () {
   await waitFor(async () => (await invoke(dashboard, 'listTabs')).activeId === null, '首页标签无法重新激活。')
   const finalChrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, body: document.body.classList.contains('environment-tab-active') })")
   assert.deepEqual(finalChrome, { tabs: 2, selected: 1, body: false }, '返回 SaaS 首页后的标签状态不正确。')
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').disabled"), true, '返回首页后指纹图标没有停用。')
   await invoke(dashboard, 'closeTab', first.id)
   await record('关闭环境、状态同步和返回首页通过')
   result.ok = true

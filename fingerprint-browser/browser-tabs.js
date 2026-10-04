@@ -128,6 +128,13 @@ class TabBrowser {
         url: tab.url,
         dataDir: tab.dataDir,
         fingerprint: tab.profile.fingerprint,
+        userAgent: tab.view.webContents.getUserAgent(),
+        proxy: {
+          mode: tab.profile.proxy?.mode || 'direct',
+          server: tab.profile.proxy?.server || '',
+          username: tab.profile.proxy?.username || '',
+          hasPassword: Boolean(tab.profile.proxy?.password)
+        },
         warning: tab.warning,
         error: tab.error,
         loading: tab.loading,

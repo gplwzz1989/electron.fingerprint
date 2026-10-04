@@ -26,6 +26,8 @@
 #unified-address{width:100%;border:0;outline:0;background:transparent;color:#334158;text-align:center;font-size:12px;min-width:0}
 #unified-address:disabled{color:#8993a1}
 #unified-go{font-size:11px!important;min-width:42px!important}
+#unified-fingerprint{display:inline-grid;place-items:center;flex-shrink:0}
+#unified-fingerprint svg{width:18px;height:18px}
 .environment-tab-active .shell{display:none}
 @media(min-width:1600px){main{padding:35px 44px}.topbar,.app-footer{padding-left:44px;padding-right:44px}.metric{padding:24px}.env-table td{height:66px}}
 @media(max-width:1200px){.topbar{padding:0 24px}main{padding:25px 24px}.global-search{display:none}.metrics{gap:10px}.metric{padding:17px 12px;gap:9px}.metric-icon{width:34px;height:34px}.metric b{font-size:23px}.form-layout{grid-template-columns:minmax(0,1fr) 250px}.env-table{min-width:850px}.overview-grid{grid-template-columns:minmax(0,1.5fr) minmax(240px,1fr)}.plan{padding:20px}.billing-usage{gap:20px}}
