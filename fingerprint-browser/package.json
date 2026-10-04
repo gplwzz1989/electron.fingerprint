@@ -14,7 +14,7 @@
     "test:environments": "node scripts/test-environments.js"
   },
   "scripts说明": {
-    "package": "生成 Windows 安装包和便携包，统一使用 SaaS 图标及产品信息；固定文件名覆盖更新，清理历史版本产物。需要 PowerShell 7、Release 内核、NSIS 和资源编辑工具。",
+    "package": "生成 Windows 安装包和便携包，统一使用 SaaS 图标及产品信息；固定文件名覆盖更新，清理历史版本产物，并通知资源管理器刷新图标缓存。需要 PowerShell 7、Release 内核、NSIS 和资源编辑工具。",
     "test:package": "验证安装包、客户端及卸载器图标、产品信息和快捷方式，并验证安装、启动、默认用户数据目录、卸载及数据保留。当前账户已安装客户端时不执行此验证。"
   },
   "engines": {

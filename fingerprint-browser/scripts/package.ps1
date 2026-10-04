@@ -98,6 +98,17 @@ try {
   foreach ($artifact in @($installer, $portable)) {
     ((Get-FileHash -LiteralPath $artifact).Hash.ToLower() + '  ' + [IO.Path]::GetFileName($artifact)) | Set-Content -LiteralPath ($artifact + '.sha256') -Encoding utf8NoBOM
   }
+  # 固定文件名覆盖后通知资源管理器更新图标，避免继续显示旧安装包的缓存图标。
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PackageIconCache {
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+  public static extern void SHChangeNotify(uint eventId, uint flags, string item1, IntPtr item2);
+}
+'@
+  foreach ($programFile in @($installer, $program)) { [PackageIconCache]::SHChangeNotify(0x2000, 0x1005, $programFile, [IntPtr]::Zero) }
+  [PackageIconCache]::SHChangeNotify(0x08000000, 0x1000, $null, [IntPtr]::Zero)
   Write-Host "已生成安装包：$installer"
   Write-Host "已生成便携包：$portable"
   Write-Host '产物名称固定，后续打包会覆盖更新。'
