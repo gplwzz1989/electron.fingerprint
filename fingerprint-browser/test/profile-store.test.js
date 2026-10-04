@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const path = require('node:path')
 const { getLaunchOptions, runtimeExecutable } = require('../scripts/start')
 const { applyFingerprintConfig } = require('../runtime-compat')
+const { defaultDataRoot, dataRoot } = require('../data-directory')
 const {
   createProfileRecord,
   getDefaultProfile,
@@ -61,6 +62,11 @@ function run () {
   assert.equal(launch.options.env.FP_BROWSER_DATA_DIR, path.resolve('./数据目录'))
   assert.equal(launch.options.env.TEST_VALUE, '保留')
   assert.equal(launch.args.includes('--no-sandbox'), false)
+  assert.equal(defaultDataRoot({ APPDATA: 'C:\\用户\\应用数据' }, 'win32', 'C:\\用户'), 'C:\\用户\\应用数据\\栖界\\指纹浏览器')
+  assert.equal(defaultDataRoot({}, 'darwin', '/用户'), '/用户/Library/Application Support/栖界/指纹浏览器')
+  assert.equal(defaultDataRoot({ XDG_CONFIG_HOME: '/配置' }, 'linux', '/用户'), '/配置/栖界/指纹浏览器')
+  assert.equal(defaultDataRoot({}, 'linux', '/用户'), '/用户/.config/栖界/指纹浏览器')
+  assert.equal(getLaunchOptions({}).dataRoot, dataRoot({}))
   assert.equal(getLaunchOptions({}).executable, runtimeExecutable(path.resolve(__dirname, '..', '..', '..', 'electron-fp-build', 'src', 'out', 'Release')))
   assert.equal(getLaunchOptions({ ELECTRON_OVERRIDE_DIST_PATH: './兼容运行时' }).executable, runtimeExecutable('./兼容运行时'))
   assert.equal(runtimeExecutable('内核', 'darwin'), path.join('内核', 'Electron.app', 'Contents', 'MacOS', 'Electron'))

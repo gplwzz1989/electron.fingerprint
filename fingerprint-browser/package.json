@@ -7,6 +7,8 @@
   "main": "main.js",
   "scripts": {
     "start": "node scripts/start.js",
+    "package": "pwsh -NoProfile -File scripts/package.ps1",
+    "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test": "node test/profile-store.test.js && node test/profile-repository.test.js && node test/environment-repository.test.js && node test/workspace-access.test.js && node test/environment-checkpoint.test.js",
     "test:tabs": "node scripts/test-tabs.js",
     "test:environments": "node scripts/test-environments.js"

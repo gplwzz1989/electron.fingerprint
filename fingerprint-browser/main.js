@@ -5,6 +5,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron/main')
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { ProfileRepository } = require('./profile-repository')
+const { dataRoot: resolveDataRoot } = require('./data-directory')
 const {
   DEFAULT_URL,
   ProfileValidationError,
@@ -13,9 +14,13 @@ const {
   normalizeUrl
 } = require('./profile-store')
 
-if (process.env.FP_BROWSER_DATA_DIR) {
-  app.setPath('userData', process.env.FP_BROWSER_DATA_DIR)
-  app.setPath('sessionData', process.env.FP_BROWSER_DATA_DIR)
+const initialDataRoot = resolveDataRoot()
+try {
+  app.setPath('userData', initialDataRoot)
+  app.setPath('sessionData', initialDataRoot)
+} catch {
+  dialog.showErrorBox('应用数据目录不可用', '无法创建应用数据目录，请检查用户目录权限或设置可写的数据目录。')
+  app.exit(1)
 }
 
 let dashboardWindow = null
@@ -61,11 +66,7 @@ async function activateClient () {
 
 async function ensureUserDataPath () {
   const configuredPath = process.env.FP_BROWSER_DATA_DIR?.trim()
-  const candidates = configuredPath ? [path.resolve(configuredPath)] : [app.getPath('userData')]
-  if (!configuredPath && process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    candidates.push(path.join(process.env.LOCALAPPDATA, '栖界', '指纹浏览器'))
-  }
-  if (!configuredPath) candidates.push(path.join(app.getPath('temp'), '栖界', '指纹浏览器'))
+  const candidates = [configuredPath ? path.resolve(configuredPath) : initialDataRoot]
 
   for (const candidate of candidates) {
     try {
@@ -80,8 +81,8 @@ async function ensureUserDataPath () {
         console.warn(`[启动应用] 默认数据目录不可写，已切换到：${candidate}`)
       }
       return candidate
-    } catch (error) {
-      console.warn(`[启动应用] 数据目录不可用：${candidate}`, error?.message || error)
+    } catch {
+      console.warn(`[启动应用] 应用数据目录不可写：${candidate}`)
     }
   }
   throw new ProfileValidationError('应用数据目录不可写，请检查用户目录权限或设置 FP_BROWSER_DATA_DIR。')
