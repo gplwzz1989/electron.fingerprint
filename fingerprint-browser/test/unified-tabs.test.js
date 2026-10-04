@@ -263,8 +263,8 @@ async function run () {
     await click('#wizard-form button[type="submit"]')
     await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-form button[type=submit]')?.textContent.includes('创建环境')"), '网络设置未能进入创建确认页。')
     await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent = ''")
-    await click('#wizard-form button[type="submit"]')
-    if (expectSuccess) await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#environments' && document.querySelector('#toast').textContent.includes('已创建')"), '环境创建向导未完成实际启动。')
+    await dashboard.webContents.executeJavaScript("(() => { const button = document.querySelector('#wizard-form button[type=submit]'); button.click(); button.click() })()")
+    if (expectSuccess) await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#create' && document.querySelector('#wizard-form [name=name]')?.value === '美国旗舰店 · 运营' && document.querySelector('#toast').textContent.includes('已创建')"), '环境创建向导未返回初始创建页。')
   }
   async function chooseHttpProxy (address) {
     await dashboard.webContents.executeJavaScript("(() => { const mode = document.querySelector('#wizard-proxy-mode'); mode.value = 'http'; mode.dispatchEvent(new Event('change', { bubbles: true })) })()")
@@ -275,7 +275,9 @@ async function run () {
   assert.equal(await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[name=proxyServer], [data-action=check-proxy]'))"), false, '直连仍被要求填写或检查代理。')
   await finishWizard()
   await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.some(item => item.profileName === '向导直连环境' && item.status === 'open'), '向导无法直接创建无代理环境。')
-  const directEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导直连环境')
+  const directEnvironments = (await invoke(dashboard, 'listEnvironments')).environments.filter(item => item.profileName === '向导直连环境')
+  assert.equal(directEnvironments.length, 1, '重复点击创建按钮产生了重复环境。')
+  const directEnvironment = directEnvironments[0]
   assert.equal(directEnvironment.proxy.mode, 'direct', '直连环境保存了错误代理模式。')
   assert.ok(wizardDirectRequests.includes('/?wizard=direct'), '直连环境没有使用本机网络。')
   await record('创建向导默认直连及本机网络请求通过')

@@ -52,6 +52,7 @@ let filter = 'all'
 let searchTerm = ''
 let groupFilter = '全部分组'
 let wizardStep = 1
+let wizardSubmitting = false
 let profiles = []
 let currentEnvironment = null
 let toastTimer
@@ -59,6 +60,12 @@ let lastFocus
 let draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }
 let selected = new Set()
 let unifiedTabs = { activeId: null, tabs: [] }
+
+function resetWizard () {
+  wizardStep = 1
+  wizardSubmitting = false
+  draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }
+}
 
 function activeUnifiedTab () {
   return unifiedTabs.tabs.find(tab => tab.id === unifiedTabs.activeId) || null
@@ -441,7 +448,7 @@ document.addEventListener('click', event => {
   const e = environments.find(item => item.id === target.dataset.id) || currentEnvironment
   if (target.closest('form') && target.tagName === 'BUTTON' && !target.hasAttribute('type')) event.preventDefault()
   switch (action) {
-    case 'create': wizardStep = 1; draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }; navigate('create'); break
+    case 'create': resetWizard(); navigate('create'); break
     case 'return-env': case 'cancel-create': closeOverlay(); navigate('environments'); break
     case 'detail': currentEnvironment = e; showOverlay(detailDrawer(e)); break
     case 'diagnostic': currentEnvironment = e; showOverlay(detailDrawer(e, true)); break
@@ -512,6 +519,7 @@ document.addEventListener('change', event => {
 document.addEventListener('submit', async event => {
   event.preventDefault()
   if (event.target.id === 'wizard-form') {
+    if (wizardStep === 3 && wizardSubmitting) return
     if (wizardStep === 1) { const data = new FormData(event.target); draft = { ...draft, name: String(data.get('name')).trim(), group: data.get('group'), storage: data.get('storage'), url: String(data.get('url') || 'https://example.com').trim() }; if (!draft.name) { toast('请输入环境名称。'); return } }
     if (wizardStep === 2) {
       const data = new FormData(event.target)
@@ -525,6 +533,7 @@ document.addEventListener('submit', async event => {
       }
     }
     if (wizardStep < 3) { wizardStep++; render(); return }
+    if (wizardStep === 3) wizardSubmitting = true
     try {
       const draftResponse = await window.browserApi.getDraft()
       if (!draftResponse?.ok) throw new Error(draftResponse?.error || '创建配置草稿失败。')
@@ -541,11 +550,15 @@ document.addEventListener('submit', async event => {
       if (!environmentResponse?.ok) throw new Error(environmentResponse?.error || '刷新浏览器环境失败。')
       applyEnvironmentSnapshot(environmentResponse.environments)
       currentEnvironment = environments.find(item => item.raw?.profileId === profile.id || item.raw?.profileName === profile.name) || environments[0] || null
+      const createdName = draft.name
       closeOverlay()
-      navigate('environments')
-      toast(`已创建“${draft.name}”环境并打开浏览器窗口。`)
+      resetWizard()
+      navigate('create')
+      toast(`已创建“${createdName}”环境并打开浏览器窗口。`)
     } catch (error) {
       toast(error?.message || '创建浏览器环境失败，请重试。')
+    } finally {
+      wizardSubmitting = false
     }
   }
   if (event.target.id === 'invite-form') { const data = new FormData(event.target); members.push([String(data.get('name')).trim(), String(data.get('email')).trim(), data.get('role'), data.get('group'), '等待接受邀请', '待接受']); closeOverlay(); render(); toast('已加入邀请演示列表，没有发送邮件。') }
