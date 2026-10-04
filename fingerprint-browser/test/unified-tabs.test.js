@@ -9,6 +9,20 @@ const result = { ok: false, stages: [] }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const timeout = setTimeout(() => { app.exit(1) }, 60000)
 let server
+const permissionHandlers = new Map()
+const externalDecisions = []
+app.on('session-created', profileSession => {
+  const setHandler = profileSession.setPermissionRequestHandler.bind(profileSession)
+  profileSession.setPermissionRequestHandler = handler => {
+    permissionHandlers.set(profileSession, handler)
+    setHandler(handler && ((contents, permission, callback, details) => {
+      handler(contents, permission, allowed => {
+        if (permission === 'openExternal') externalDecisions.push({ allowed, url: details.externalURL })
+        callback(allowed)
+      }, details)
+    }))
+  }
+})
 
 async function record (stage) {
   result.stages.push(stage)
@@ -76,6 +90,27 @@ async function run () {
   const chrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, overflow: getComputedStyle(document.querySelector('#unified-tabs')).overflow })")
   assert.deepEqual(chrome, { tabs: 3, selected: 1, overflow: 'hidden' }, '环境标签栏布局不符合浏览器式管理。')
   await record('环境标签同窗创建、首页保留和无滚动条通过')
+
+  const protocolContents = contentsFor(snapshot.tabs[0])
+  const permissionHandler = permissionHandlers.get(protocolContents.session)
+  assert.equal(typeof permissionHandler, 'function', '网页会话没有设置外部协议权限处理。')
+  for (const [permission, expected] of [['openExternal', false], ['media', true]]) {
+    let allowed
+    permissionHandler(protocolContents, permission, value => { allowed = value }, {})
+    assert.equal(allowed, expected, '外部协议权限策略不正确。')
+  }
+  await protocolContents.executeJavaScript(`(() => {
+    const frame = document.createElement('iframe')
+    frame.hidden = true
+    frame.src = 'fp-protocol-regression://hidden-frame'
+    document.body.appendChild(frame)
+  })()`)
+  await wait(500)
+  assert.equal(externalDecisions.some(item => item.allowed), false, '隐藏框架的外部协议被放行。')
+  if (process.env.FP_EXPECT_EXTERNAL_REQUEST === '1') {
+    assert.ok(externalDecisions.some(item => item.url === 'fp-protocol-regression://hidden-frame' && !item.allowed), '旧内核没有验证到外部协议拒绝。')
+  }
+  await record('隐藏框架外部协议拒绝及其他权限行为通过')
 
   const second = snapshot.tabs[1]
   await invoke(dashboard, 'selectTab', second.id)

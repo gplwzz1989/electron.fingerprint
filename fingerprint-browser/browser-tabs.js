@@ -244,6 +244,10 @@ class TabBrowser {
     if (!this.window || this.window.isDestroyed()) throw new ProfileValidationError('浏览器窗口已关闭，请重新创建标签。')
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
     const tabSession = session.fromPath(dataDir)
+    // 外部协议在旧内核中默认放行，统一拒绝网页唤起外部程序，覆盖隐藏子框架。
+    tabSession.setPermissionRequestHandler((_contents, permission, callback) => {
+      callback(permission !== 'openExternal')
+    })
     await applyProxyConfig(tabSession, snapshot.proxy, url)
     const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)
     const view = new WebContentsView({ webPreferences: {

@@ -18,7 +18,7 @@
 
 ```powershell
 cd J:\awork\electron.fp\fingerprint-browser
-$env:FP_ELECTRON_RUNTIME = 'J:\awork\electron-fp-build\src\out\Testing'
+$env:FP_ELECTRON_RUNTIME = 'J:\awork\electron-fp-build\src\out\Release'
 npm start
 ```
 
@@ -29,7 +29,9 @@ cd J:\awork\electron.fp\fingerprint-browser
 npm start
 ```
 
-启动器也兼容 `ELECTRON_OVERRIDE_DIST_PATH`。运行时必须是本仓库编译出的完整目录，不能只复制一个 `electron.exe`。
+启动器默认使用 `Release`，也兼容 `ELECTRON_OVERRIDE_DIST_PATH`。运行时必须是本仓库编译出的完整目录，不能只复制一个 `electron.exe`。
+
+网页会话统一拒绝唤起外部程序，包括隐藏子框架的自定义协议请求。2026-10-04 已确认抖音创作者中心会请求 `bitbrowser://cc/`，旧 Testing 与旧便携包不包含此前的内核修复；当前 Release 已包含修复，无需重新编译 Chromium。显式指定旧运行时也会由应用层拒绝外部协议权限。
 
 开发启动默认将配置和会话数据保存到项目的 `.data` 目录，启动器会在 Electron 初始化前指定该路径，避免默认应用数据目录不可写时直接崩溃。可设置 `FP_BROWSER_DATA_DIR` 使用其他目录；指定路径必须可写。之前保存在系统应用数据目录中的配置不会删除或自动迁移，需要继续使用时可将此变量设置为原目录。
 

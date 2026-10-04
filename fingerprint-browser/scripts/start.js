@@ -11,7 +11,7 @@ function runtimeExecutable (root, platform = process.platform) {
 }
 
 function getLaunchOptions (env = process.env, extraArgs = []) {
-  const runtimeRoot = env.FP_ELECTRON_RUNTIME || env.ELECTRON_OVERRIDE_DIST_PATH || path.resolve(projectRoot, '..', '..', 'electron-fp-build', 'src', 'out', 'Testing')
+  const runtimeRoot = env.FP_ELECTRON_RUNTIME || env.ELECTRON_OVERRIDE_DIST_PATH || path.resolve(projectRoot, '..', '..', 'electron-fp-build', 'src', 'out', 'Release')
   const dataRoot = path.resolve(env.FP_BROWSER_DATA_DIR || path.join(projectRoot, '.data'))
   return {
     executable: runtimeExecutable(runtimeRoot),

@@ -61,6 +61,8 @@ function run () {
   assert.equal(launch.options.env.FP_BROWSER_DATA_DIR, path.resolve('./数据目录'))
   assert.equal(launch.options.env.TEST_VALUE, '保留')
   assert.equal(launch.args.includes('--no-sandbox'), false)
+  assert.equal(getLaunchOptions({}).executable, runtimeExecutable(path.resolve(__dirname, '..', '..', '..', 'electron-fp-build', 'src', 'out', 'Release')))
+  assert.equal(getLaunchOptions({ ELECTRON_OVERRIDE_DIST_PATH: './兼容运行时' }).executable, runtimeExecutable('./兼容运行时'))
   assert.equal(runtimeExecutable('内核', 'darwin'), path.join('内核', 'Electron.app', 'Contents', 'MacOS', 'Electron'))
   assert.equal(runtimeExecutable('内核', 'linux'), path.join('内核', 'electron'))
 
