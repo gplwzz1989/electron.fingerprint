@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto')
 const { app, WebContentsView, session } = require('electron/main')
 const { applyFingerprintConfig } = require('./runtime-compat')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
+const { createSocks5Proxy } = require('./socks5-proxy')
 
 const HEADER_HEIGHT = 88
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
@@ -15,9 +16,9 @@ function proxyTimeoutMs () {
 
 async function checkProxyConnection (proxy) {
   const parsed = new URL(proxy.server)
-  const port = Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80)
+  const port = Number(parsed.port) || (proxy.mode === 'socks5' ? 1080 : parsed.protocol === 'https:' ? 443 : 80)
   await new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: parsed.hostname, port })
+    const socket = net.createConnection({ host: parsed.hostname.replace(/^\[|\]$/g, ''), port })
     const timer = setTimeout(() => {
       socket.destroy()
       reject(new Error('代理连接超时。'))
@@ -54,16 +55,20 @@ async function loadUrlWithProxyTimeout (contents, url, proxy) {
 
 async function applyProxyConfig (profileSession, proxy, targetUrl) {
   const config = proxy || { mode: 'direct', server: '', username: '', password: '' }
+  let proxyBridge
   try {
     if (config.mode === 'direct') {
       await profileSession.setProxy({ mode: 'direct' })
       return
     }
-    await profileSession.setProxy({ proxyRules: config.server })
+    if (config.mode === 'socks5' && (config.username || config.password)) proxyBridge = await createSocks5Proxy(config, proxyTimeoutMs())
+    await profileSession.setProxy({ proxyRules: proxyBridge?.server || config.server })
     const resolution = await profileSession.resolveProxy(targetUrl)
     if (!resolution || /\bDIRECT\b/i.test(resolution)) throw new Error('代理解析结果包含直连。')
     await checkProxyConnection(config)
+    return proxyBridge
   } catch (error) {
+    proxyBridge?.close()
     if (error instanceof ProfileValidationError) throw error
     throw new ProfileValidationError('代理检测失败，已阻止直连，请检查代理地址和认证信息。')
   }
@@ -255,7 +260,8 @@ class TabBrowser {
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => {
       callback(permission !== 'openExternal')
     })
-    await applyProxyConfig(tabSession, snapshot.proxy, url)
+    const proxyBridge = await applyProxyConfig(tabSession, snapshot.proxy, url)
+    try {
     const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)
     const view = new WebContentsView({ webPreferences: {
       // 当前 Testing 内核需要显式初始化为显示状态，否则原生视图没有可截图的绘制表面。
@@ -265,7 +271,7 @@ class TabBrowser {
       nodeIntegration: false,
       sandbox: true
     } })
-    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, title: '新标签', url, warning, error: '', loading: false }
+    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false }
     const contents = view.webContents
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     for (const event of ['will-navigate', 'will-redirect']) {
@@ -303,6 +309,10 @@ class TabBrowser {
       throw new ProfileValidationError('网页加载失败，标签已保留，可修改网址后重试。')
     }
     return { tabId, warning }
+    } catch (error) {
+      if (!this.tabs.has(tabId)) proxyBridge?.close()
+      throw error
+    }
   }
 
   async saveEnvironmentUrl (tab) {
@@ -352,6 +362,7 @@ class TabBrowser {
       }
       this.tabs.delete(id)
       if (contents && !contents.isDestroyed()) contents.close()
+      tab.proxyBridge?.close()
       if (this.activeId === id) {
         this.activeId = null
         const nextId = this.tabs.keys().next().value
@@ -380,6 +391,7 @@ class TabBrowser {
           this.onEnvironmentChanged()
           const contents = tab?.view?.webContents
           if (contents && !contents.isDestroyed()) contents.close()
+          tab?.proxyBridge?.close()
           this.tabs.delete(id)
         }
       }

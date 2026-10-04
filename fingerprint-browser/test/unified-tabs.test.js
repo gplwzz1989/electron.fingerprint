@@ -14,6 +14,7 @@ let server
 let socksServer
 const socksSockets = new Set()
 const wizardSocksRequests = []
+let requireSocksAuthentication = false
 const wizardProxyRequests = []
 const wizardDirectRequests = []
 const wizardProxyAuthorization = 'Basic ' + Buffer.from('wizard-user:wizard-secret').toString('base64')
@@ -306,13 +307,30 @@ async function run () {
     let stage = 'greeting'
     let buffered = Buffer.alloc(0)
     let destination = ''
+    let authenticated = false
     socket.on('data', chunk => {
       buffered = Buffer.concat([buffered, chunk])
       if (stage === 'greeting') {
         if (buffered.length < 2 || buffered.length < 2 + buffered[1]) return
-        if (buffered[0] !== 5 || !buffered.subarray(2, 2 + buffered[1]).includes(0)) { socket.destroy(); return }
+        const method = requireSocksAuthentication ? 2 : 0
+        if (buffered[0] !== 5 || !buffered.subarray(2, 2 + buffered[1]).includes(method)) { socket.destroy(); return }
         buffered = buffered.subarray(2 + buffered[1])
-        socket.write(Buffer.from([5, 0]))
+        socket.write(Buffer.from([5, method]))
+        stage = requireSocksAuthentication ? 'authentication' : 'connect'
+      }
+      if (stage === 'authentication') {
+        if (buffered.length < 2 || buffered.length < 3 + buffered[1]) return
+        const passwordOffset = 2 + buffered[1]
+        const length = passwordOffset + 1 + buffered[passwordOffset]
+        if (buffered.length < length) return
+        authenticated = buffered[0] === 1 && buffered.subarray(2, passwordOffset).toString('utf8') === 'socks-user' && buffered.subarray(passwordOffset + 1, length).toString('utf8') === 'socks-secret'
+        buffered = buffered.subarray(length)
+        // 分段返回认证结果，覆盖真实网络报文被拆分的情况。
+        if (authenticated) {
+          socket.write(Buffer.from([1]))
+          setTimeout(() => { if (!socket.destroyed) socket.write(Buffer.from([0])) }, 10)
+        } else socket.write(Buffer.from([1, 1]))
+        if (!authenticated) { socket.end(); return }
         stage = 'connect'
       }
       if (stage === 'connect') {
@@ -326,9 +344,9 @@ async function run () {
         stage = 'request'
       }
       if (stage === 'request' && buffered.includes('\r\n\r\n')) {
-        wizardSocksRequests.push({ destination, request: buffered.toString('utf8') })
+        wizardSocksRequests.push({ destination, request: buffered.toString('utf8'), authenticated })
         stage = 'done'
-        const body = '<title>SOCKS5 代理验证</title>'
+        const body = '<title>SOCKS5 代理验证</title><p>' + 'x'.repeat(256 * 1024) + '</p>'
         socket.end(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
       }
     })
@@ -344,6 +362,42 @@ async function run () {
   assert.ok(wizardSocksRequests.some(item => item.destination === 'wizard-socks.invalid' && item.request.startsWith('GET / HTTP/1.1')), 'SOCKS5 环境没有经代理解析域名并发送真实网页请求。')
   await record('SOCKS5 创建向导、代理端域名解析及真实网页请求通过')
 
+  requireSocksAuthentication = true
+  async function startAuthenticatedSocks (name, password) {
+    await startWizard(name, 'http://wizard-socks-auth.invalid/')
+    await dashboard.webContents.executeJavaScript("(() => { const mode = document.querySelector('#wizard-proxy-mode'); mode.value = 'socks5'; mode.dispatchEvent(new Event('change', { bubbles: true })) })()")
+    await wizardInput('proxyServer', socksAddress)
+    await wizardInput('proxyUsername', 'socks-user')
+    await wizardInput('proxyPassword', password)
+  }
+  await startAuthenticatedSocks('向导 SOCKS5 认证环境', 'socks-secret')
+  await finishWizard()
+  const authenticatedEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导 SOCKS5 认证环境')
+  assert.deepEqual(authenticatedEnvironment.proxy, { mode: 'socks5', server: socksAddress, username: 'socks-user', password: 'socks-secret' }, 'SOCKS5 认证凭据没有完整保存。')
+  assert.ok(wizardSocksRequests.some(item => item.destination === 'wizard-socks-auth.invalid' && item.authenticated), 'SOCKS5 账号密码认证后没有发送真实网页请求。')
+  const authenticatedTab = (await invoke(dashboard, 'listTabs')).tabs.find(item => item.environmentId === authenticatedEnvironment.id)
+  assert.equal(await contentsFor(authenticatedTab).executeJavaScript('document.body.textContent.length'), 256 * 1024, 'SOCKS5 转接截断了网页响应。')
+  const bridgeResolution = await contentsFor(authenticatedTab).session.resolveProxy('http://wizard-socks-auth.invalid/')
+  const bridgePort = Number(bridgeResolution.match(/:(\d+)$/)?.[1])
+  assert.ok(bridgePort && bridgePort !== socksServer.address().port, '认证环境没有使用独立本地转接。')
+  await invoke(dashboard, 'closeEnvironment', authenticatedEnvironment.id)
+  const bridgeClosed = await new Promise(resolve => {
+    const socket = net.createConnection({ host: '127.0.0.1', port: bridgePort })
+    socket.once('connect', () => { socket.destroy(); resolve(false) })
+    socket.once('error', () => resolve(true))
+  })
+  assert.equal(bridgeClosed, true, '关闭环境没有释放 SOCKS5 转接端口。')
+  const requestsBeforeReopen = wizardSocksRequests.length
+  await invoke(dashboard, 'reopenEnvironment', authenticatedEnvironment.id)
+  assert.ok(wizardSocksRequests.slice(requestsBeforeReopen).some(item => item.authenticated), '恢复环境没有重新完成 SOCKS5 认证。')
+  const beforeInvalidCredentials = wizardSocksRequests.length
+  await startAuthenticatedSocks('向导 SOCKS5 错误密码环境', 'wrong-password')
+  await finishWizard(false)
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent.includes('账号或密码错误')"), 'SOCKS5 错误密码没有被阻止。')
+  assert.equal(wizardSocksRequests.length, beforeInvalidCredentials, 'SOCKS5 错误密码仍发送了网页请求。')
+  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 4, 'SOCKS5 认证失败仍创建了网页标签。')
+  await record('SOCKS5 账号密码认证、错误密码阻止直连、关闭释放转接与恢复认证通过')
+
   const unavailableProxy = http.createServer()
   await new Promise(resolve => unavailableProxy.listen(0, '127.0.0.1', resolve))
   const unavailableAddress = `http://127.0.0.1:${unavailableProxy.address().port}`
@@ -353,7 +407,7 @@ async function run () {
   await finishWizard(false)
   await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent.includes('已阻止直连')"), '代理连接失败没有提示阻止直连。')
   assert.equal(wizardDirectRequests.includes('/?wizard=proxy-failure'), false, '代理失败后流量被静默改为直连。')
-  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 3, '无效代理环境仍打开了网页标签。')
+  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 4, '无效代理环境仍打开了网页标签。')
   await record('向导默认直连、真实代理与认证、配置持久化和连接失败阻止直连通过')
   result.ok = true
   await record('全部统一标签回归完成')

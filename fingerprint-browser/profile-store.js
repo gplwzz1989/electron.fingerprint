@@ -232,6 +232,9 @@ function createProxyConfig (input) {
   if (!protocols.includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) {
     fail(`proxy.server 必须使用 ${mode === 'socks5' ? 'socks5' : 'http'} 协议且不能内嵌认证信息。`)
   }
+  if (mode === 'socks5' && (username || password) && (!username || !password || Buffer.byteLength(username, 'utf8') > 255 || Buffer.byteLength(password, 'utf8') > 255)) {
+    fail('SOCKS5 认证需同时填写账号和密码，且每项不能超过 255 字节。')
+  }
   return { mode, server, username, password }
 }
 

@@ -54,6 +54,10 @@ function run () {
     fingerprint: getDefaultProfile()
   })
   assert.deepEqual(proxyRecord.proxy, { mode: 'http', server: 'http://127.0.0.1:8080', username: '用户', password: '密码' })
+  const socksProxy = { mode: 'socks5', server: 'socks5://127.0.0.1:1080', username: '用户', password: '密码' }
+  assert.deepEqual(createProfileRecord({ proxy: socksProxy, fingerprint: getDefaultProfile() }).proxy, socksProxy)
+  assert.throws(() => createProfileRecord({ proxy: { ...socksProxy, password: '' }, fingerprint: getDefaultProfile() }), /同时填写账号和密码/)
+  assert.throws(() => createProfileRecord({ proxy: { ...socksProxy, password: '密'.repeat(86) }, fingerprint: getDefaultProfile() }), /255 字节/)
   assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'direct', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /直连模式/)
   assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'socks5', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /socks5 协议/)
 
