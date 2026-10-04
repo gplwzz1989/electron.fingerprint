@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const http = require('node:http')
+const net = require('node:net')
 const { spawn } = require('node:child_process')
 const { app, BrowserWindow, Menu, webContents } = require('electron/main')
 
@@ -10,6 +11,9 @@ const result = { ok: false, stages: [] }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const timeout = setTimeout(() => { app.exit(1) }, 60000)
 let server
+let socksServer
+const socksSockets = new Set()
+const wizardSocksRequests = []
 const wizardProxyRequests = []
 const wizardDirectRequests = []
 const wizardProxyAuthorization = 'Basic ' + Buffer.from('wizard-user:wizard-secret').toString('base64')
@@ -294,6 +298,52 @@ async function run () {
   const savedProxyEnvironment = JSON.parse(await fs.readFile(path.join(process.env.FP_BROWSER_DATA_DIR, 'environments.json'), 'utf8')).find(item => item.id === proxyEnvironment.id)
   assert.deepEqual(savedProxyEnvironment.proxy, proxyEnvironment.proxy, '环境代理设置没有持久化。')
 
+  // 用本地 SOCKS5 服务验证协商、代理端域名解析及实际网页请求。
+  socksServer = net.createServer(socket => {
+    socksSockets.add(socket)
+    socket.on('close', () => socksSockets.delete(socket))
+    socket.on('error', () => socket.destroy())
+    let stage = 'greeting'
+    let buffered = Buffer.alloc(0)
+    let destination = ''
+    socket.on('data', chunk => {
+      buffered = Buffer.concat([buffered, chunk])
+      if (stage === 'greeting') {
+        if (buffered.length < 2 || buffered.length < 2 + buffered[1]) return
+        if (buffered[0] !== 5 || !buffered.subarray(2, 2 + buffered[1]).includes(0)) { socket.destroy(); return }
+        buffered = buffered.subarray(2 + buffered[1])
+        socket.write(Buffer.from([5, 0]))
+        stage = 'connect'
+      }
+      if (stage === 'connect') {
+        if (buffered.length < 5) return
+        if (buffered[0] !== 5 || buffered[1] !== 1 || buffered[3] !== 3) { socket.destroy(); return }
+        const length = 7 + buffered[4]
+        if (buffered.length < length) return
+        destination = buffered.subarray(5, length - 2).toString('utf8')
+        buffered = buffered.subarray(length)
+        socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]))
+        stage = 'request'
+      }
+      if (stage === 'request' && buffered.includes('\r\n\r\n')) {
+        wizardSocksRequests.push({ destination, request: buffered.toString('utf8') })
+        stage = 'done'
+        const body = '<title>SOCKS5 代理验证</title>'
+        socket.end(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
+      }
+    })
+  })
+  await new Promise(resolve => socksServer.listen(0, '127.0.0.1', resolve))
+  await startWizard('向导 SOCKS5 环境', 'http://wizard-socks.invalid/')
+  await dashboard.webContents.executeJavaScript("(() => { const mode = document.querySelector('#wizard-proxy-mode'); mode.value = 'socks5'; mode.dispatchEvent(new Event('change', { bubbles: true })) })()")
+  const socksAddress = `socks5://127.0.0.1:${socksServer.address().port}`
+  await wizardInput('proxyServer', socksAddress)
+  await finishWizard()
+  const socksEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导 SOCKS5 环境')
+  assert.deepEqual(socksEnvironment.proxy, { mode: 'socks5', server: socksAddress, username: '', password: '' }, 'SOCKS5 环境没有保存真实代理设置。')
+  assert.ok(wizardSocksRequests.some(item => item.destination === 'wizard-socks.invalid' && item.request.startsWith('GET / HTTP/1.1')), 'SOCKS5 环境没有经代理解析域名并发送真实网页请求。')
+  await record('SOCKS5 创建向导、代理端域名解析及真实网页请求通过')
+
   const unavailableProxy = http.createServer()
   await new Promise(resolve => unavailableProxy.listen(0, '127.0.0.1', resolve))
   const unavailableAddress = `http://127.0.0.1:${unavailableProxy.address().port}`
@@ -303,12 +353,14 @@ async function run () {
   await finishWizard(false)
   await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent.includes('已阻止直连')"), '代理连接失败没有提示阻止直连。')
   assert.equal(wizardDirectRequests.includes('/?wizard=proxy-failure'), false, '代理失败后流量被静默改为直连。')
-  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 2, '无效代理环境仍打开了网页标签。')
+  assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 3, '无效代理环境仍打开了网页标签。')
   await record('向导默认直连、真实代理与认证、配置持久化和连接失败阻止直连通过')
   result.ok = true
   await record('全部统一标签回归完成')
   clearTimeout(timeout)
   server.close()
+  socksServer.close()
+  for (const socket of socksSockets) socket.destroy()
   app.quit()
 }
 
@@ -317,6 +369,8 @@ void run().catch(async error => {
   result.errorStack = error.stack
   await record('检查失败')
   server?.close()
+  socksServer?.close()
+  for (const socket of socksSockets) socket.destroy()
   clearTimeout(timeout)
   app.exit(1)
 })
