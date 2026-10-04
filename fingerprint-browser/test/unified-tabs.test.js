@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const http = require('node:http')
+const { spawn } = require('node:child_process')
 const { app, BrowserWindow, Menu, webContents } = require('electron/main')
 
 const output = process.env.FP_TABS_TEST_OUTPUT
@@ -65,6 +66,25 @@ async function run () {
   assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').disabled"), true, '首页不应显示可用的标签指纹信息。')
   await fs.writeFile(path.join(output, 'unified-home.png'), (await dashboard.webContents.capturePage()).toPNG())
   await record('统一窗口启动和固定首页标签通过')
+
+  const secondDataRoot = path.join(output, `second-client-${Date.now()}`)
+  await fs.mkdir(secondDataRoot, { recursive: true })
+  const secondInstanceSeen = new Promise(resolve => app.once('second-instance', resolve))
+  dashboard.minimize()
+  await waitFor(() => dashboard.isMinimized(), '验证窗口没有最小化。')
+  const secondClient = spawn(process.execPath, [path.resolve(__dirname, '..'), `--user-data-dir=${secondDataRoot}`], {
+    env: { ...process.env, FP_BROWSER_DATA_DIR: secondDataRoot }, windowsHide: true, stdio: 'ignore'
+  })
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { secondClient.kill(); reject(new Error('重复客户端没有及时退出。')) }, 10000)
+    secondClient.once('error', () => { clearTimeout(timer); reject(new Error('无法启动重复客户端验证。')) })
+    secondClient.once('exit', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error('重复客户端退出失败。')) })
+  })
+  await secondInstanceSeen
+  await waitFor(() => !dashboard.isMinimized() && dashboard.isVisible() && dashboard.isFocused(), '重复启动没有恢复并激活已有客户端。')
+  assert.equal(BrowserWindow.getAllWindows().length, 1, '重复启动创建了新的客户端窗口。')
+  assert.equal(app.getPath('userData'), process.env.FP_BROWSER_DATA_DIR, '客户端锁改变了实际数据目录。')
+  await record('不同数据目录重复启动互斥与已有窗口恢复激活通过')
 
   const page = await fs.readFile(path.join(__dirname, 'fingerprint-page.html'))
   server = http.createServer((_request, response) => {

@@ -30,6 +30,35 @@ const APPLICATION_ICON = process.platform === 'win32'
   ? path.join(__dirname, 'assets', 'saas.ico')
   : path.join(__dirname, 'assets', 'saas.png')
 
+async function acquireClientLock () {
+  // 客户端锁与配置、备用数据目录及发行包位置无关，同一系统用户只启动一个客户端。
+  const lockRoot = path.join(app.getPath('temp'), `${APPLICATION_ID}-${process.getuid ? process.getuid() : 'user'}`)
+  await fs.mkdir(lockRoot, { recursive: true })
+  const dataRoot = app.getPath('userData')
+  const applicationName = app.getName()
+  try {
+    app.setName(APPLICATION_ID)
+    app.setPath('userData', lockRoot)
+    return app.requestSingleInstanceLock()
+  } finally {
+    app.setPath('userData', dataRoot)
+    app.setName(applicationName)
+  }
+}
+
+async function activateClient () {
+  try {
+    await startup
+    if (quitting) return
+    if (!dashboardWindow || dashboardWindow.isDestroyed()) await createDashboard()
+    if (dashboardWindow.isMinimized()) dashboardWindow.restore()
+    dashboardWindow.show()
+    dashboardWindow.focus()
+  } catch {
+    console.error('激活客户端失败，请从任务栏重新打开窗口。')
+  }
+}
+
 async function ensureUserDataPath () {
   const configuredPath = process.env.FP_BROWSER_DATA_DIR?.trim()
   const candidates = configuredPath ? [path.resolve(configuredPath)] : [app.getPath('userData')]
@@ -287,6 +316,10 @@ async function createDashboard () {
 async function start () {
   await app.whenReady()
   try {
+    if (!await acquireClientLock()) {
+      app.quit()
+      return
+    }
     app.setAppUserModelId(APPLICATION_ID)
     Menu.setApplicationMenu(null)
     app.userAgentFallback = defaultUserAgent()
@@ -315,9 +348,7 @@ async function start () {
     return
   }
 
-  app.on('activate', async () => {
-    if (BrowserWindow.getAllWindows().length === 0) await createDashboard()
-  })
+  app.on('activate', () => { void activateClient() })
 }
 
 app.on('window-all-closed', () => {
@@ -337,16 +368,5 @@ app.on('before-quit', event => {
   })()
 })
 
-if (app.requestSingleInstanceLock()) {
-  app.on('second-instance', () => {
-    const window = dashboardWindow && !dashboardWindow.isDestroyed() ? dashboardWindow : tabBrowser?.window
-    if (window && !window.isDestroyed()) {
-      if (window.isMinimized()) window.restore()
-      window.show()
-      window.focus()
-    }
-  })
-  startup = start()
-} else {
-  app.quit()
-}
+app.on('second-instance', () => { void activateClient() })
+startup = start()
