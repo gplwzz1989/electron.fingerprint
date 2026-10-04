@@ -6,6 +6,27 @@ $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie
 $previousAppData = $env:APPDATA
 $previousOverride = $env:FP_BROWSER_DATA_DIR
 $installed = $false
+Add-Type -AssemblyName System.Drawing
+
+function Assert-BrandIcon ([string]$Program, [string]$IconFile) {
+  $actual = [Drawing.Icon]::ExtractAssociatedIcon($Program)
+  $expected = [Drawing.Icon]::new($IconFile, $actual.Size)
+  $actualBitmap = $actual.ToBitmap()
+  $expectedBitmap = $expected.ToBitmap()
+  try {
+    for ($x = 0; $x -lt $actualBitmap.Width; $x++) {
+      for ($y = 0; $y -lt $actualBitmap.Height; $y++) {
+        if ($actualBitmap.GetPixel($x, $y).ToArgb() -ne $expectedBitmap.GetPixel($x, $y).ToArgb()) { throw '程序图标与 SaaS 图标不一致。' }
+      }
+    }
+  } finally {
+    $actualBitmap.Dispose()
+    $expectedBitmap.Dispose()
+    $actual.Dispose()
+    $expected.Dispose()
+  }
+}
+
 try {
   if (Test-Path -LiteralPath $registry) { throw '当前账户已安装客户端，不能执行安装卸载验证。' }
   if (!$testRoot.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '安装验证路径无效。' }
@@ -17,6 +38,17 @@ try {
   if (!(Test-Path -LiteralPath $program) -or (Get-ItemProperty -LiteralPath $registry).InstallLocation -ne $installRoot) { throw '安装文件或卸载登记验证失败。' }
   $shortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) '栖界指纹浏览器.lnk'
   if (!(Test-Path -LiteralPath $shortcut)) { throw '桌面快捷方式验证失败。' }
+  $brandIcon = Join-Path $installRoot 'resources/app/assets/saas.ico'
+  foreach ($executable in @((Join-Path $workspaceRoot 'dist/指纹浏览器-安装包.exe'), $program, (Join-Path $installRoot '卸载.exe'))) { Assert-BrandIcon $executable $brandIcon }
+  $versionInfo = (Get-Item -LiteralPath $program).VersionInfo
+  if ($versionInfo.ProductName -ne '栖界指纹浏览器' -or $versionInfo.FileDescription -ne '栖界指纹浏览器' -or $versionInfo.CompanyName -ne '栖界') { throw '客户端产品信息验证失败。' }
+  $shell = New-Object -ComObject WScript.Shell
+  $startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) '栖界指纹浏览器'
+  foreach ($link in @($shortcut, (Join-Path $startMenu '栖界指纹浏览器.lnk'), (Join-Path $startMenu '卸载.lnk'))) {
+    if ($shell.CreateShortcut($link).IconLocation -ne ($brandIcon + ',0')) { throw '快捷方式品牌图标验证失败。' }
+  }
+  if ((Get-ItemProperty -LiteralPath $registry).DisplayIcon -ne $brandIcon) { throw '卸载列表品牌图标验证失败。' }
+  Write-Host '安装包、客户端、卸载器、快捷方式及产品信息验证通过。'
   $env:APPDATA = Join-Path $testRoot 'user-appdata'
   $env:FP_BROWSER_DATA_DIR = ''
   $smoke = @'
@@ -36,7 +68,10 @@ async function evaluate(expression) {
   })
   socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }))
   const result = await response
-  if (result.error || result.result.exceptionDetails) throw new Error('安装版页面验证失败。')
+  if (result.error || result.result.exceptionDetails) {
+    await fs.writeFile(path.join(process.env.APPDATA, '..', '页面诊断.json'), JSON.stringify(result, null, 2), 'utf8')
+    throw new Error('安装版页面验证失败。')
+  }
   return result.result.result.value
 }
 async function run() {
@@ -60,6 +95,12 @@ async function run() {
   socket = new WebSocket(target.webSocketDebuggerUrl)
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', () => reject(new Error('安装版诊断接口不可用。')), { once: true }) })
   socket.addEventListener('message', event => { const message = JSON.parse(event.data); if (pending.has(message.id)) { pending.get(message.id)(message); pending.delete(message.id) } })
+  let bridgeReady = false
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (await evaluate('document.readyState === "complete" && typeof window.browserApi?.getDraft === "function"')) { bridgeReady = true; break }
+    await wait(100)
+  }
+  if (!bridgeReady) throw new Error('安装版页面接口没有准备好。')
   const result = await evaluate(`(async () => {
     const draft = await window.browserApi.getDraft()
     draft.profile.name = '安装版数据目录验证'

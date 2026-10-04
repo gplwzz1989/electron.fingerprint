@@ -55,7 +55,7 @@ npm start
 
 ## Windows 安装包与固定产物
 
-执行 `npm run package`，需要 PowerShell 7、本地完整 Release 构建目录及 NSIS 编译器。支持 `FP_ELECTRON_RUNTIME` 指定构建目录，`FP_NSIS_COMPILER` 指定安装包编译器。
+执行 `npm run package`，需要 PowerShell 7、本地完整 Release 构建目录、NSIS 编译器及应用资源编辑工具。支持 `FP_ELECTRON_RUNTIME` 指定构建目录，`FP_NSIS_COMPILER` 指定安装包编译器，`FP_RESOURCE_EDITOR` 指定资源编辑工具。打包时统一使用 SaaS 图标，更新客户端程序的图标及产品信息，安装器、卸载器和快捷方式使用同一品牌图标；不修改原始内核。
 
 固定输出为仓库 `dist/指纹浏览器-安装包.exe`、`dist/指纹浏览器-便携版.zip` 及对应校验文件，展开目录为 `dist/fingerprint-browser-win-x64`。每次打包覆盖现有产物并清理本应用的历史版本包和输出目录，不再添加日期或版本后缀。含有用户配置或环境数据的目录会阻止自动清理。
 

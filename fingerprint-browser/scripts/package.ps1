@@ -1,6 +1,7 @@
 param(
   [string]$RuntimeRoot = $env:FP_ELECTRON_RUNTIME,
-  [string]$Compiler = $env:FP_NSIS_COMPILER
+  [string]$Compiler = $env:FP_NSIS_COMPILER,
+  [string]$ResourceEditor = $env:FP_RESOURCE_EDITOR
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +34,8 @@ try {
   $RuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
   if (!$Compiler) { $Compiler = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis/nsis-3.0.4.1/makensis.exe' }
   if (!(Test-Path -LiteralPath $Compiler)) { throw '未找到安装包编译工具。' }
+  if (!$ResourceEditor) { $ResourceEditor = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/winCodeSign/winCodeSign-2.6.0/rcedit-x64.exe' }
+  if (!(Test-Path -LiteralPath $ResourceEditor)) { throw '未找到应用图标与产品信息编辑工具。' }
   New-Item -ItemType Directory -Path $outputRoot, $buildRoot -Force | Out-Null
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $reference = [IO.Compression.ZipFile]::OpenRead((Join-Path $RuntimeRoot 'dist.zip'))
@@ -66,9 +69,15 @@ try {
   foreach ($directory in @('assets', 'profiles', 'renderer')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
-  $version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+  $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  $version = $metadata.version
+  $failureMessage = '写入应用图标与产品信息失败，请检查资源编辑工具和输出程序。'
+  $program = Join-Path $payload '指纹浏览器.exe'
+  # 只修改发行包内的程序资源，保留原始内核及其版本记录。
+  & $ResourceEditor $program --set-icon (Join-Path $application 'assets/saas.ico') --set-version-string ProductName $metadata.productName --set-version-string FileDescription $metadata.productName --set-version-string CompanyName '栖界' --set-version-string OriginalFilename '指纹浏览器.exe' --set-version-string InternalName $metadata.productName --set-file-version $version --set-product-version $version
+  if ($LASTEXITCODE -ne 0) { throw '应用品牌资源更新失败。' }
   $commit = git -C $workspaceRoot rev-parse HEAD
-  @{ product = '指纹浏览器'; version = $version; sourceCommit = $commit; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $payload '指纹浏览器.exe')).Hash; dataDirectory = '%APPDATA%\栖界\指纹浏览器' } |
+  @{ product = $metadata.productName; version = $version; sourceCommit = $commit; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $RuntimeRoot 'electron.exe')).Hash; executableSha256 = (Get-FileHash -LiteralPath $program).Hash; dataDirectory = '%APPDATA%\栖界\指纹浏览器' } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'release-manifest.json') -Encoding utf8NoBOM
 
   # 卸载只删除安装包内的文件和空目录，用户数据和额外文件不会被递归删除。
