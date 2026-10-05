@@ -238,13 +238,16 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const id = `profile-${randomUUID().slice(0, 8)}`
+      const fingerprint = getDefaultProfile()
+      fingerprint.id = id
+      fingerprint.noise.seed = `environment-${randomUUID()}`
       return {
         ok: true,
         profile: createProfileRecord({
           id,
           name: '新建配置',
           url: DEFAULT_URL,
-          fingerprint: getDefaultProfile()
+          fingerprint
         })
       }
     } catch (error) {

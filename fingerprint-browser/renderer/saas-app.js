@@ -57,14 +57,94 @@ let profiles = []
 let currentEnvironment = null
 let toastTimer
 let lastFocus
-let draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }
+function freshWizardDraft () {
+  return { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' }, profile: null, fingerprint: null, recommendedFingerprint: null }
+}
+let draft = freshWizardDraft()
 let selected = new Set()
 let unifiedTabs = { activeId: null, tabs: [] }
 
 function resetWizard () {
   wizardStep = 1
   wizardSubmitting = false
-  draft = { name: '美国旗舰店 · 运营', group: '电商运营', storage: 'local', url: 'https://example.com', proxy: { mode: 'direct', server: '', username: '', password: '' } }
+  draft = freshWizardDraft()
+}
+
+function cloneValue (value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+async function startCreateWizard () {
+  resetWizard()
+  navigate('create')
+  try {
+    const response = await window.browserApi.getDraft()
+    if (!response?.ok) throw new Error(response?.error || '创建指纹草稿失败。')
+    draft.profile = response.profile
+    draft.fingerprint = cloneValue(response.profile.fingerprint)
+    draft.recommendedFingerprint = cloneValue(response.profile.fingerprint)
+    render()
+  } catch (error) {
+    toast(error?.message || '创建指纹草稿失败，请重试。')
+  }
+}
+
+function setFingerprintField (path, value) {
+  const keys = path.split('.')
+  let target = draft.fingerprint
+  for (const key of keys.slice(0, -1)) target = target[key]
+  target[keys[keys.length - 1]] = value
+  updateFingerprintSummary()
+}
+
+function updateFingerprintSummary () {
+  const node = document.getElementById('preview-fingerprint')
+  const fingerprint = draft.fingerprint
+  if (!node || !fingerprint) return
+  node.textContent = `${fingerprint.locale.language} · ${fingerprint.hardware.platform} · ${fingerprint.screen.width} × ${fingerprint.screen.height}`
+}
+
+function fingerprintChanged () {
+  return JSON.stringify(draft.fingerprint) !== JSON.stringify(draft.recommendedFingerprint)
+}
+
+async function regenerateFingerprint () {
+  if (fingerprintChanged() && !window.confirm('已修改指纹参数，重新生成会覆盖这些修改。是否继续？')) return
+  try {
+    const response = await window.browserApi.getDraft()
+    if (!response?.ok) throw new Error(response?.error || '重新生成指纹失败。')
+    const fingerprint = cloneValue(response.profile.fingerprint)
+    fingerprint.id = draft.profile.id
+    draft.fingerprint = fingerprint
+    draft.recommendedFingerprint = cloneValue(fingerprint)
+    render()
+    toast('已生成新的指纹初始值。')
+  } catch (error) {
+    toast(error?.message || '重新生成指纹失败，请重试。')
+  }
+}
+
+function restoreFingerprint () {
+  if (!fingerprintChanged()) return
+  if (!window.confirm('是否放弃当前修改并恢复推荐值？')) return
+  draft.fingerprint = cloneValue(draft.recommendedFingerprint)
+  render()
+  toast('已恢复推荐指纹值。')
+}
+
+function renderFingerprintFields () {
+  const fingerprint = draft.fingerprint
+  if (!fingerprint) return `<div class="notice warning">${icon('sync')}正在生成本机推荐指纹，请稍候。</div>`
+  const text = (path, label, value, placeholder = '') => `<label class="field"><span>${label}</span><input data-fingerprint-path="${path}" value="${escapeHTML(value ?? '')}" placeholder="${escapeHTML(placeholder)}" spellcheck="false"></label>`
+  const number = (path, label, value, min = 1) => `<label class="field"><span>${label}</span><input data-fingerprint-path="${path}" data-fingerprint-type="number" type="number" min="${min}" value="${escapeHTML(value)}"></label>`
+  const select = (path, label, value, options) => `<label class="field"><span>${label}</span><select data-fingerprint-path="${path}">${options.map(option => `<option value="${escapeHTML(option)}" ${option === value ? 'selected' : ''}>${escapeHTML(option)}</option>`).join('')}</select></label>`
+  const toggle = (path, label, checked) => `<label class="radio-card"><input type="checkbox" data-fingerprint-path="${path}" ${checked ? 'checked' : ''}><span>${label}</span></label>`
+  const modules = [['ua', '用户代理'], ['clientHints', '客户端提示'], ['locale', '语言'], ['timezone', '时区'], ['navigator', '设备参数'], ['screen', '屏幕参数'], ['webgl', '图形参数'], ['canvas', '画布'], ['audio', '音频'], ['fonts', '字体'], ['webrtc', 'WebRTC'], ['runtimeInspector', '调试器兼容']]
+  return `<div class="template-option"><div><b>本机推荐指纹 · 可自定义</b><p>自动生成初始值，修改后会保存为该环境的独立指纹快照。</p></div><div>${btn('重新生成', 'regenerate-fingerprint', 'small', 'type="button"')} ${btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}</div></div>
+    <section><h3>浏览器与语言</h3><div class="form-row">${text('browser.userAgent', '用户代理（留空使用内核默认值）', fingerprint.browser.userAgent, '留空使用当前内核')}</div><div class="form-row">${text('browser.acceptLanguage', '请求语言', fingerprint.browser.acceptLanguage)}${text('locale.language', '主要语言', fingerprint.locale.language)}</div><div class="form-row">${text('locale.languages', '语言列表（逗号分隔）', fingerprint.locale.languages.join(', '))}${text('locale.timezone', '时区', fingerprint.locale.timezone, '例如 Asia/Shanghai')}</div></section>
+    <div class="form-divider"></div><section><h3>设备与屏幕</h3><div class="form-row">${select('hardware.platform', '操作系统平台', fingerprint.hardware.platform, ['Win32', 'MacIntel', 'Linux x86_64'])}${number('hardware.hardwareConcurrency', 'CPU 线程数', fingerprint.hardware.hardwareConcurrency)}</div><div class="form-row">${number('hardware.deviceMemory', '设备内存（GiB）', fingerprint.hardware.deviceMemory)}${number('screen.deviceScaleFactor', '屏幕缩放', fingerprint.screen.deviceScaleFactor, 0.1)}</div><div class="form-row">${number('screen.width', '屏幕宽度', fingerprint.screen.width)}${number('screen.height', '屏幕高度', fingerprint.screen.height)}</div><div class="form-row">${number('screen.availWidth', '可用宽度', fingerprint.screen.availWidth)}${number('screen.availHeight', '可用高度', fingerprint.screen.availHeight)}</div></section>
+    <div class="form-divider"></div><section><h3>图形与噪声</h3><div class="form-row">${text('graphics.webglVendor', 'WebGL 厂商', fingerprint.graphics.webglVendor)}${text('graphics.webglRenderer', 'WebGL 渲染器', fingerprint.graphics.webglRenderer)}</div>${text('noise.seed', '指纹种子', fingerprint.noise.seed, '自动生成的独立种子')}<div class="radio-cards">${toggle('noise.canvas', 'Canvas 噪声', fingerprint.noise.canvas)}${toggle('noise.audio', 'Audio 噪声', fingerprint.noise.audio)}${toggle('noise.rects', '元素尺寸噪声', fingerprint.noise.rects)}</div></section>
+    <details class="advanced"><summary>指纹模块开关</summary><div class="radio-cards">${modules.map(([key, label]) => toggle(`modules.${key}`, label, fingerprint.modules[key])).join('')}</div><small>关闭模块时使用内核原生行为；配置保存成功不代表已通过所有网站检测。</small></details>`
 }
 
 function activeUnifiedTab () {
@@ -358,8 +438,8 @@ function createPage() {
   let fields = ''
   if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${['电商运营', '内容营销', '客户支持'].map(g => `<option ${g === draft.group ? 'selected' : ''}>${g}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="${escapeHTML(draft.url)}" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
   if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div>`
-  if (wizardStep === 3) fields = `<div class="template-option"><div><b>本机推荐模板 · 版本 1</b><p>Windows 桌面 · 真实能力校验后才能用于实际运行</p></div>${badge('推荐', 'blue')}</div><div class="definition-grid"><div><span>浏览器内核</span><b>当前兼容内核（设计占位）</b></div><div><span>操作系统模板</span><b>Windows 桌面</b></div><div><span>语言与时区</span><b>沿用默认指纹模板</b></div><div><span>屏幕与缩放</span><b>1920 × 1080 · 1.0</b></div><div><span>会话</span><b>新建独立环境目录</b></div><div><span>指纹种子</span><b>每个环境生成并保持稳定</b></div></div><div class="form-divider"></div><div class="notice success">${icon('checkCircle')}创建时会校验配置并应用所选网络方式。</div><div class="notice warning" style="margin-top:12px">${icon('alert')}模板通过校验不代表已通过所有网站检测。WebGL、字体与跨系统一致性需实机验证。</div><details class="advanced"><summary>查看高级指纹参数</summary><div class="definition-grid"><div><span>Canvas / Audio</span><b>稳定的环境种子</b></div><div><span>WebRTC</span><b>限制非代理 UDP</b></div><div><span>UA 与 Client Hints</span><b>跟随已验证运行时</b></div><div><span>GPU 与字体</span><b>本机兼容模板</b></div></div></details>`
-  return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络设置；代理连接失败时不会自动改为直连。</p></aside></div>`
+   if (wizardStep === 3) fields = renderFingerprintFields()
+   return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-item"><span>指纹摘要</span><b id="preview-fingerprint">${draft.fingerprint ? `${draft.fingerprint.locale.language} · ${draft.fingerprint.hardware.platform} · ${draft.fingerprint.screen.width} × ${draft.fingerprint.screen.height}` : '正在生成'}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络和指纹设置；代理连接失败时不会自动改为直连。</p></aside></div>`
 }
 function proxiesPage() {
   const items = [['美国静态代理 03', 'HTTP', '美国 · 纽约', '198.51.100.24:8080', '126 ms', '2', '可用'], ['英国业务代理 01', 'SOCKS5', '英国 · 伦敦', '203.0.113.56:1080', '158 ms', '1', '可用'], ['法国内容代理 02', 'HTTP', '法国 · 巴黎', '192.0.2.18:8080', '—', '1', '连接失败'], ['德国客服代理 01', 'HTTP', '德国 · 柏林', '203.0.113.80:8080', '142 ms', '1', '可用'], ['日本内容代理 01', 'SOCKS5', '日本 · 东京', '192.0.2.46:1080', '86 ms', '1', '可用']]
@@ -448,7 +528,7 @@ document.addEventListener('click', event => {
   const e = environments.find(item => item.id === target.dataset.id) || currentEnvironment
   if (target.closest('form') && target.tagName === 'BUTTON' && !target.hasAttribute('type')) event.preventDefault()
   switch (action) {
-    case 'create': resetWizard(); navigate('create'); break
+    case 'create': void startCreateWizard(); break
     case 'return-env': case 'cancel-create': closeOverlay(); navigate('environments'); break
     case 'detail': currentEnvironment = e; showOverlay(detailDrawer(e)); break
     case 'diagnostic': currentEnvironment = e; showOverlay(detailDrawer(e, true)); break
@@ -463,6 +543,8 @@ document.addEventListener('click', event => {
     case 'bulk-launch': void updateSelected('open'); break
     case 'bulk-close': void updateSelected('close'); break
     case 'wizard-back': wizardStep--; render(); break
+    case 'regenerate-fingerprint': void regenerateFingerprint(); break
+    case 'restore-fingerprint': restoreFingerprint(); break
     case 'retry-diagnostic': toast('当前诊断服务尚未连接，请在代理资源中检查连接后重试。'); break
     case 'open-proxies': navigate('proxies'); break
     case 'retry-sync': toast('同步服务尚未连接，当前环境数据仍保存在本机。'); break
@@ -503,6 +585,14 @@ document.addEventListener('click', event => {
 document.addEventListener('input', event => {
   if (event.target.id === 'env-search') { searchTerm = event.target.value; refreshRows() }
   if (event.target.name === 'name' && event.target.closest('#wizard-form')) document.getElementById('preview-name').textContent = event.target.value
+  if (event.target.dataset.fingerprintPath) {
+    const target = event.target
+    let value = target.type === 'checkbox' ? target.checked : target.value
+    if (target.dataset.fingerprintType === 'number') value = target.value === '' ? '' : Number(target.value)
+    if (target.dataset.fingerprintPath === 'browser.userAgent' && value === '') value = null
+    if (target.dataset.fingerprintPath === 'locale.languages') value = String(value).split(/[,，]/).map(item => item.trim()).filter(Boolean)
+    setFingerprintField(target.dataset.fingerprintPath, value)
+  }
   const proxyField = { proxyServer: 'server', proxyUsername: 'username', proxyPassword: 'password' }[event.target.name]
   if (proxyField && event.target.closest('#wizard-form')) {
     draft.proxy[proxyField] = event.target.value
@@ -535,9 +625,8 @@ document.addEventListener('submit', async event => {
     if (wizardStep < 3) { wizardStep++; render(); return }
     if (wizardStep === 3) wizardSubmitting = true
     try {
-      const draftResponse = await window.browserApi.getDraft()
-      if (!draftResponse?.ok) throw new Error(draftResponse?.error || '创建配置草稿失败。')
-      const profile = draftResponse.profile
+      if (!draft.profile || !draft.fingerprint) throw new Error('指纹草稿尚未生成，请稍后重试。')
+      const profile = { ...draft.profile, fingerprint: cloneValue(draft.fingerprint) }
       profile.name = draft.name
       profile.url = draft.url || profile.url
       profile.proxy = draft.proxy
@@ -552,8 +641,7 @@ document.addEventListener('submit', async event => {
       currentEnvironment = environments.find(item => item.raw?.profileId === profile.id || item.raw?.profileName === profile.name) || environments[0] || null
       const createdName = draft.name
       closeOverlay()
-      resetWizard()
-      navigate('create')
+      void startCreateWizard()
       toast(`已创建“${createdName}”环境并打开浏览器窗口。`)
     } catch (error) {
       toast(error?.message || '创建浏览器环境失败，请重试。')
@@ -562,7 +650,7 @@ document.addEventListener('submit', async event => {
     }
   }
   if (event.target.id === 'invite-form') { const data = new FormData(event.target); members.push([String(data.get('name')).trim(), String(data.get('email')).trim(), data.get('role'), data.get('group'), '等待接受邀请', '待接受']); closeOverlay(); render(); toast('已加入邀请演示列表，没有发送邮件。') }
-  if (event.target.id === 'onboarding-form') { closeOverlay(); wizardStep = 1; navigate('create'); toast('已完成工作空间设置演示，继续创建首个环境。') }
+  if (event.target.id === 'onboarding-form') { closeOverlay(); void startCreateWizard(); toast('已完成工作空间设置演示，继续创建首个环境。') }
   if (event.target.id === 'address-form') toast('地址已输入；原型不会访问真实网站。')
 })
 document.addEventListener('keydown', event => {

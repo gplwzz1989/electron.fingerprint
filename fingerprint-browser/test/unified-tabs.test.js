@@ -125,6 +125,7 @@ async function run () {
     profiles.push(saved.profile)
     await invoke(dashboard, 'launchProfile', { id: draft.id })
   }
+  assert.notEqual(profiles[0].fingerprint.noise.seed, profiles[1].fingerprint.noise.seed, '每次创建草稿没有生成独立指纹种子。')
   await waitFor(async () => (await invoke(dashboard, 'listTabs')).tabs.length === 2, '环境标签没有创建完成。')
   const snapshot = await invoke(dashboard, 'listTabs')
   assert.equal(BrowserWindow.getAllWindows().length, 1, '创建环境后出现了独立多标签窗口。')
@@ -266,6 +267,13 @@ async function run () {
     await dashboard.webContents.executeJavaScript("(() => { const button = document.querySelector('#wizard-form button[type=submit]'); button.click(); button.click() })()")
     if (expectSuccess) await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#create' && document.querySelector('#wizard-form [name=name]')?.value === '美国旗舰店 · 运营' && document.querySelector('#toast').textContent.includes('已创建')"), '环境创建向导未返回初始创建页。')
   }
+  async function fingerprintInput (path, value) {
+    await dashboard.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('[data-fingerprint-path="${path}"]')
+      input.value = ${JSON.stringify(value)}
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+  }
   async function chooseHttpProxy (address) {
     await dashboard.webContents.executeJavaScript("(() => { const mode = document.querySelector('#wizard-proxy-mode'); mode.value = 'http'; mode.dispatchEvent(new Event('change', { bubbles: true })) })()")
     await wizardInput('proxyServer', address)
@@ -273,12 +281,26 @@ async function run () {
   await startWizard('向导直连环境', `${url}?wizard=direct`)
   assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-proxy-mode').value"), 'direct', '新建环境没有默认选择直连。')
   assert.equal(await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[name=proxyServer], [data-action=check-proxy]'))"), false, '直连仍被要求填写或检查代理。')
-  await finishWizard()
+  await click('#wizard-form button[type="submit"]')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[data-fingerprint-path=\\\"hardware.hardwareConcurrency\\\"]'))"), '指纹自定义页面没有加载。')
+  const generatedSeed = await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-path=\\\"noise.seed\\\"]')?.value")
+  assert.ok(generatedSeed, '指纹草稿没有自动生成种子。')
+  await fingerprintInput('hardware.hardwareConcurrency', '6')
+  await fingerprintInput('noise.seed', 'wizard-custom-seed')
+  await click('[data-action="wizard-back"]')
+  await click('#wizard-form button[type="submit"]')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-path=\\\"hardware.hardwareConcurrency\\\"]')?.value === '6'"), '切换步骤后丢失自定义指纹。')
+  assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-path=\\\"noise.seed\\\"]')?.value"), 'wizard-custom-seed', '切换步骤后丢失自定义种子。')
+  await dashboard.webContents.executeJavaScript("(() => { const button = document.querySelector('#wizard-form button[type=submit]'); button.click(); button.click() })()")
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("location.hash === '#create' && document.querySelector('#toast').textContent.includes('已创建')"), '带自定义指纹的环境创建失败。')
   await waitFor(async () => (await invoke(dashboard, 'listEnvironments')).environments.some(item => item.profileName === '向导直连环境' && item.status === 'open'), '向导无法直接创建无代理环境。')
   const directEnvironments = (await invoke(dashboard, 'listEnvironments')).environments.filter(item => item.profileName === '向导直连环境')
   assert.equal(directEnvironments.length, 1, '重复点击创建按钮产生了重复环境。')
   const directEnvironment = directEnvironments[0]
   assert.equal(directEnvironment.proxy.mode, 'direct', '直连环境保存了错误代理模式。')
+  const directProfile = (await invoke(dashboard, 'listProfiles')).profiles.find(item => item.id === directEnvironment.profileId)
+  assert.equal(directProfile.fingerprint.hardware.hardwareConcurrency, 6, '创建环境没有保存自定义线程数。')
+  assert.equal(directProfile.fingerprint.noise.seed, 'wizard-custom-seed', '创建环境没有保存自定义指纹种子。')
   assert.ok(wizardDirectRequests.includes('/?wizard=direct'), '直连环境没有使用本机网络。')
   await record('创建向导默认直连及本机网络请求通过')
 
