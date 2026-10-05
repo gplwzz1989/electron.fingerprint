@@ -244,12 +244,13 @@ class TabBrowser {
     const profile = {
       id: environment.profileId,
       name: environment.profileName,
-      url: environment.lastUrl,
+      url: environment.creationUrl,
       revision: environment.profileRevision,
       fingerprint: environment.fingerprint,
       proxy: environment.proxy
     }
-    const url = normalizeUrl(targetUrl || environment.lastUrl)
+    const url = normalizeUrl(targetUrl || environment.creationUrl)
+    const preserveLastUrl = environment.status === 'closed' && !targetUrl
     await this.ensureWindow()
     const dataDir = environment.dataDir
     const snapshot = structuredClone(profile)
@@ -271,7 +272,7 @@ class TabBrowser {
       nodeIntegration: false,
       sandbox: true
     } })
-    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false }
+    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl }
     const contents = view.webContents
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     for (const event of ['will-navigate', 'will-redirect']) {
@@ -281,11 +282,11 @@ class TabBrowser {
     }
     contents.on('page-title-updated', (_event, title) => { tab.title = title; this.notify() })
     contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; this.notify() })
-    contents.on('did-stop-loading', () => { tab.loading = false; this.notify() })
+    contents.on('did-stop-loading', () => { tab.loading = false; tab.preserveLastUrl = false; this.notify() })
     for (const event of ['did-navigate', 'did-navigate-in-page']) {
       contents.on(event, () => {
         tab.url = contents.getURL()
-        void this.saveEnvironmentUrl(tab)
+        if (!tab.preserveLastUrl) void this.saveEnvironmentUrl(tab)
         this.notify()
       })
     }
@@ -293,7 +294,7 @@ class TabBrowser {
       if (isMainFrame && code !== -3) { tab.error = '网页加载失败，请检查网址和网络连接。'; this.notify() }
     })
     contents.on('render-process-gone', () => { tab.error = '页面进程已退出，请刷新标签重试。'; this.notify() })
-    await this.environmentRepository.update(environment.id, { status: 'open', lastUrl: url })
+    await this.environmentRepository.update(environment.id, { status: 'open' })
     this.onEnvironmentChanged()
     this.tabs.set(tabId, tab)
     this.select(tabId)
@@ -301,6 +302,7 @@ class TabBrowser {
       await loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
     } catch (error) {
       console.error('[加载标签网页]', error)
+      tab.preserveLastUrl = false
       if (this.tabs.has(tabId)) {
         tab.error = '网页加载失败，请检查网址和网络连接。'
         this.notify()

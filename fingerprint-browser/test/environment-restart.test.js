@@ -34,6 +34,9 @@ async function run () {
     const snapshot = await invoke(host, 'listTabs')
     const tab = snapshot.tabs[0]
     const contents = contentsFor(tab)
+    const alternateUrl = `${url}?restart-last`
+    await contents.loadURL(alternateUrl)
+    assert.equal(contents.getURL(), alternateUrl, '重启前导航测试页面没有加载。')
     await contents.executeJavaScript("localStorage.setItem('restart-marker','保留'); document.title = '重启恢复测试'")
     await contents.session.cookies.set({ url, name: 'restart-marker', value: '保留', expirationDate: Math.floor(Date.now() / 1000) + 3600 })
     await contents.session.cookies.flushStore()
@@ -44,10 +47,13 @@ async function run () {
   const environments = await invoke(dashboard, 'listEnvironments')
   assert.equal(environments.environments.length, 1, '重启后环境记录数量不正确。')
   assert.equal(environments.environments[0].status, 'closed', '重启后环境没有恢复为已关闭状态。')
+  assert.equal(environments.environments[0].creationUrl, url, '重启后创建地址没有保留。')
+  assert.equal(environments.environments[0].lastUrl, `${url}?restart-last`, '重启后最近访问地址没有保留。')
   const restored = await invoke(dashboard, 'reopenEnvironment', environments.environments[0].id)
   const host = dashboard
   const tab = restored.tabs.find(item => item.environmentId === environments.environments[0].id)
   const contents = contentsFor(tab)
+  assert.equal(contents.getURL(), url, '跨进程重启后环境没有回到创建时地址。')
   assert.equal(await contents.executeJavaScript("localStorage.getItem('restart-marker')"), '保留', '重启后本地存储没有恢复。')
   assert.equal((await contents.session.cookies.get({ url, name: 'restart-marker' })).length, 1, '重启后 Cookie 没有恢复。')
   await invoke(host, 'closeTab', tab.id)

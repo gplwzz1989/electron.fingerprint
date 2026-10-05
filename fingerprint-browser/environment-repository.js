@@ -3,6 +3,8 @@ const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { createProfileRecord, DEFAULT_URL, ProfileValidationError, normalizeUrl } = require('./profile-store')
 
+const FALLBACK_CREATION_URL = 'about:blank'
+
 function clone (value) {
   return structuredClone(value)
 }
@@ -32,6 +34,7 @@ function normalizeEnvironment (record, dataRoot) {
     fingerprint: record.fingerprint,
     proxy: record.proxy
   })
+  const creationUrl = normalizeUrl(record.creationUrl || FALLBACK_CREATION_URL)
   if (!['open', 'closed'].includes(record.status)) throw new ProfileValidationError('环境状态无效。')
   if (!Number.isInteger(record.createdAt) || record.createdAt < 1) throw new ProfileValidationError('环境创建时间无效。')
   if (!Number.isInteger(record.updatedAt) || record.updatedAt < 1) throw new ProfileValidationError('环境更新时间无效。')
@@ -43,6 +46,7 @@ function normalizeEnvironment (record, dataRoot) {
     dataDir,
     proxy: profile.proxy,
     fingerprint: profile.fingerprint,
+    creationUrl,
     lastUrl: normalizeUrl(record.lastUrl || DEFAULT_URL),
     status: record.status,
     createdAt: record.createdAt,
@@ -109,7 +113,9 @@ class EnvironmentRepository {
     }
     if (!Array.isArray(records)) throw new ProfileValidationError('环境记录必须是数组。')
     const ids = new Set()
-    this.records = records.map(record => {
+    const migratedRecords = []
+    for (const record of records) migratedRecords.push(await this.resolveCreationUrl(record))
+    this.records = migratedRecords.map(record => {
       const environment = normalizeEnvironment(record, this.dataRoot)
       if (ids.has(environment.id)) throw new ProfileValidationError('环境记录存在重复 ID。')
       ids.add(environment.id)
@@ -118,6 +124,20 @@ class EnvironmentRepository {
     this.loaded = true
     await this.persist(this.records)
     return { migrated: !records.length && this.records.length > 0 }
+  }
+
+  async resolveCreationUrl (record) {
+    if (typeof record?.creationUrl === 'string' && record.creationUrl.trim()) return record
+    if (typeof record?.id !== 'string' || !record.id || record.id.includes('..') || /[\\/]/.test(record.id)) return record
+    const dataDir = ensureEnvironmentPath(this.dataRoot, record?.id, record?.dataDir)
+    let creationUrl = FALLBACK_CREATION_URL
+    try {
+      const snapshot = JSON.parse(await this.fileSystem.readFile(path.join(dataDir, 'fingerprint.json'), 'utf8'))
+      if (snapshot?.url) creationUrl = normalizeUrl(String(snapshot.url).trim())
+    } catch (error) {
+      console.warn(`[迁移环境创建地址] ${record?.id || '未知环境'} 无法确认原始地址，已使用 about:blank。`)
+    }
+    return { ...record, creationUrl }
   }
 
   async processPendingDeletes () {
@@ -183,6 +203,7 @@ class EnvironmentRepository {
           dataDir,
           proxy: snapshot.proxy,
           fingerprint: snapshot.fingerprint,
+          creationUrl: snapshot.url || FALLBACK_CREATION_URL,
           lastUrl: snapshot.url,
           status: 'closed',
           createdAt: Math.floor(stat.birthtimeMs || stat.ctimeMs || Date.now()),
@@ -221,7 +242,7 @@ class EnvironmentRepository {
     return task
   }
 
-  async create (profile, lastUrl) {
+  async create (profile, creationUrl) {
     return await this.enqueue(async () => {
       const now = Date.now()
       const id = randomUUID()
@@ -234,7 +255,8 @@ class EnvironmentRepository {
         dataDir,
         proxy: profile.proxy,
         fingerprint: profile.fingerprint,
-        lastUrl,
+        creationUrl,
+        lastUrl: creationUrl,
         status: 'closed',
         createdAt: now,
         updatedAt: now
@@ -255,7 +277,7 @@ class EnvironmentRepository {
     return await this.enqueue(async () => {
       const current = this.get(id)
       if (!current) throw new ProfileValidationError('找不到浏览器环境。')
-      const next = normalizeEnvironment({ ...current, ...patch, id, updatedAt: Date.now() }, this.dataRoot)
+      const next = normalizeEnvironment({ ...current, ...patch, creationUrl: current.creationUrl, id, updatedAt: Date.now() }, this.dataRoot)
       await this.persist(this.records.map(record => record.id === id ? next : record))
       return clone(next)
     })
