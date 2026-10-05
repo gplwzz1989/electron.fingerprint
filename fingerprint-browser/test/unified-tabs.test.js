@@ -58,6 +58,13 @@ function contentsFor (tab) {
   return contents
 }
 
+async function signalsFor (contents) {
+  await waitFor(async () => await contents.executeJavaScript('Boolean(window.testSignals || window.testError)'), '指纹检测页面没有完成读取。')
+  const error = await contents.executeJavaScript('window.testError || null')
+  assert.equal(error, null, `指纹检测页面读取失败：${error}`)
+  return await contents.executeJavaScript('window.testSignals')
+}
+
 const dashboardReady = new Promise(resolve => app.once('browser-window-created', (_event, window) => {
   window.webContents.once('did-finish-load', () => resolve(window))
 }))
@@ -96,6 +103,12 @@ async function run () {
 
   const page = await fs.readFile(path.join(__dirname, 'fingerprint-page.html'))
   server = http.createServer((request, response) => {
+    const requestPath = new URL(request.url, 'http://fingerprint-browser.test').pathname
+    if (requestPath === '/headers') {
+      response.setHeader('Content-Type', 'application/json; charset=utf-8')
+      response.end(JSON.stringify({ acceptLanguage: request.headers['accept-language'] || '' }))
+      return
+    }
     if (request.url.startsWith('http://wizard-proxy.invalid/')) {
       const authorized = request.headers['proxy-authorization'] === wizardProxyAuthorization
       wizardProxyRequests.push({ url: request.url, authorized })
@@ -130,7 +143,24 @@ async function run () {
   const snapshot = await invoke(dashboard, 'listTabs')
   assert.equal(BrowserWindow.getAllWindows().length, 1, '创建环境后出现了独立多标签窗口。')
   assert.notEqual(snapshot.tabs[0].dataDir, snapshot.tabs[1].dataDir, '不同环境复用了数据目录。')
-  for (const tab of snapshot.tabs) assert.ok(contentsFor(tab), '环境网页视图没有挂载。')
+  for (const [index, tab] of snapshot.tabs.entries()) {
+    const contents = contentsFor(tab)
+    const signals = await signalsFor(contents)
+    const fingerprint = profiles[index].fingerprint
+    assert.equal(signals.webgl.available, true, 'WebGL1 上下文没有创建。')
+    assert.equal(signals.webgl.unmaskedVendor, fingerprint.graphics.webglVendor, 'WebGL 厂商与环境配置不一致。')
+    assert.equal(signals.webgl.unmaskedRenderer, fingerprint.graphics.webglRenderer, 'WebGL 渲染器与环境配置不一致。')
+    assert.ok(signals.webgl.extensionCount > 0, 'WebGL 扩展列表为空。')
+    assert.ok(signals.webgl.extensions.includes('WEBGL_debug_renderer_info'), 'WebGL 调试渲染器扩展不可用。')
+    assert.equal(signals.webgl.pixel.length, 4, 'WebGL readPixels 没有返回 RGBA 像素。')
+    assert.equal(signals.webgl.error, 0, 'WebGL 基础操作产生错误。')
+    assert.equal(signals.webgl.shaderCompile, true, 'WebGL Shader 编译失败。')
+    assert.equal(signals.webgl.shaderLog, '', 'WebGL Shader 编译日志不为空。')
+    assert.equal(signals.webgl.getParameterCalls, 32, 'WebGL 参数读取回归次数不正确。')
+    assert.ok(Number.isFinite(signals.webgl.getParameterElapsedMs), 'WebGL 参数读取耗时不可用。')
+    assert.equal(typeof signals.webgl2.available, 'boolean', 'WebGL2 能力结果缺失。')
+    assert.ok(signals.canvas2dDataUrlLength > 0, 'Canvas 2D 对照结果为空。')
+  }
   const chrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, overflow: getComputedStyle(document.querySelector('#unified-tabs')).overflow })")
   assert.deepEqual(chrome, { tabs: 3, selected: 1, overflow: 'hidden' }, '环境标签栏布局不符合浏览器式管理。')
   await record('环境标签同窗创建、首页保留和无滚动条通过')

@@ -77,8 +77,10 @@ index 4c25f00f128db6592b0b0a865619d53c5f267fbf..77467b021c2df4d070c30523f6397e33
        return ScriptValue::CreateNull(script_state->GetIsolate());
      case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
        if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
-+        if (const auto webgl = GetFingerprintWebGLOverride())
++        if (const auto webgl = GetFingerprintWebGLOverride()) {
++          ContextGL()->GetString(GL_RENDERER);
 +          return WebGLAny(script_state, webgl->renderer);
++        }
 +
          if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
                  blink::IdentifiableSurface::Type::kWebGLParameter)) {
@@ -87,8 +89,10 @@ index 4c25f00f128db6592b0b0a865619d53c5f267fbf..77467b021c2df4d070c30523f6397e33
        return ScriptValue::CreateNull(script_state->GetIsolate());
      case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
        if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
-+        if (const auto webgl = GetFingerprintWebGLOverride())
++        if (const auto webgl = GetFingerprintWebGLOverride()) {
++          ContextGL()->GetString(GL_VENDOR);
 +          return WebGLAny(script_state, webgl->vendor);
++        }
 +
          if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
                  blink::IdentifiableSurface::Type::kWebGLParameter)) {

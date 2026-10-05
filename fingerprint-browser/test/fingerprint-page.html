@@ -20,10 +20,51 @@
   <table id="signals"></table>
   <p id="ready">正在读取…</p>
   <script>
-    async function readFingerprint () {
+    function readWebGL (name) {
       const canvas = document.createElement('canvas')
-      const gl = canvas.getContext('webgl')
-      const debug = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      const gl = canvas.getContext(name)
+      if (!gl) return { available: false }
+      const debug = gl.getExtension('WEBGL_debug_renderer_info')
+      const extensions = gl.getSupportedExtensions() || []
+      const pixel = new Uint8Array(4)
+      gl.clearColor(0.25, 0.5, 0.75, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      const shader = gl.createShader(gl.VERTEX_SHADER)
+      gl.shaderSource(shader, 'attribute vec4 p; void main(){gl_Position=p;}')
+      gl.compileShader(shader)
+      const startedAt = performance.now()
+      for (let index = 0; index < 32; index++) {
+        if (debug) gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+      }
+      const getParameterElapsedMs = performance.now() - startedAt
+      const result = {
+        available: true,
+        version: name === 'webgl2' ? 2 : 1,
+        vendor: gl.getParameter(gl.VENDOR),
+        renderer: gl.getParameter(gl.RENDERER),
+        unmaskedVendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+        unmaskedRenderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+        extensionCount: extensions.length,
+        extensions,
+        pixel: [...pixel],
+        error: gl.getError(),
+        shaderCompile: gl.getShaderParameter(shader, gl.COMPILE_STATUS),
+        shaderLog: gl.getShaderInfoLog(shader),
+        getParameterCalls: 32,
+        getParameterElapsedMs
+      }
+      gl.deleteShader(shader)
+      return result
+    }
+
+    async function readFingerprint () {
+      const webgl = readWebGL('webgl')
+      const webgl2 = readWebGL('webgl2')
+      const canvas = document.createElement('canvas')
+      const twoD = canvas.getContext('2d')
+      twoD.fillStyle = '#123456'
+      twoD.fillRect(0, 0, 1, 1)
       const headers = await (await fetch('/headers')).json()
       const signals = {
         language: navigator.language,
@@ -34,29 +75,36 @@
         platform: navigator.platform,
         screenWidth: screen.width,
         screenHeight: screen.height,
-        webglVendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : '不可用',
-        webglRenderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : '不可用',
+        webglVendor: webgl.unmaskedVendor || '不可用',
+        webglRenderer: webgl.unmaskedRenderer || '不可用',
+        webgl,
+        webgl2,
+        canvas2dDataUrlLength: canvas.toDataURL().length,
         acceptLanguage: headers.acceptLanguage,
         userAgent: navigator.userAgent
       }
       const labels = {
         language: '主语言', languages: '语言列表', timezone: '时区', hardwareConcurrency: '处理器线程数',
         deviceMemory: '设备内存（GB）', platform: '平台', screenWidth: '屏幕宽度', screenHeight: '屏幕高度',
-        webglVendor: '显卡厂商', webglRenderer: '显卡渲染器', acceptLanguage: '请求语言', userAgent: '浏览器标识'
+        webglVendor: '显卡厂商', webglRenderer: '显卡渲染器', webgl: 'WebGL1 能力', webgl2: 'WebGL2 能力',
+        canvas2dDataUrlLength: 'Canvas 2D 数据长度', acceptLanguage: '请求语言', userAgent: '浏览器标识'
       }
       for (const [key, value] of Object.entries(signals)) {
         const row = document.createElement('tr')
         const label = document.createElement('th')
         const cell = document.createElement('td')
         label.textContent = labels[key]
-        cell.textContent = Array.isArray(value) ? value.join(', ') : String(value)
+        cell.textContent = Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)
         row.append(label, cell)
         document.querySelector('#signals').append(row)
       }
       window.testSignals = signals
       document.querySelector('#ready').textContent = '页面读取成功 · 可切换顶部标签对比指纹'
     }
-    void readFingerprint()
+    void readFingerprint().catch(error => {
+      window.testError = error instanceof Error ? error.message : String(error)
+      document.querySelector('#ready').textContent = `页面读取失败：${window.testError}`
+    })
   </script>
 </body>
 </html>
