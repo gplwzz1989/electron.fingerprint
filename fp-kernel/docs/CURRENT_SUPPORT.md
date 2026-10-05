@@ -408,13 +408,14 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 
 - `fp-kernel/tools/verify-version.py`：版本清单通过；
 - `fp-kernel/tools/verify-patches.py`：补丁基础文件通过。
+- FP-13 ClientRects：使用现有 Release 运行时执行 Element 与 Range 的四类 DOM Rect 查询；不同 Session 结果隔离，关闭 `noise.rects` 与无 Profile 结果一致，运行时 SHA-256 为 `426212649B947AC899FDE396B3EFA0108B5255733D5FF1D7BDDCA07561E0723E`。
 
 ### 7.3 尚未形成的验证证据
 
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- FP-13～FP-17 的完整增量编译和运行时定向测试；
+- FP-14～FP-17 的完整增量编译和运行时定向测试；
 - FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
 - FP-17 的 ServiceWorker 启动、重启和跨进程请求头回归；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 真实 ICE 候选的验证；
