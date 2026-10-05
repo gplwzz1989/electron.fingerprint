@@ -278,6 +278,15 @@ async function run () {
     assert.ok(pending.some(item => item.id === deleted.environmentId), '被占用的环境数据没有登记待清理任务。')
   }
   await record('环境删除入口、取消确认、关闭后删除、数据清理和模板保留通过')
+  const initialGroups = await invoke(dashboard, 'listGroups')
+  assert.ok(initialGroups.groups.some(group => group.name === '未分组'), '分组列表缺少系统默认分组。')
+  const createdGroup = await invoke(dashboard, 'createGroup', '自动化分组')
+  assert.ok(createdGroup.groups.some(group => group.name === '自动化分组'), '新建分组没有持久化。')
+  const renamedGroup = await invoke(dashboard, 'updateGroup', { id: createdGroup.group.id, name: '自动化分组改名' })
+  assert.ok(renamedGroup.groups.some(group => group.name === '自动化分组改名'), '修改分组没有持久化。')
+  const deletedGroup = await invoke(dashboard, 'deleteGroup', createdGroup.group.id)
+  assert.equal(deletedGroup.groups.some(group => group.id === createdGroup.group.id), false, '删除分组没有从列表移除。')
+  await record('业务分组真实增改删和默认未分组通过')
 
   async function wizardInput (name, value) {
     await dashboard.webContents.executeJavaScript(`(() => {

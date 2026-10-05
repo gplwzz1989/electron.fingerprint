@@ -40,6 +40,7 @@ const btn = (label, action, style = '', extra = '', symbol = '') => `<button cla
 const badge = (text, color = '') => `<span class="status ${color}"><i class="dot"></i>${text}</span>`
 const navItems = [['overview', '工作台', 'grid'], ['environments', '浏览器环境', 'browser'], ['proxies', '代理资源', 'globe'], ['members', '团队成员', 'users'], ['audit', '操作记录', 'clock'], ['billing', '订阅与用量', 'wallet'], ['settings', '设置', 'settings']]
 let environments = []
+let groups = []
 const members = [
   ['林沐', 'linmu@example.com', '所有者', '全部环境', '今天 09:42', '有效'],
   ['陈悦', 'chenyue@example.com', '管理员', '电商运营 · 4 个环境', '今天 09:36', '有效'],
@@ -51,6 +52,9 @@ let route = 'overview'
 let filter = 'all'
 let searchTerm = ''
 let groupFilter = '全部分组'
+let environmentPageNumber = 1
+let environmentSort = 'recent'
+const environmentPageSize = 20
 let wizardStep = 1
 let wizardSubmitting = false
 let profiles = []
@@ -293,22 +297,51 @@ function mapEnvironment (environment) {
   }
 }
 
+function groupNames () {
+  const names = new Set(['未分组'])
+  for (const group of groups) if (group?.name) names.add(group.name)
+  for (const environment of environments) if (environment.group) names.add(environment.group)
+  if (draft?.group) names.add(draft.group)
+  return [...names]
+}
+
+function sortedFilteredEnvironments () {
+  const list = filteredEnvironments().slice()
+  if (environmentSort === 'name') {
+    return list.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN') || left.id.localeCompare(right.id))
+  }
+  return list.sort((left, right) => (right.raw.updatedAt || 0) - (left.raw.updatedAt || 0) || left.name.localeCompare(right.name, 'zh-CN'))
+}
+
+function pagedEnvironments () {
+  const list = sortedFilteredEnvironments()
+  const pageCount = Math.max(1, Math.ceil(list.length / environmentPageSize))
+  environmentPageNumber = Math.min(Math.max(environmentPageNumber, 1), pageCount)
+  const start = (environmentPageNumber - 1) * environmentPageSize
+  return { list: list.slice(start, start + environmentPageSize), total: list.length, pageCount }
+}
+
 function applyEnvironmentSnapshot (snapshot) {
   environments = (snapshot || []).map(mapEnvironment)
   const currentId = currentEnvironment?.id
   currentEnvironment = environments.find(item => item.id === currentId) || environments[0] || null
+  const { pageCount } = pagedEnvironments()
+  if (environmentPageNumber > pageCount) environmentPageNumber = pageCount
 }
 
 async function loadRealData (showToast = true) {
   try {
-    const [environmentResult, profileResult] = await Promise.all([
+    const [environmentResult, profileResult, groupResult] = await Promise.all([
       window.browserApi.listEnvironments(),
-      window.browserApi.listProfiles()
+      window.browserApi.listProfiles(),
+      window.browserApi.listGroups()
     ])
     if (!environmentResult?.ok) throw new Error(environmentResult?.error || '读取浏览器环境失败。')
     if (!profileResult?.ok) throw new Error(profileResult?.error || '读取浏览器配置失败。')
+    if (!groupResult?.ok) throw new Error(groupResult?.error || '读取业务分组失败。')
     applyEnvironmentSnapshot(environmentResult.environments)
     profiles = profileResult.profiles || []
+    groups = groupResult.groups || []
     render()
     if (showToast) toast(environments.length ? `已加载 ${environments.length} 个真实浏览器环境。` : '当前还没有浏览器环境，可新建一个环境。')
   } catch (error) {
@@ -421,14 +454,25 @@ function filteredEnvironments() {
   return environments.filter(e => (filter === 'all' || (filter === 'running' ? e.state === '运行中' : e.state === '代理异常' || e.sync === '同步失败')) && (groupFilter === '全部分组' || e.group === groupFilter) && `${e.name} ${e.owner} ${e.id}`.toLowerCase().includes(searchTerm.toLowerCase()))
 }
 function environmentRows() {
-  const list = filteredEnvironments()
+  const list = pagedEnvironments().list
   if (!list.length) return `<tr><td colspan="8"><div class="empty">${icon('search')}<h2>没有找到匹配的环境</h2><p>试试其他关键词，或清除分组和状态筛选。</p>${btn('清除筛选', 'reset-filters')}</div></td></tr>`
-  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${e.group}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${escapeHTML(e.proxyLabel || e.ip)}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}${btn('删除', 'delete-env', 'small danger', `data-id="${e.id}" aria-label="删除${escapeHTML(e.name)}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
+  return list.map(e => `<tr class="environment-row environment-card"><td><input type="checkbox" data-action="select-environment" data-select="${e.id}" data-id="${e.id}" aria-label="选择${escapeHTML(e.name)}" ${selected.has(e.id) ? 'checked' : ''}></td><td><div class="env-name"><span class="env-logo ${e.color}">${e.letter}</span><div><button class="env-title" data-action="detail" data-id="${e.id}">${escapeHTML(e.name)}</button><div class="env-meta"><span>${e.id}</span><span class="chip">${escapeHTML(e.group)}</span></div></div></div></td><td><span class="country">${e.code}</span>${e.country}<span class="cell-sub mono">${escapeHTML(e.proxyLabel || e.ip)}</span></td><td><span class="person"><span class="avatar ${e.owner === '王宁' ? 'purple' : ''}">${e.owner[0]}</span>${e.owner}</span></td><td><span class="sync ${e.sync === '同步失败' ? 'warning' : e.sync === '仅本地' ? 'local' : ''}">${icon(e.sync === '仅本地' ? 'monitor' : 'sync')}${e.sync}</span></td><td>${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}</td><td><span style="font-size:10px;color:#7d8a9c">${e.time}</span></td><td><div class="row-actions">${btn(e.state === '运行中' ? '进入' : e.state === '代理异常' ? '诊断' : '打开', e.state === '代理异常' ? 'diagnostic' : 'launch', e.state === '代理异常' ? 'small' : 'small soft', `data-id="${e.id}"`)}${btn('分组', 'edit-environment-group', 'small', `data-id="${e.id}"`)}${btn('删除', 'delete-env', 'small danger', `data-id="${e.id}" aria-label="删除${escapeHTML(e.name)}"`)}<button class="icon-button" aria-label="查看${escapeHTML(e.name)}的详情" data-action="detail" data-id="${e.id}">${icon('more')}</button></div></td></tr>`).join('')
+}
+function groupManager () {
+  const items = groups.filter(group => group.name !== '未分组').map(group => `<div class="setting-row"><div><b>${escapeHTML(group.name)}</b><p>${environments.filter(environment => environment.group === group.name).length} 个环境</p></div><div class="actions">${btn('编辑', 'edit-group', 'small', `data-id="${group.id}"`)}${btn('删除', 'delete-group', 'small danger', `data-id="${group.id}"`)}</div></div>`).join('')
+  return `<div class="dialog-backdrop" data-dismiss="dialog"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="group-dialog-title"><div class="card-head"><h2 id="group-dialog-title">管理业务分组</h2><button class="icon-button" aria-label="关闭分组管理" data-action="close-overlay">${icon('close')}</button></div><div class="card-body"><form id="group-create-form"><label class="field"><span>新分组名称</span><input name="name" required maxlength="80" placeholder="例如：海外广告"></label><div class="form-footer" style="padding:0;border:0"><span></span><button class="button primary" type="submit">添加分组 ${icon('plus')}</button></div></form><div class="form-divider"></div><div class="setting-row"><div><b>未分组</b><p>系统默认分组，删除其他分组时环境会回到这里。</p></div><span class="tiny-tag">系统保留</span></div>${items || '<div class="empty"><h2>还没有自定义分组</h2><p>创建分组后，可以在新建环境时选择。</p></div>'}</div><div class="form-footer"><span></span><div class="actions">${btn('完成', 'close-overlay', 'primary')}</div></div></section></div>`
+}
+function environmentGroupDialog (environment) {
+  const options = groupNames().map(group => `<option ${group === environment.group ? 'selected' : ''}>${escapeHTML(group)}</option>`).join('')
+  return `<form id="environment-group-form"><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="revision" value="${environment.raw.metadataRevision}"><label class="field"><span>所属分组</span><select name="group">${options}</select></label></form>`
 }
 function environmentPage(empty = false) {
-  return `${heading('浏览器环境', '管理业务的独立会话，保持登录状态和团队访问有序。', btn('导入环境', 'import', '', '', 'upload') + btn('新建环境', 'create', 'primary', '', 'plus'))}${metrics()}
-  <section class="card"><div class="tabs"><button class="tab ${filter === 'all' ? 'active' : ''}" data-filter="all">全部环境<span>${environments.length}</span></button><button class="tab ${filter === 'running' ? 'active' : ''}" data-filter="running">正在运行<span>${environments.filter(e => e.state === '运行中').length}</span></button><button class="tab ${filter === 'issues' ? 'active' : ''}" data-filter="issues">需要处理<span>2</span></button></div>
-  ${empty ? `<div class="empty">${icon('browser')}<h2>创建你的第一个浏览器环境</h2><p>为一个业务建立独立会话。名称、分组和代理可在创建时设置。</p>${btn('创建第一个环境', 'create', 'primary', '', 'plus')}</div>` : `<div class="table-toolbar"><label class="search-field">${icon('search')}<input id="env-search" aria-label="搜索环境名称、编号或负责人" placeholder="搜索环境名称、编号或负责人" value="${escapeHTML(searchTerm)}"></label><select class="filter" id="group-filter" aria-label="筛选业务分组">${['全部分组', '电商运营', '内容营销', '客户支持'].map(x => `<option ${x === groupFilter ? 'selected' : ''}>${x}</option>`).join('')}</select>${btn('重置', 'reset-filters', 'text small', 'id="environment-reset"')}<span class="toolbar-note">最近使用优先 · IP 检测服务未连接</span></div><div class="table-wrap"><table class="env-table"><thead><tr><th style="width:38px"><input type="checkbox" id="select-all" aria-label="选择当前筛选下的全部环境"></th><th>环境名称</th><th>代理与地区</th><th>负责人</th><th>同步状态</th><th>运行状态</th><th>最近使用</th><th>操作</th></tr></thead><tbody id="env-rows">${environmentRows()}</tbody></table></div><div class="bulkbar" id="bulkbar" ${selected.size ? '' : 'hidden'}><span id="selected-count">已选择 ${selected.size} 个环境</span>${btn('批量打开', 'bulk-launch', 'small', 'id="bulk-open-environments"')}${btn('批量关闭', 'bulk-close', 'small', 'id="bulk-close-environments"')}${btn('取消选择', 'clear-selection', 'text small')}</div><div class="table-footer"><span id="row-count">显示 ${filteredEnvironments().length} 个环境 · 共 ${environments.length} 个</span><div class="pagination"><span>20 条 / 页</span><span class="page-box">‹</span><span class="page-box current">1</span><span class="page-box">›</span></div></div>`}</section><p class="below-note">${icon('lock')}环境间隔离数据；同一环境内的网页标签共享登录会话。修改模板不会改变已有环境的指纹快照。</p>`
+  const { total, pageCount } = pagedEnvironments()
+  const groupOptions = groupNames().map(group => `<option ${group === groupFilter ? 'selected' : ''}>${escapeHTML(group)}</option>`).join('')
+  const pagination = pageCount > 1 ? `<div class="pagination">${btn('‹', 'environment-page-prev', 'page-box', `aria-label="上一页" ${environmentPageNumber <= 1 ? 'disabled' : ''}`)}${Array.from({ length: pageCount }, (_item, index) => btn(String(index + 1), 'environment-page', `page-box${environmentPageNumber === index + 1 ? ' current' : ''}`, `data-page="${index + 1}"`)).join('')}${btn('›', 'environment-page-next', 'page-box', `aria-label="下一页" ${environmentPageNumber >= pageCount ? 'disabled' : ''}`)}</div>` : '<div class="pagination"><span class="page-box current">1</span></div>'
+  return `${heading('浏览器环境', '管理业务的独立会话，保持登录状态和团队访问有序。', btn('导入环境', 'import', '', '', 'upload') + btn('管理分组', 'manage-groups', '', '', 'folder') + btn('新建环境', 'create', 'primary', '', 'plus'))}${metrics()}
+  <section class="card"><div class="tabs"><button class="tab ${filter === 'all' ? 'active' : ''}" data-filter="all">全部环境<span>${environments.length}</span></button><button class="tab ${filter === 'running' ? 'active' : ''}" data-filter="running">正在运行<span>${environments.filter(e => e.state === '运行中').length}</span></button><button class="tab ${filter === 'issues' ? 'active' : ''}" data-filter="issues">需要处理<span>${environments.filter(e => e.state === '代理异常' || e.sync === '同步失败').length}</span></button></div>
+  ${empty ? `<div class="empty">${icon('browser')}<h2>创建你的第一个浏览器环境</h2><p>为一个业务建立独立会话。名称、分组和代理可在创建时设置。</p>${btn('创建第一个环境', 'create', 'primary', '', 'plus')}</div>` : `<div class="table-toolbar"><label class="search-field">${icon('search')}<input id="env-search" aria-label="搜索环境名称、编号或负责人" placeholder="搜索环境名称、编号或负责人" value="${escapeHTML(searchTerm)}"></label><select class="filter" id="group-filter" aria-label="筛选业务分组"><option ${groupFilter === '全部分组' ? 'selected' : ''}>全部分组</option>${groupOptions}</select><select class="filter" id="environment-sort" aria-label="环境排序"><option value="recent" ${environmentSort === 'recent' ? 'selected' : ''}>最近启动优先</option><option value="name" ${environmentSort === 'name' ? 'selected' : ''}>名称排序</option></select>${btn('重置', 'reset-filters', 'text small', 'id="environment-reset"')}<span class="toolbar-note">最近启动优先 · 共 ${total} 个匹配环境</span></div><div class="table-wrap"><table class="env-table"><thead><tr><th style="width:38px"><input type="checkbox" id="select-all" aria-label="选择当前筛选下的全部环境"></th><th>环境名称</th><th>代理与地区</th><th>负责人</th><th>同步状态</th><th>运行状态</th><th>最近使用</th><th>操作</th></tr></thead><tbody id="env-rows">${environmentRows()}</tbody></table></div><div class="bulkbar" id="bulkbar" ${selected.size ? '' : 'hidden'}><span id="selected-count">已选择 ${selected.size} 个环境</span>${btn('批量打开', 'bulk-launch', 'small', 'id="bulk-open-environments"')}${btn('批量关闭', 'bulk-close', 'small', 'id="bulk-close-environments"')}${btn('取消选择', 'clear-selection', 'text small')}</div><div class="table-footer"><span id="row-count">显示 ${Math.min(environmentPageSize, total)} 个环境 · 共 ${environments.length} 个</span><span>20 条 / 页</span>${pagination}</div>`}</section><p class="below-note">${icon('lock')}环境间隔离数据；同一环境内的网页标签共享登录会话。修改模板不会改变已有环境的指纹快照。</p>`
 }
 function createPage() {
   const title = wizardStep === 1 ? '为新业务建立一个独立空间' : wizardStep === 2 ? '选择网络方式，按需配置代理' : '检查指纹配置并创建'
@@ -436,7 +480,7 @@ function createPage() {
   const proxy = draft.proxy || { mode: 'direct', server: '', username: '', password: '' }
   const proxyLabel = proxy.mode === 'direct' ? '直连（不使用代理）' : proxy.server || '待填写代理地址'
   let fields = ''
-  if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${['电商运营', '内容营销', '客户支持'].map(g => `<option ${g === draft.group ? 'selected' : ''}>${g}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="${escapeHTML(draft.url)}" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
+  if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupNames().map(g => `<option ${g === draft.group ? 'selected' : ''}>${escapeHTML(g)}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="${escapeHTML(draft.url)}" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
   if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div>`
    if (wizardStep === 3) fields = renderFingerprintFields()
    return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-item"><span>指纹摘要</span><b id="preview-fingerprint">${draft.fingerprint ? `${draft.fingerprint.locale.language} · ${draft.fingerprint.hardware.platform} · ${draft.fingerprint.screen.width} × ${draft.fingerprint.screen.height}` : '正在生成'}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络和指纹设置；代理连接失败时不会自动改为直连。</p></aside></div>`
@@ -511,11 +555,24 @@ function navigate(next) {
   else location.hash = next
 }
 function refreshRows() {
-  document.getElementById('env-rows').innerHTML = environmentRows()
-  document.getElementById('row-count').textContent = `显示 ${filteredEnvironments().length} 个环境 · 共 ${environments.length} 个`
+  const rows = document.getElementById('env-rows')
+  if (!rows) return
+  const page = pagedEnvironments()
+  rows.innerHTML = environmentRows()
+  document.getElementById('row-count').textContent = `显示 ${Math.min(environmentPageSize, page.total)} 个环境 · 共 ${environments.length} 个`
   document.getElementById('selected-count').textContent = `已选择 ${selected.size} 个环境`
   document.getElementById('bulkbar').hidden = selected.size === 0
-  document.getElementById('select-all').checked = filteredEnvironments().length > 0 && filteredEnvironments().every(e => selected.has(e.id))
+  document.getElementById('select-all').checked = page.list.length > 0 && page.list.every(e => selected.has(e.id))
+}
+
+function showGroupManager () {
+  showOverlay(groupManager())
+}
+
+async function applyGroupResponse (response) {
+  if (!response?.ok) throw new Error(response?.error || '分组操作失败，请重试。')
+  groups = response.groups || groups
+  if (response.environments) applyEnvironmentSnapshot(response.environments)
 }
 
 document.addEventListener('click', event => {
@@ -523,12 +580,41 @@ document.addEventListener('click', event => {
   if (!target) return
   if (target.dataset.dismiss && event.target === target) return closeOverlay()
   if (target.dataset.route) return navigate(target.dataset.route)
-  if (target.dataset.filter) { filter = target.dataset.filter; return render() }
+  if (target.dataset.filter) { filter = target.dataset.filter; environmentPageNumber = 1; return render() }
   const action = target.dataset.action
   const e = environments.find(item => item.id === target.dataset.id) || currentEnvironment
   if (target.closest('form') && target.tagName === 'BUTTON' && !target.hasAttribute('type')) event.preventDefault()
   switch (action) {
     case 'create': void startCreateWizard(); break
+    case 'manage-groups': showGroupManager(); break
+    case 'edit-environment-group': {
+      if (!e) return toast('找不到该环境，请刷新后重试。')
+      dialog(`修改“${escapeHTML(e.name)}”的分组`, environmentGroupDialog(e), '<button class="button" type="button" data-action="close-overlay">取消</button><button class="button primary" type="submit" form="environment-group-form">保存修改</button>')
+      break
+    }
+    case 'edit-group': {
+      const group = groups.find(item => item.id === target.dataset.id)
+      if (!group) return toast('找不到该分组，请刷新后重试。')
+      dialog('编辑业务分组', `<form id="group-edit-form"><input type="hidden" name="id" value="${escapeHTML(group.id)}"><label class="field"><span>分组名称</span><input name="name" required maxlength="80" value="${escapeHTML(group.name)}"></label></form>`, `<button class="button" type="button" data-action="close-overlay">取消</button><button class="button primary" type="submit" form="group-edit-form">保存修改</button>`)
+      break
+    }
+    case 'delete-group': {
+      const group = groups.find(item => item.id === target.dataset.id)
+      if (!group || !window.confirm(`确定删除“${group.name}”分组吗？其中的环境会移动到“未分组”。`)) break
+      void (async () => {
+        try {
+          await applyGroupResponse(await window.browserApi.deleteGroup(group.id))
+          environmentPageNumber = 1
+          closeOverlay()
+          render()
+          toast('分组已删除，原环境已移动到未分组。')
+        } catch (error) { toast(error?.message || '删除业务分组失败，请重试。') }
+      })()
+      break
+    }
+    case 'environment-page': environmentPageNumber = Number(target.dataset.page) || 1; return render()
+    case 'environment-page-prev': environmentPageNumber--; return render()
+    case 'environment-page-next': environmentPageNumber++; return render()
     case 'return-env': case 'cancel-create': closeOverlay(); navigate('environments'); break
     case 'detail': currentEnvironment = e; showOverlay(detailDrawer(e)); break
     case 'diagnostic': currentEnvironment = e; showOverlay(detailDrawer(e, true)); break
@@ -538,7 +624,7 @@ document.addEventListener('click', event => {
     case 'close-env': void closeEnvironment(e); break
     case 'delete-env': confirmEnvironmentDeletion(environments.find(item => item.id === target.dataset.id)); break
     case 'confirm-delete-env': void deleteEnvironment(environments.find(item => item.id === target.dataset.id), target); break
-    case 'reset-filters': filter = 'all'; searchTerm = ''; groupFilter = '全部分组'; selected.clear(); render(); break
+    case 'reset-filters': filter = 'all'; searchTerm = ''; groupFilter = '全部分组'; environmentSort = 'recent'; environmentPageNumber = 1; selected.clear(); render(); break
     case 'clear-selection': selected.clear(); refreshRows(); break
     case 'bulk-launch': void updateSelected('open'); break
     case 'bulk-close': void updateSelected('close'); break
@@ -583,7 +669,7 @@ document.addEventListener('click', event => {
 })
 
 document.addEventListener('input', event => {
-  if (event.target.id === 'env-search') { searchTerm = event.target.value; refreshRows() }
+  if (event.target.id === 'env-search') { searchTerm = event.target.value; environmentPageNumber = 1; refreshRows() }
   if (event.target.name === 'name' && event.target.closest('#wizard-form')) document.getElementById('preview-name').textContent = event.target.value
   if (event.target.dataset.fingerprintPath) {
     const target = event.target
@@ -602,12 +688,45 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   const target = event.target
   if (target.id === 'wizard-proxy-mode') { draft.proxy.mode = target.value; render() }
-  if (target.id === 'group-filter') { groupFilter = target.value; refreshRows() }
+  if (target.id === 'group-filter') { groupFilter = target.value; environmentPageNumber = 1; refreshRows() }
+  if (target.id === 'environment-sort') { environmentSort = target.value; environmentPageNumber = 1; refreshRows() }
   if (target.dataset.select) { target.checked ? selected.add(target.dataset.select) : selected.delete(target.dataset.select); refreshRows() }
-  if (target.id === 'select-all') { filteredEnvironments().forEach(e => target.checked ? selected.add(e.id) : selected.delete(e.id)); refreshRows() }
+  if (target.id === 'select-all') { pagedEnvironments().list.forEach(e => target.checked ? selected.add(e.id) : selected.delete(e.id)); refreshRows() }
 })
 document.addEventListener('submit', async event => {
   event.preventDefault()
+  if (event.target.id === 'group-create-form') {
+    try {
+      const data = new FormData(event.target)
+      await applyGroupResponse(await window.browserApi.createGroup(String(data.get('name') || '').trim()))
+      showGroupManager()
+      toast('业务分组已创建。')
+    } catch (error) { toast(error?.message || '创建业务分组失败，请重试。') }
+    return
+  }
+  if (event.target.id === 'group-edit-form') {
+    try {
+      const data = new FormData(event.target)
+      await applyGroupResponse(await window.browserApi.updateGroup({ id: data.get('id'), name: String(data.get('name') || '').trim() }))
+      closeOverlay()
+      environmentPageNumber = 1
+      render()
+      toast('业务分组已修改。')
+    } catch (error) { toast(error?.message || '修改业务分组失败，请重试。') }
+    return
+  }
+  if (event.target.id === 'environment-group-form') {
+    try {
+      const data = new FormData(event.target)
+      const response = await window.browserApi.updateEnvironmentGroup({ id: data.get('id'), group: data.get('group'), metadataRevision: Number(data.get('revision')) })
+      if (!response?.ok) throw new Error(response?.error || '更新环境分组失败，请刷新后重试。')
+      applyEnvironmentSnapshot(response.environments)
+      closeOverlay()
+      render()
+      toast('环境分组已更新。')
+    } catch (error) { toast(error?.message || '更新环境分组失败，请刷新后重试。') }
+    return
+  }
   if (event.target.id === 'wizard-form') {
     if (wizardStep === 3 && wizardSubmitting) return
     if (wizardStep === 1) { const data = new FormData(event.target); draft = { ...draft, name: String(data.get('name')).trim(), group: data.get('group'), storage: data.get('storage'), url: String(data.get('url') || 'https://example.com').trim() }; if (!draft.name) { toast('请输入环境名称。'); return } }
@@ -695,6 +814,7 @@ for (const action of ['back', 'forward', 'reload']) {
 window.addEventListener('hashchange', render)
 window.browserApi.onEnvironmentsChanged(() => { void loadRealData(false) })
 window.browserApi.onProfilesChanged(() => { void loadRealData(false) })
+window.browserApi.onGroupsChanged(() => { void loadRealData(false) })
 window.browserApi.onTabsChanged(renderUnifiedTabs)
 document.getElementById('support-icon').innerHTML = icon('help')
 document.getElementById('search-icon').innerHTML = icon('search')

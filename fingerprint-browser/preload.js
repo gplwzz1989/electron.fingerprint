@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('browserApi', {
   reopenEnvironment: id => ipcRenderer.invoke('environments:reopen', id),
   closeEnvironment: id => ipcRenderer.invoke('environments:close', id),
   deleteEnvironment: id => ipcRenderer.invoke('environments:delete', id),
+  updateEnvironmentGroup: payload => ipcRenderer.invoke('environments:update-group', payload),
+  listGroups: () => ipcRenderer.invoke('groups:list'),
+  createGroup: name => ipcRenderer.invoke('groups:create', { name }),
+  updateGroup: payload => ipcRenderer.invoke('groups:update', payload),
+  deleteGroup: id => ipcRenderer.invoke('groups:delete', id),
   listTabs: () => ipcRenderer.invoke('tabs:list'),
   selectTab: id => ipcRenderer.invoke('tabs:select', id),
   closeTab: id => ipcRenderer.invoke('tabs:close', id),
@@ -30,5 +35,10 @@ contextBridge.exposeInMainWorld('browserApi', {
     const listener = () => callback()
     ipcRenderer.on('environments:changed', listener)
     return () => ipcRenderer.removeListener('environments:changed', listener)
+  },
+  onGroupsChanged: callback => {
+    const listener = () => callback()
+    ipcRenderer.on('groups:changed', listener)
+    return () => ipcRenderer.removeListener('groups:changed', listener)
   }
 })

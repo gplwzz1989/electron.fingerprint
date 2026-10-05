@@ -32,6 +32,12 @@ async function run () {
     assert.equal(reloaded.list()[0].group, '电商运营', '环境分组重启后没有保留。')
     assert.equal(reloaded.list()[0].storage, 'cloud', '环境保存方式重启后没有保留。')
     assert.deepEqual(reloaded.list()[0].fingerprint, created.fingerprint)
+    const moved = await reloaded.updateGroup(created.id, '客户支持', reloaded.list()[0].metadataRevision)
+    assert.equal(moved.group, '客户支持')
+    assert.equal(moved.metadataRevision, 2)
+    await assert.rejects(reloaded.updateGroup(created.id, '电商运营', 1), /已被其他操作修改/)
+    await reloaded.renameGroup('客户支持', '内容营销')
+    assert.equal(reloaded.list()[0].group, '内容营销')
 
     const failedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'fp-environments-failed-write-'))
     try {

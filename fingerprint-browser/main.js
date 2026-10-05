@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto')
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron/main')
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
+const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
 const { ProfileRepository } = require('./profile-repository')
 const { dataRoot: resolveDataRoot } = require('./data-directory')
 const {
@@ -26,6 +27,7 @@ try {
 let dashboardWindow = null
 let profileRepository = null
 let environmentRepository = null
+let groupRepository = null
 let tabBrowser = null
 let quitting = false
 let startup = Promise.resolve()
@@ -135,6 +137,7 @@ async function launchProfile (payload) {
   const profile = profileRepository.list().find(item => item.id === payload.id)
   if (!profile) throw new ProfileValidationError('找不到要启动的浏览器配置。')
   const targetUrl = normalizeUrl(payload.url === undefined ? profile.url : String(payload.url).trim())
+  await groupRepository.ensure(profile.group)
   return await tabBrowser.open(profile, targetUrl, payload.operationId)
 }
 
@@ -231,6 +234,67 @@ function registerIpc () {
       return { ok: true, deletionPending: removal.pending, environments: environmentRepository.list() }
     } catch (error) {
       return errorResult('删除浏览器环境', error, '删除浏览器环境失败，未删除原有数据。')
+    }
+  })
+
+  ipcMain.handle('environments:update-group', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const group = payload?.group === undefined || payload?.group === null ? '' : String(payload.group).trim()
+      if (group !== DEFAULT_GROUP_NAME && !groupRepository.getByName(group)) throw new ProfileValidationError('要设置的业务分组不存在，请先创建分组。')
+      const environment = await environmentRepository.updateGroup(payload?.id, group, payload?.metadataRevision)
+      dashboardWindow?.webContents.send('environments:changed')
+      return { ok: true, environment, environments: environmentRepository.list() }
+    } catch (error) {
+      return errorResult('更新环境分组', error, '更新环境分组失败，请刷新后重试。')
+    }
+  })
+
+  ipcMain.handle('groups:list', async event => {
+    try {
+      assertTrusted(event)
+      return { ok: true, groups: groupRepository.list() }
+    } catch (error) {
+      return errorResult('读取分组', error, '读取业务分组失败。')
+    }
+  })
+
+  ipcMain.handle('groups:create', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const group = await groupRepository.create(payload?.name)
+      dashboardWindow?.webContents.send('groups:changed')
+      return { ok: true, group, groups: groupRepository.list() }
+    } catch (error) {
+      return errorResult('创建分组', error, '创建业务分组失败。')
+    }
+  })
+
+  ipcMain.handle('groups:update', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const result = await groupRepository.rename(payload?.id, payload?.name)
+      await environmentRepository.renameGroup(result.previousName, result.group.name)
+      dashboardWindow?.webContents.send('groups:changed')
+      dashboardWindow?.webContents.send('environments:changed')
+      return { ok: true, group: result.group, groups: groupRepository.list(), environments: environmentRepository.list() }
+    } catch (error) {
+      return errorResult('修改分组', error, '修改业务分组失败，请刷新后重试。')
+    }
+  })
+
+  ipcMain.handle('groups:delete', async (event, id) => {
+    try {
+      assertTrusted(event)
+      const group = groupRepository.get(id)
+      if (!group) throw new ProfileValidationError('找不到要删除的分组。')
+      await environmentRepository.renameGroup(group.name, DEFAULT_GROUP_NAME)
+      await groupRepository.remove(id)
+      dashboardWindow?.webContents.send('groups:changed')
+      dashboardWindow?.webContents.send('environments:changed')
+      return { ok: true, groups: groupRepository.list(), environments: environmentRepository.list() }
+    } catch (error) {
+      return errorResult('删除分组', error, '删除业务分组失败，请重试。')
     }
   })
 
@@ -331,6 +395,8 @@ async function start () {
     const { recovered } = await loadProfiles()
     environmentRepository = new EnvironmentRepository(app.getPath('userData'))
     await environmentRepository.load()
+    groupRepository = new GroupRepository(app.getPath('userData'))
+    await groupRepository.load(environmentRepository.list())
     tabBrowser = new TabBrowser(app.getPath('userData'), environmentRepository, {
       getWindow: () => dashboardWindow,
       onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
@@ -367,6 +433,7 @@ app.on('before-quit', event => {
     await startup
     await tabBrowser?.shutdown()
     await environmentRepository?.waitForWrites()
+    await groupRepository?.waitForWrites()
     await profileRepository.waitForWrites()
     app.quit()
   })()

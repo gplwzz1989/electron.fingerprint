@@ -293,6 +293,39 @@ class EnvironmentRepository {
     })
   }
 
+  async updateGroup (id, group, expectedMetadataRevision) {
+    return await this.enqueue(async () => {
+      const current = this.get(id)
+      if (!current) throw new ProfileValidationError('找不到浏览器环境。')
+      if (expectedMetadataRevision !== undefined && expectedMetadataRevision !== current.metadataRevision) {
+        throw new ProfileValidationError('环境信息已被其他操作修改，请刷新后重试。')
+      }
+      const next = normalizeEnvironment({
+        ...current,
+        group,
+        metadataRevision: current.metadataRevision + 1,
+        creationUrl: current.creationUrl,
+        id,
+        updatedAt: Date.now()
+      }, this.dataRoot)
+      await this.persist(this.records.map(record => record.id === id ? next : record))
+      return clone(next)
+    })
+  }
+
+  async renameGroup (from, to) {
+    return await this.enqueue(async () => {
+      const affected = this.records.filter(record => record.group === from)
+      if (!affected.length) return []
+      const now = Date.now()
+      const nextRecords = this.records.map(record => record.group === from
+        ? normalizeEnvironment({ ...record, group: to, metadataRevision: record.metadataRevision + 1, creationUrl: record.creationUrl, updatedAt: now }, this.dataRoot)
+        : record)
+      await this.persist(nextRecords)
+      return nextRecords.filter(record => record.group === to).map(clone)
+    })
+  }
+
   async remove (id) {
     return await this.enqueue(async () => {
       const current = this.get(id)
