@@ -100,8 +100,8 @@ function clone (value) {
 
 function errorResult (context, error, fallback) {
   console.error(`[${context}]`, error)
-  const message = error instanceof ProfileValidationError ? error.message : fallback
-  return { ok: false, error: message }
+  const message = error instanceof ProfileValidationError || error?.result ? error.message : fallback
+  return { ok: false, error: message, ...(error?.result || {}) }
 }
 
 function profileSeedPath () {
@@ -135,7 +135,7 @@ async function launchProfile (payload) {
   const profile = profileRepository.list().find(item => item.id === payload.id)
   if (!profile) throw new ProfileValidationError('找不到要启动的浏览器配置。')
   const targetUrl = normalizeUrl(payload.url === undefined ? profile.url : String(payload.url).trim())
-  return await tabBrowser.open(profile, targetUrl)
+  return await tabBrowser.open(profile, targetUrl, payload.operationId)
 }
 
 function registerIpc () {

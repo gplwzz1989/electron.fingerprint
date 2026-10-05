@@ -367,8 +367,10 @@ async function run () {
   const unavailableResult = await dashboard.webContents.executeJavaScript(`window.browserApi.launchProfile(${JSON.stringify({ id: unavailableSaved.profile.id })})`)
   assert.equal(unavailableResult.ok, false, '代理端口不可达时不应启动环境。')
   assert.match(unavailableResult.error, /代理检测失败|代理连接超时/, '代理不可达错误提示不明确。')
-  assert.equal((await invoke(dashboard, 'listEnvironments')).environments.length, beforeUnavailableProxy, '代理不可达时不应留下环境记录。')
-  await record('代理不可达时启动前阻断通过')
+  assert.equal((await invoke(dashboard, 'listEnvironments')).environments.length, beforeUnavailableProxy + 1, '代理不可达时应保留已创建环境供重试。')
+  assert.equal(unavailableResult.launchState, 'created', '代理不可达结果没有区分已创建未启动。')
+  assert.ok(unavailableResult.environmentId, '代理不可达结果没有返回环境 ID。')
+  await record('代理不可达时保留已创建环境并返回启动阶段通过')
   process.env.FP_PROXY_TIMEOUT_MS = '500'
   const hangingProxy = http.createServer(() => {})
   await new Promise(resolve => hangingProxy.listen(0, '127.0.0.1', resolve))
@@ -384,6 +386,22 @@ async function run () {
   if (hangingTab) await invoke(host, 'closeTab', hangingTab.id)
   await new Promise(resolve => hangingProxy.close(resolve))
   await record('代理无响应时加载超时通过')
+  const pageFailureProbe = net.createServer()
+  await new Promise(resolve => pageFailureProbe.listen(0, '127.0.0.1', resolve))
+  const pageFailurePort = pageFailureProbe.address().port
+  await new Promise(resolve => pageFailureProbe.close(resolve))
+  const { profile: pageFailureProfile } = await invoke(dashboard, 'getDraft')
+  pageFailureProfile.name = '目标网页加载失败测试'
+  pageFailureProfile.url = `http://127.0.0.1:${pageFailurePort}/page-failed`
+  const pageFailureSaved = await invoke(dashboard, 'saveProfile', pageFailureProfile)
+  const pageFailureResult = await dashboard.webContents.executeJavaScript(`window.browserApi.launchProfile(${JSON.stringify({ id: pageFailureSaved.profile.id })})`)
+  assert.equal(pageFailureResult.ok, false, '目标网页加载失败时不应返回成功。')
+  assert.equal(pageFailureResult.launchState, 'page-failed', '目标网页加载失败没有返回 page-failed 阶段。')
+  assert.ok(pageFailureResult.environmentId, '目标网页加载失败没有返回已创建环境 ID。')
+  const pageFailureTab = (await invoke(host, 'listTabs')).tabs.find(tab => tab.profileId === pageFailureSaved.profile.id)
+  assert.ok(pageFailureTab, '目标网页加载失败后应保留可重试的环境标签。')
+  await invoke(host, 'closeTab', pageFailureTab.id)
+  await record('目标网页加载失败保留环境并返回失败阶段通过')
   const firstDataDir = snapshot.tabs[0].dataDir
   const expectedLastUrl = first.getURL()
   await invoke(host, 'selectTab', snapshot.tabs[0].id)

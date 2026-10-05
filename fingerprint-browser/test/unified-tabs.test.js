@@ -136,7 +136,12 @@ async function run () {
     }
     const saved = await invoke(dashboard, 'saveProfile', draft)
     profiles.push(saved.profile)
-    await invoke(dashboard, 'launchProfile', { id: draft.id })
+    const launch = await invoke(dashboard, 'launchProfile', cpu === 4 ? { id: draft.id, operationId: 'unified-create-idempotency' } : { id: draft.id })
+    if (cpu === 4) {
+      const repeated = await invoke(dashboard, 'launchProfile', { id: draft.id, operationId: 'unified-create-idempotency' })
+      assert.equal(repeated.environmentId, launch.environmentId, '重复创建操作没有复用已创建环境。')
+      assert.equal(repeated.tabId, launch.tabId, '重复创建操作没有复用已打开标签。')
+    }
   }
   assert.notEqual(profiles[0].fingerprint.noise.seed, profiles[1].fingerprint.noise.seed, '每次创建草稿没有生成独立指纹种子。')
   await waitFor(async () => (await invoke(dashboard, 'listTabs')).tabs.length === 2, '环境标签没有创建完成。')
@@ -467,6 +472,9 @@ async function run () {
   await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast').textContent.includes('已阻止直连')"), '代理连接失败没有提示阻止直连。')
   assert.equal(wizardDirectRequests.includes('/?wizard=proxy-failure'), false, '代理失败后流量被静默改为直连。')
   assert.equal((await invoke(dashboard, 'listTabs')).tabs.length, 4, '无效代理环境仍打开了网页标签。')
+  const failedProxyEnvironment = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.profileName === '向导无效代理环境')
+  assert.ok(failedProxyEnvironment?.id, '代理启动失败没有返回已创建环境 ID。')
+  assert.equal(failedProxyEnvironment.status, 'closed', '代理启动失败的环境状态不应伪装为运行中。')
   await record('向导默认直连、真实代理与认证、配置持久化和连接失败阻止直连通过')
   result.ok = true
   await record('全部统一标签回归完成')

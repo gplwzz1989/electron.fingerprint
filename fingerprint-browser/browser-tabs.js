@@ -9,6 +9,14 @@ const { createSocks5Proxy } = require('./socks5-proxy')
 const HEADER_HEIGHT = 88
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
 
+class EnvironmentLaunchError extends Error {
+  constructor (message, result) {
+    super(message)
+    this.name = 'EnvironmentLaunchError'
+    this.result = result
+  }
+}
+
 function proxyTimeoutMs () {
   const configured = Number(process.env.FP_PROXY_TIMEOUT_MS)
   return Number.isFinite(configured) && configured > 0 ? Math.min(configured, 60000) : DEFAULT_PROXY_TIMEOUT_MS
@@ -83,6 +91,7 @@ class TabBrowser {
     this.window = null
     this.ready = null
     this.tabs = new Map()
+    this.createOperations = new Map()
     this.activeId = null
     this.shuttingDown = null
     app.on('login', (event, contents, _request, authInfo, callback) => {
@@ -199,15 +208,31 @@ class TabBrowser {
     this.notify()
   }
 
-  async open (profile, targetUrl) {
+  async open (profile, targetUrl, operationId) {
+    if (typeof operationId === 'string' && operationId.trim()) {
+      const existing = this.createOperations.get(operationId)
+      if (existing) return await existing
+      const operation = this.createEnvironment(profile, targetUrl)
+      this.createOperations.set(operationId, operation)
+      return await operation
+    }
+    return await this.createEnvironment(profile, targetUrl)
+  }
+
+  async createEnvironment (profile, targetUrl) {
     const environment = await this.environmentRepository.create(profile, targetUrl)
     try {
-      return await this.openEnvironment(environment)
+      const result = await this.openEnvironment(environment)
+      return { ...result, environmentId: environment.id, launchState: 'started' }
     } catch (error) {
-      if (!this.tabs.has(environment.id)) {
-        await this.environmentRepository.remove(environment.id).catch(removeError => console.error('[清理未打开环境]', removeError))
-      }
-      throw error
+      if (error instanceof EnvironmentLaunchError) throw error
+      const started = this.tabs.has(environment.id)
+      const stateMessage = started ? '环境已创建并启动，但目标网页加载失败，可从环境列表重试。' : '环境已创建，但浏览器尚未启动，可从环境列表重试。'
+      const detail = error instanceof ProfileValidationError ? `${error.message} ` : ''
+      throw new EnvironmentLaunchError(
+        `${detail}${stateMessage}`,
+        { environmentId: environment.id, launchState: started ? 'page-failed' : 'created' }
+      )
     }
   }
 

@@ -632,11 +632,20 @@ document.addEventListener('submit', async event => {
       profile.storage = draft.storage
       profile.url = draft.url || profile.url
       profile.proxy = draft.proxy
+      const operationId = crypto.randomUUID()
       const saveResponse = await window.browserApi.saveProfile(profile)
       if (!saveResponse?.ok) throw new Error(saveResponse?.error || '保存浏览器配置失败。')
       profiles = saveResponse.profiles || profiles
-      const launchResponse = await window.browserApi.launchProfile({ id: saveResponse.profile.id, url: profile.url })
-      if (!launchResponse?.ok) throw new Error(launchResponse?.error || '创建浏览器环境失败。')
+      const launchResponse = await window.browserApi.launchProfile({ id: saveResponse.profile.id, url: profile.url, operationId })
+      if (!launchResponse?.ok) {
+        if (!launchResponse.environmentId) throw new Error(launchResponse.error || '创建浏览器环境失败。')
+        closeOverlay()
+        navigate('environments')
+        await loadRealData(false)
+        const launchStateMessage = launchResponse.launchState === 'page-failed' ? '环境已创建并启动，但网页加载失败，可从环境列表重试。' : '环境已创建，但浏览器尚未启动，可从环境列表重试。'
+        toast(`${launchResponse.error || '环境启动失败。'} ${launchStateMessage}`)
+        return
+      }
       const environmentResponse = await window.browserApi.listEnvironments()
       if (!environmentResponse?.ok) throw new Error(environmentResponse?.error || '刷新浏览器环境失败。')
       applyEnvironmentSnapshot(environmentResponse.environments)
