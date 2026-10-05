@@ -136,7 +136,7 @@ function renderFingerprintFields () {
   const fingerprint = draft.fingerprint
   if (!fingerprint) return `<div class="notice warning">${icon('sync')}正在生成本机推荐指纹，请稍候。</div>`
   const text = (path, label, value, placeholder = '') => `<label class="field"><span>${label}</span><input data-fingerprint-path="${path}" value="${escapeHTML(value ?? '')}" placeholder="${escapeHTML(placeholder)}" spellcheck="false"></label>`
-  const number = (path, label, value, min = 1) => `<label class="field"><span>${label}</span><input data-fingerprint-path="${path}" data-fingerprint-type="number" type="number" min="${min}" value="${escapeHTML(value)}"></label>`
+  const number = (path, label, value, min = 1) => `<label class="field"><span>${label}</span><input data-fingerprint-path="${path}" data-fingerprint-type="number" type="number" min="${min}" step="${min < 1 ? min : 1}" value="${escapeHTML(value)}"></label>`
   const select = (path, label, value, options) => `<label class="field"><span>${label}</span><select data-fingerprint-path="${path}">${options.map(option => `<option value="${escapeHTML(option)}" ${option === value ? 'selected' : ''}>${escapeHTML(option)}</option>`).join('')}</select></label>`
   const toggle = (path, label, checked) => `<label class="radio-card"><input type="checkbox" data-fingerprint-path="${path}" ${checked ? 'checked' : ''}><span>${label}</span></label>`
   const modules = [['ua', '用户代理'], ['clientHints', '客户端提示'], ['locale', '语言'], ['timezone', '时区'], ['navigator', '设备参数'], ['screen', '屏幕参数'], ['webgl', '图形参数'], ['canvas', '画布'], ['audio', '音频'], ['fonts', '字体'], ['webrtc', 'WebRTC'], ['runtimeInspector', '调试器兼容']]
