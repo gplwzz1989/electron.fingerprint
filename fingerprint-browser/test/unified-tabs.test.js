@@ -328,9 +328,13 @@ async function run () {
   assert.equal(directEnvironments.length, 1, '重复点击创建按钮产生了重复环境。')
   const directEnvironment = directEnvironments[0]
   assert.equal(directEnvironment.proxy.mode, 'direct', '直连环境保存了错误代理模式。')
+  assert.equal(directEnvironment.group, '电商运营', '环境分组没有保存到环境记录。')
+  assert.equal(directEnvironment.storage, 'local', '环境保存方式没有保存到环境记录。')
   const directProfile = (await invoke(dashboard, 'listProfiles')).profiles.find(item => item.id === directEnvironment.profileId)
   assert.equal(directProfile.fingerprint.hardware.hardwareConcurrency, 6, '创建环境没有保存自定义线程数。')
   assert.equal(directProfile.fingerprint.noise.seed, 'wizard-custom-seed', '创建环境没有保存自定义指纹种子。')
+  assert.equal(directProfile.group, '电商运营', '配置分组没有持久化。')
+  assert.equal(directProfile.storage, 'local', '配置保存方式没有持久化。')
   assert.ok(wizardDirectRequests.includes('/?wizard=direct'), '直连环境没有使用本机网络。')
   await record('创建向导默认直连及本机网络请求通过')
 

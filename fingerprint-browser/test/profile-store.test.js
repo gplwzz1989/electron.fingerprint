@@ -47,6 +47,19 @@ function run () {
   assert.equal(record.id, 'profile-test')
   assert.equal(record.revision, 3)
   assert.equal(record.fingerprint.id, 'profile-test')
+  assert.equal(record.group, '未分组')
+  assert.equal(record.storage, 'local')
+  const metadataRecord = createProfileRecord({
+    id: 'profile-metadata',
+    name: '元数据配置',
+    group: '内容营销',
+    storage: 'cloud',
+    fingerprint: getDefaultProfile()
+  })
+  assert.equal(metadataRecord.group, '内容营销')
+  assert.equal(metadataRecord.storage, 'cloud')
+  assert.throws(() => createProfileRecord({ group: '分组'.repeat(41), fingerprint: getDefaultProfile() }), /分组名称不能超过/)
+  assert.throws(() => createProfileRecord({ storage: 'remote', fingerprint: getDefaultProfile() }), /保存方式只能是/)
   const proxyRecord = createProfileRecord({
     id: 'profile-proxy',
     name: '代理配置',

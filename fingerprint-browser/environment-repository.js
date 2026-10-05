@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { createProfileRecord, DEFAULT_URL, ProfileValidationError, normalizeUrl } = require('./profile-store')
+const { createProfileRecord, DEFAULT_URL, DEFAULT_ENVIRONMENT_GROUP, DEFAULT_ENVIRONMENT_STORAGE, ProfileValidationError, normalizeUrl } = require('./profile-store')
 
 const FALLBACK_CREATION_URL = 'about:blank'
 
@@ -29,6 +29,8 @@ function normalizeEnvironment (record, dataRoot) {
   const profile = createProfileRecord({
     id: record.profileId,
     name: record.profileName,
+    group: record.group,
+    storage: record.storage,
     url: record.lastUrl || DEFAULT_URL,
     revision: record.profileRevision,
     fingerprint: record.fingerprint,
@@ -40,8 +42,12 @@ function normalizeEnvironment (record, dataRoot) {
   if (!Number.isInteger(record.updatedAt) || record.updatedAt < 1) throw new ProfileValidationError('环境更新时间无效。')
   return {
     id: record.id,
+    schemaVersion: Number.isInteger(record.schemaVersion) && record.schemaVersion > 0 ? record.schemaVersion : 1,
     profileId: profile.id,
     profileName: profile.name,
+    group: profile.group,
+    storage: profile.storage,
+    metadataRevision: Number.isInteger(record.metadataRevision) && record.metadataRevision > 0 ? record.metadataRevision : 1,
     profileRevision: profile.revision,
     dataDir,
     proxy: profile.proxy,
@@ -249,8 +255,12 @@ class EnvironmentRepository {
       const dataDir = ensureEnvironmentPath(this.dataRoot, id, path.join(this.tabsRoot, id))
       const environment = normalizeEnvironment({
         id,
+        schemaVersion: 1,
         profileId: profile.id,
         profileName: profile.name,
+        group: profile.group || DEFAULT_ENVIRONMENT_GROUP,
+        storage: profile.storage || DEFAULT_ENVIRONMENT_STORAGE,
+        metadataRevision: 1,
         profileRevision: profile.revision,
         dataDir,
         proxy: profile.proxy,

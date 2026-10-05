@@ -2,6 +2,8 @@ const { randomUUID } = require('node:crypto')
 
 const DEFAULT_URL = 'https://example.com'
 const DEFAULT_PROXY = { mode: 'direct', server: '', username: '', password: '' }
+const DEFAULT_ENVIRONMENT_GROUP = '未分组'
+const DEFAULT_ENVIRONMENT_STORAGE = 'local'
 
 const DEFAULT_PROFILE = {
   schemaVersion: 1,
@@ -249,7 +251,12 @@ function createProfileRecord (input = {}) {
   if (!name) fail('配置名称不能为空。')
   const url = normalizeUrl(input.url === undefined ? DEFAULT_URL : String(input.url).trim())
   const revision = Number.isInteger(input.revision) && input.revision > 0 ? input.revision : 1
-  return { id, name, url, revision, fingerprint, proxy: createProxyConfig(input.proxy) }
+  const groupValue = input.group === undefined || input.group === null ? DEFAULT_ENVIRONMENT_GROUP : String(input.group).trim()
+  if (groupValue.length > 80) fail('环境分组名称不能超过 80 个字符。')
+  const group = groupValue || DEFAULT_ENVIRONMENT_GROUP
+  const storage = input.storage === undefined || input.storage === null ? DEFAULT_ENVIRONMENT_STORAGE : input.storage
+  if (!['local', 'cloud'].includes(storage)) fail('环境保存方式只能是 local 或 cloud。')
+  return { id, name, group, storage, url, revision, fingerprint, proxy: createProxyConfig(input.proxy) }
 }
 
 function getDefaultProfile () {
@@ -258,6 +265,8 @@ function getDefaultProfile () {
 
 module.exports = {
   DEFAULT_URL,
+  DEFAULT_ENVIRONMENT_GROUP,
+  DEFAULT_ENVIRONMENT_STORAGE,
   createProxyConfig,
   ProfileValidationError,
   createFingerprintProfile,

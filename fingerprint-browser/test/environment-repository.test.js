@@ -5,8 +5,8 @@ const path = require('node:path')
 const { EnvironmentRepository } = require('../environment-repository')
 const { getDefaultProfile, createProfileRecord } = require('../profile-store')
 
-function profile (id = 'profile-environment') {
-  return createProfileRecord({ id, name: '环境测试配置', url: 'https://example.com', fingerprint: getDefaultProfile() })
+function profile (id = 'profile-environment', metadata = {}) {
+  return createProfileRecord({ id, name: '环境测试配置', url: 'https://example.com', ...metadata, fingerprint: getDefaultProfile() })
 }
 
 async function run () {
@@ -14,10 +14,14 @@ async function run () {
   try {
     const repository = new EnvironmentRepository(root)
     await repository.load()
-    const created = await repository.create(profile(), 'https://example.com/start')
+    const created = await repository.create(profile('profile-environment', { group: '电商运营', storage: 'cloud' }), 'https://example.com/start')
     assert.equal(repository.list().length, 1)
     assert.equal(created.status, 'closed')
     assert.equal(created.creationUrl, 'https://example.com/start')
+    assert.equal(created.schemaVersion, 1)
+    assert.equal(created.group, '电商运营')
+    assert.equal(created.storage, 'cloud')
+    assert.equal(created.metadataRevision, 1)
     assert.equal(path.dirname(created.dataDir), path.join(root, 'tabs'))
     await repository.update(created.id, { status: 'open', lastUrl: 'https://example.com/next', creationUrl: 'https://example.com/changed' })
     const reloaded = new EnvironmentRepository(root)
@@ -25,6 +29,8 @@ async function run () {
     assert.equal(reloaded.list()[0].status, 'closed', '异常退出后环境不应继续显示为使用中。')
     assert.equal(reloaded.list()[0].lastUrl, 'https://example.com/next')
     assert.equal(reloaded.list()[0].creationUrl, 'https://example.com/start', '创建地址不应被最近访问地址或普通更新覆盖。')
+    assert.equal(reloaded.list()[0].group, '电商运营', '环境分组重启后没有保留。')
+    assert.equal(reloaded.list()[0].storage, 'cloud', '环境保存方式重启后没有保留。')
     assert.deepEqual(reloaded.list()[0].fingerprint, created.fingerprint)
 
     const failedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'fp-environments-failed-write-'))
@@ -100,6 +106,8 @@ async function run () {
       assert.equal(migrated.list()[0].id, 'legacy-environment')
       assert.equal(migrated.list()[0].lastUrl, 'https://example.com/legacy')
       assert.equal(migrated.list()[0].creationUrl, 'https://example.com/legacy')
+      assert.equal(migrated.list()[0].group, '未分组')
+      assert.equal(migrated.list()[0].storage, 'local')
       assert.equal((await fs.stat(path.join(legacyRoot, 'environments.json'))).isFile(), true)
     } finally {
       assert.ok(path.basename(legacyRoot).startsWith('fp-environments-legacy-'))
@@ -127,6 +135,8 @@ async function run () {
       await unknown.load()
       assert.equal(unknown.list()[0].creationUrl, 'about:blank', '无法确认旧环境创建地址时应回退到安全空白页。')
       assert.equal(unknown.list()[0].lastUrl, 'https://example.com/last', '迁移不能覆盖旧环境最近访问地址。')
+      assert.equal(unknown.list()[0].group, '未分组')
+      assert.equal(unknown.list()[0].storage, 'local')
     } finally {
       assert.ok(path.basename(unknownRoot).startsWith('fp-environments-unknown-address-'))
       await fs.rm(unknownRoot, { recursive: true, force: true })
