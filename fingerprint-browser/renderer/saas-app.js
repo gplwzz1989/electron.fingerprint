@@ -59,6 +59,7 @@ let wizardStep = 1
 let wizardSubmitting = false
 let profiles = []
 let currentEnvironment = null
+let detailTab = 'overview'
 let toastTimer
 let lastFocus
 function freshWizardDraft () {
@@ -507,11 +508,45 @@ function browserPage() {
   const e = currentEnvironment
   return `${heading('环境浏览器', '同一业务环境内可打开多个网页标签；不同环境的会话互相隔离。', btn('返回环境列表', 'return-env', '', '', 'left'))}<div class="browser-surface"><div class="browser-envbar"><div>${icon('browser')}<strong>${escapeHTML(e.name)}</strong><span class="chip">${e.id}</span></div><div>${badge('独立会话', 'green')}<span>${e.country} · ${e.ip}</span></div></div><div class="browser-tabs"><button class="browser-tab active" data-action="browser-tab" data-tab="业务概览">${icon('grid')}业务概览 ${icon('close')}</button><button class="browser-tab" data-action="browser-tab" data-tab="订单管理">${icon('file')}订单管理 ${icon('close')}</button><button class="browser-tab" data-action="browser-tab" data-tab="帮助中心">${icon('help')}帮助中心 ${icon('close')}</button><button class="icon-button" aria-label="新建网页标签" data-action="new-browser-tab">${icon('plus')}</button></div><form class="browser-address" id="address-form"><button class="icon-button" aria-label="浏览器后退" type="button" data-action="browser-back">${icon('left')}</button><button class="icon-button" aria-label="刷新演示内容" type="button" data-action="browser-refresh">${icon('sync')}</button><label class="address-input">${icon('lock')}<input id="browser-address" aria-label="浏览器地址" value="https://example.com/workspace" spellcheck="false"><span class="tiny-tag">演示页面</span></label><button class="icon-button" aria-label="下载管理" type="button" data-action="downloads">${icon('download')}</button><button class="icon-button" aria-label="站点权限" type="button" data-action="site-permissions">${icon('shield')}</button></form><div class="browser-content"><div class="website-title"><div><div class="eyebrow">示例业务后台</div><h2 id="website-title">业务概览</h2><p>这是产品设计中的示例页面，不会访问真实站点。</p></div><span class="tiny-tag">今天 · 2026 年 10 月 3 日</span></div><div class="browser-widgets"><div class="browser-widget"><small>今日订单</small><b>128</b><p>较昨日增加 12.3% · 示例</p></div><div class="browser-widget"><small>待处理订单</small><b>24</b><p>团队处理中 · 示例</p></div><div class="browser-widget"><small>客户咨询</small><b>16</b><p>最近 24 小时 · 示例</p></div></div><section class="card card-body stack-gap"><h3>最近七天的订单趋势</h3><div class="order-bars" aria-label="示例订单趋势图">${[35, 48, 42, 57, 65, 58, 82, 72, 91, 79, 94, 100].map(h => `<i style="height:${h}%"></i>`).join('')}</div><div class="table-footer" style="padding:10px 0 0;border:0">9 月 27 日 <span>10 月 3 日</span></div></section></div><div class="browser-summary"><span>${icon('shield')} 本环境标签共享 Cookie 与登录状态</span><span>代理检查：演示通过 · 同步：${e.sync} · 站点权限：按需询问</span></div></div><p class="below-note">${icon('fingerprint')}目标交互设计：一个环境一个浏览器窗口，窗口内多网页标签；现有 Demo 的独立标签数据将分别保留为环境。</p>`
 }
-function detailDrawer(e, diagnostic = false) {
-  const fail = e.sync === '同步失败'
-  return `<div class="backdrop" data-dismiss="drawer"><section class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title"><div class="drawer-head"><span class="env-logo ${e.color}">${e.letter}</span><div><h2 id="drawer-title">${diagnostic ? '环境启动诊断' : escapeHTML(e.name)}</h2><p>${e.id} · ${e.group}</p></div><button class="icon-button" aria-label="关闭详情" data-action="close-overlay">${icon('close')}</button></div>${diagnostic ? '' : '<div class="tabs"><span class="tab active">概览</span><span class="tab">指纹快照</span><span class="tab">活动</span></div>'}<div class="drawer-body">${diagnostic ? `<div class="notice error">${icon('alert')}代理连接失败，环境未启动。没有使用本机网络。</div><h3>检查结果</h3><div class="diagnostic-step">${icon('checkCircle')}<div>本地环境目录可读<p>原指纹快照和登录数据已保留。</p></div></div><div class="diagnostic-step">${icon('checkCircle')}<div>当前设备未发现占用冲突<p>可在代理恢复后重试打开。</p></div></div><div class="diagnostic-step failed">${icon('alert')}<div>代理连接未完成<p>示例代理 192.0.2.18:8080 连接超时。请检查服务状态、地址和认证信息。</p></div></div><div class="diagnostic-step failed">${icon('lock')}<div>启动已阻止<p>避免网络出口意外变为本机地址。</p></div></div><h3>建议下一步</h3><div class="info-box">1. 检查代理是否有效、账号是否到期。<br>2. 在代理资源中更新地址或认证信息。<br>3. 重新检查连接，再打开这个环境。</div><h3>诊断信息</h3><div class="detail-kv"><span>检查时间</span><b>今天 09:21:44</b><span>请求编号</span><b class="mono">demo-check-1003</b><span>数据处理</span><b>没有删除或重置任何数据</b></div>` : `<div class="detail-banner">${badge(e.state, e.state === '运行中' ? 'green' : e.state === '代理异常' ? 'orange' : '')}<span class="muted" style="font-size:10px">最近使用：${e.time}</span></div><h3>基本信息</h3><div class="detail-kv"><span>负责人</span><b>${e.owner}</b><span>代理地区</span><b>${e.country}</b><span>出口 IP</span><b class="mono">${e.ip}（示例）</b><span>保存方式</span><b>${e.sync}</b><span>来源模板</span><b>桌面推荐模板 · 修订 1</b><span>指纹快照</span><b>创建后保持稳定</b></div><h3>同步与交接</h3><div class="notice ${fail ? 'warning' : 'success'}">${icon(fail ? 'alert' : 'checkCircle')}${fail ? '本机已保存，云上传失败。团队版本未更新；可重试，不能覆盖冲突版本。' : e.sync === '仅本地' ? '本地环境不上传登录数据。' : '云同步能力尚未接通，当前数据仍保存在本机。'}</div><div class="info-box">${fail ? '本地版本 v13 · 远端版本 v12<br>错误原因：网络连接中断（演示）' : '当前占用：' + (e.state === '运行中' ? '林沐 · 本机客户端' : '未占用') + '<br>会话交接前需要关闭窗口并完成一致性检查。'}</div>${fail ? btn('重试同步', 'retry-sync', 'soft', `data-id="${e.id}"`) : ''}<h3>访问权限</h3><div class="detail-kv"><span>授权范围</span><b>${e.group} 分组成员</b><span>敏感导出</span><b>默认关闭，需专门授权</b></div><h3>最近活动</h3><div class="activity"><i class="timeline-dot"></i><div>环境打开后保持原指纹快照<p>${e.time} · ${e.owner}</p></div></div><div class="activity"><i class="timeline-dot"></i><div>创建环境并绑定业务分组<p>2026-10-01 14:20 · 林沐</p></div></div><div class="notice">${icon('shield')}环境详情来自本机环境记录；代理与云同步状态需要连接对应服务。</div>`}</div><div class="drawer-footer">${diagnostic ? btn('前往代理资源', 'open-proxies') + btn('重新检查', 'retry-diagnostic', 'primary') : e.state === '运行中' ? btn('关闭环境', 'close-env', '', `data-id="${e.id}"`, 'stop') + btn('进入环境', 'launch', 'primary', `data-id="${e.id}"`, 'play') : btn('关闭详情', 'close-overlay') + btn(e.state === '代理异常' ? '查看诊断' : '打开环境', e.state === '代理异常' ? 'diagnostic' : 'launch', 'primary', `data-id="${e.id}"`, 'play')}</div></section></div>`
+function detailDate (timestamp) {
+  if (!timestamp) return '暂无记录'
+  const date = new Date(timestamp)
+  return Number.isNaN(date.getTime()) ? '暂无记录' : date.toLocaleString('zh-CN', { hour12: false })
 }
-function toast(message) {
+
+function fingerprintDetail (environment) {
+  const fingerprint = environment.raw?.fingerprint || {}
+  const browser = fingerprint.browser || {}
+  const locale = fingerprint.locale || {}
+  const hardware = fingerprint.hardware || {}
+  const screen = fingerprint.screen || {}
+  const graphics = fingerprint.graphics || {}
+  const noise = fingerprint.noise || {}
+  const modules = fingerprint.modules || {}
+  const moduleLabels = { ua: '用户代理', clientHints: '客户端提示', locale: '语言', timezone: '时区', navigator: '设备', screen: '屏幕', webgl: '图形', canvas: '画布', audio: '音频', fonts: '字体', webrtc: 'WebRTC', runtimeInspector: '调试器兼容' }
+  const enabledModules = Object.entries(modules).filter(([, enabled]) => enabled).map(([key]) => moduleLabels[key] || key)
+  return `<div class="detail-kv"><span>配置版本</span><b>${escapeHTML(environment.profileRevision)}</b><span>浏览器内核</span><b>${escapeHTML(`${browser.family || 'Chrome'} · ${browser.chromiumMajor || '未知'} ${browser.userAgent ? '· 自定义 UA' : '· 默认 UA'}`)}</b><span>语言与时区</span><b>${escapeHTML(`${locale.language || '未设置'} · ${locale.timezone || '未设置'}`)}</b><span>语言列表</span><b>${escapeHTML((locale.languages || []).join('、') || '未设置')}</b><span>平台与硬件</span><b>${escapeHTML(`${hardware.platform || '未设置'} · ${hardware.hardwareConcurrency || '未知'} 线程 · ${hardware.deviceMemory || '未知'} GiB`)}</b><span>屏幕</span><b>${escapeHTML(`${screen.width || '未知'} × ${screen.height || '未知'} · 缩放 ${screen.deviceScaleFactor || '未知'}`)}</b><span>图形</span><b>${escapeHTML(`${graphics.webglVendor || '使用原生值'} · ${graphics.webglRenderer || '使用原生值'}`)}</b><span>噪声种子</span><b class="mono">${escapeHTML(noise.seed || '未设置')}</b><span>启用模块</span><b>${escapeHTML(enabledModules.join('、') || '无')}</b></div><div class="notice">${icon('fingerprint')}指纹快照来自该环境创建时保存的配置；修改模板不会改变此快照。</div>`
+}
+
+function activityDetail (environment) {
+  const raw = environment.raw || {}
+  const events = [{ time: raw.createdAt, title: '环境记录创建', detail: `来源配置修订 ${raw.profileRevision || '未知'}，创建地址为 ${raw.creationUrl || 'about:blank'}` }]
+  if (raw.updatedAt && raw.updatedAt !== raw.createdAt) events.unshift({ time: raw.updatedAt, title: '环境记录最近更新', detail: `当前状态：${raw.status === 'open' ? '运行中' : '已关闭'}，元数据修订 ${raw.metadataRevision || 1}` })
+  return `<div class="activity-list">${events.map(event => `<div class="activity"><i class="timeline-dot"></i><div><b>${escapeHTML(event.title)}</b><p>${escapeHTML(detailDate(event.time))} · ${escapeHTML(event.detail)}</p></div></div>`).join('')}</div><div class="notice">${icon('clock')}这里展示本地环境记录中的创建和更新时间；详细操作审计将在本地审计模块接通后显示。</div>`
+}
+
+function detailDrawer (e, diagnostic = false) {
+  if (!e) return `<div class="backdrop" data-dismiss="drawer"><section class="drawer" role="dialog" aria-modal="true"><div class="drawer-body"><div class="empty"><h2>找不到浏览器环境</h2><p>该环境可能已被删除，请刷新环境列表。</p></div></div><div class="drawer-footer">${btn('关闭', 'close-overlay', 'primary')}</div></section></div>`
+  const raw = e.raw || {}
+  const proxy = raw.proxy || { mode: 'direct', server: '' }
+  const fail = e.sync === '同步失败'
+  const tabs = [['overview', '概览'], ['fingerprint', '指纹快照'], ['activity', '活动']].map(([tab, label]) => `<button class="tab ${detailTab === tab ? 'active' : ''}" data-action="detail-tab" data-tab="${tab}">${label}</button>`).join('')
+  const overview = `<div class="detail-banner">${badge(e.state, e.state === '运行中' ? 'green' : '')}<span class="muted" style="font-size:10px">最近更新：${escapeHTML(detailDate(raw.updatedAt))}</span></div><h3>基本信息</h3><div class="detail-kv"><span>所属分组</span><b>${escapeHTML(e.group)}</b><span>保存方式</span><b>${escapeHTML(e.sync)}</b><span>创建地址</span><b class="mono">${escapeHTML(raw.creationUrl || 'about:blank')}</b><span>最近访问</span><b class="mono">${escapeHTML(raw.lastUrl || 'about:blank')}</b><span>代理</span><b>${escapeHTML(proxy.mode === 'direct' ? '直连（不使用代理）' : proxy.server || '已配置但地址未知')}</b><span>业务修订</span><b>${escapeHTML(raw.metadataRevision || 1)}</b><span>数据目录</span><b class="mono">${escapeHTML(raw.dataDir || '未记录')}</b></div><h3>同步与交接</h3><div class="notice ${fail ? 'warning' : 'success'}">${icon(fail ? 'alert' : 'checkCircle')}${fail ? '本机版本已保存，云端版本未接通，当前不会伪装为同步成功。' : e.sync === '仅本地' ? '本地环境不上传登录数据。' : '云同步接口尚未接通，当前数据仍保存在本机。'}</div>`
+  const diagnosticBody = `<div class="notice error">${icon('alert')}当前环境没有启动成功，未使用本机网络回退。请检查代理配置或网页地址后重试。</div><h3>本地记录</h3><div class="detail-kv"><span>环境状态</span><b>${escapeHTML(e.state)}</b><span>代理</span><b>${escapeHTML(proxy.mode === 'direct' ? '直连' : proxy.server || '未配置')}</b><span>创建地址</span><b class="mono">${escapeHTML(raw.creationUrl || 'about:blank')}</b><span>数据处理</span><b>环境目录与指纹快照已保留</b></div>`
+  const body = diagnostic ? diagnosticBody : detailTab === 'fingerprint' ? `<h3>创建时指纹快照</h3>${fingerprintDetail(e)}` : detailTab === 'activity' ? `<h3>本地环境活动</h3>${activityDetail(e)}` : overview
+  const footer = diagnostic ? btn('关闭', 'close-overlay') + btn('重新检查', 'retry-diagnostic', 'primary') : e.state === '运行中' ? btn('关闭环境', 'close-env', '', `data-id="${e.id}"`, 'stop') + btn('进入环境', 'launch', 'primary', `data-id="${e.id}"`, 'play') : btn('关闭详情', 'close-overlay') + btn('打开环境', 'launch', 'primary', `data-id="${e.id}"`, 'play')
+  return `<div class="backdrop" data-dismiss="drawer"><section class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title"><div class="drawer-head"><span class="env-logo ${e.color}">${escapeHTML(e.letter)}</span><div><h2 id="drawer-title">${diagnostic ? '环境启动诊断' : escapeHTML(e.name)}</h2><p>${escapeHTML(e.id)} · ${escapeHTML(e.group)}</p></div><button class="icon-button" aria-label="关闭详情" data-action="close-overlay">${icon('close')}</button></div>${diagnostic ? '' : `<div class="tabs">${tabs}</div>`}<div class="drawer-body">${body}</div><div class="drawer-footer">${footer}</div></section></div>`
+}function toast(message) {
   clearTimeout(toastTimer)
   const node = document.getElementById('toast')
   node.textContent = message
@@ -592,6 +627,12 @@ document.addEventListener('click', event => {
       dialog(`修改“${escapeHTML(e.name)}”的分组`, environmentGroupDialog(e), '<button class="button" type="button" data-action="close-overlay">取消</button><button class="button primary" type="submit" form="environment-group-form">保存修改</button>')
       break
     }
+    case 'detail-tab': {
+      if (!e) return toast('找不到该环境，请刷新后重试。')
+      detailTab = ['overview', 'fingerprint', 'activity'].includes(target.dataset.tab) ? target.dataset.tab : 'overview'
+      showOverlay(detailDrawer(e))
+      break
+    }
     case 'edit-group': {
       const group = groups.find(item => item.id === target.dataset.id)
       if (!group) return toast('找不到该分组，请刷新后重试。')
@@ -616,7 +657,7 @@ document.addEventListener('click', event => {
     case 'environment-page-prev': environmentPageNumber--; return render()
     case 'environment-page-next': environmentPageNumber++; return render()
     case 'return-env': case 'cancel-create': closeOverlay(); navigate('environments'); break
-    case 'detail': currentEnvironment = e; showOverlay(detailDrawer(e)); break
+    case 'detail': currentEnvironment = e; detailTab = 'overview'; showOverlay(detailDrawer(e)); break
     case 'diagnostic': currentEnvironment = e; showOverlay(detailDrawer(e, true)); break
     case 'close-overlay': closeOverlay(); break
     case 'onboarding': onboarding(); break
