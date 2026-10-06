@@ -1,0 +1,109 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - button "打开快速导航" [ref=e6] [cursor=pointer]:
+      - img "app_center" [ref=e8]
+    - link "打开抖音" [ref=e11] [cursor=pointer]:
+      - /url: https://www.douyin.com
+      - img "tiktok_logo" [ref=e13]
+  - generic [ref=e18]:
+    - img "抖音创作者中心" [ref=e19]
+    - paragraph [ref=e20]: 抖音创作者的一站式创作与服务平台
+  - generic [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - heading "AI 赋能创作者" [level=2] [ref=e24]
+        - paragraph [ref=e25]: 高效创作投稿及运营
+      - generic [ref=e26]:
+        - button "登录并使用AI工坊" [ref=e27] [cursor=pointer]:
+          - generic [ref=e30]:
+            - generic [ref=e31]: AI工坊
+            - generic [ref=e32]: 把好想法变成好玩法
+            - paragraph [ref=e33]: 在抖音AI工坊，你的每一个好想法都可以变成好玩的抖音应用。在这里，人人都是AI创作者，描述灵感、预览成果、发布到抖音，一站式完成抖音应用生产。
+            - generic [ref=e34]: Interest Card
+        - button "登录并使用AI分身" [ref=e37] [cursor=pointer]:
+          - generic [ref=e40]:
+            - generic [ref=e41]: AI分身
+            - generic [ref=e42]: 创造陪伴用户的另一个“你”
+            - paragraph [ref=e43]: 基于账号内容与表达风格，塑造承载你态度与温度的 AI 分身。跨越时间与场景，为用户提供作品推荐、即时回复、情感陪伴与视频互动，助力账号经营。
+            - generic [ref=e44]: AI Avatar
+        - button "登录并使用随变" [ref=e47] [cursor=pointer]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: 随变
+            - generic [ref=e52]: 自由角色创作，专业 Agent 成片
+            - paragraph [ref=e53]: 从角色设定、形象生成到剧情创作与动画演绎，轻松将脑海中的人设变成鲜活短片。还可以发布作品、认识同好，让角色被看见，让故事持续生长。
+            - generic [ref=e54]: Suibian
+        - button "登录并使用世界书" [ref=e57] [cursor=pointer]:
+          - generic [ref=e60]:
+            - generic [ref=e61]: 世界书
+            - generic [ref=e62]: 让灵感生根，让世界和角色持续生长
+            - paragraph [ref=e63]: 把零散素材和灵感整理成世界书与角色档案，就像一份可反复使用和迭代的创作说明书。AI帮你补全设定，后续创作可直接调用，不断延展新的内容持续生长。
+            - generic [ref=e64]: World Book
+    - generic [ref=e67]:
+      - heading "助力创作者高效运营" [level=2] [ref=e68]
+      - tablist "创作者运营能力" [ref=e69]:
+        - tab "作品发布及管理" [selected] [ref=e70] [cursor=pointer]
+        - tab "作品数据分析" [ref=e71] [cursor=pointer]
+        - tab "商单任务变现" [ref=e72] [cursor=pointer]
+      - tabpanel [ref=e73]:
+        - button "登录后使用丰富的作品体裁" [ref=e74] [cursor=pointer]:
+          - img "丰富的作品体裁" [ref=e75]
+        - button "登录后使用高效的内容管理" [ref=e76] [cursor=pointer]:
+          - img "高效的内容管理" [ref=e77]
+        - button "登录后使用便捷的互动管理" [ref=e78] [cursor=pointer]:
+          - img "便捷的互动管理" [ref=e79]
+    - generic [ref=e80]:
+      - heading "机构服务权益" [level=2] [ref=e81]
+      - generic [ref=e82]:
+        - button "ONBOARDING 入驻签约 支持机构入驻，以及机构旗下完成签约的作者，通过创作者中心三方签约线上签约的流程。" [ref=e83] [cursor=pointer]:
+          - generic [ref=e84]:
+            - generic [ref=e85]: ONBOARDING
+            - strong [ref=e86]: 入驻签约
+            - generic [ref=e87]: 支持机构入驻，以及机构旗下完成签约的作者，通过创作者中心三方签约线上签约的流程。
+        - button "CREATOR MANAGEMENT 达人管理 达人线上签约、系统自动分账结算、达人作品管理、达人权限管理、内容灵感选题提醒。" [ref=e89] [cursor=pointer]:
+          - generic [ref=e90]:
+            - generic [ref=e91]: CREATOR MANAGEMENT
+            - strong [ref=e92]: 达人管理
+            - generic [ref=e93]: 达人线上签约、系统自动分账结算、达人作品管理、达人权限管理、内容灵感选题提醒。
+        - button "BUSINESS INSIGHTS 经营分析 机构经营周期性诊断总结及提升建议，快速洞察经营问题，明确待提升的经营方向。" [ref=e95] [cursor=pointer]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: BUSINESS INSIGHTS
+            - strong [ref=e98]: 经营分析
+            - generic [ref=e99]: 机构经营周期性诊断总结及提升建议，快速洞察经营问题，明确待提升的经营方向。
+        - button "GROWTH REWARDS 成长激励 创作者中心·机构版提供机构榜单、分级权益、激励活动、学习中心等帮助机构成长的激励机制。" [ref=e101] [cursor=pointer]:
+          - generic [ref=e102]:
+            - generic [ref=e103]: GROWTH REWARDS
+            - strong [ref=e104]: 成长激励
+            - generic [ref=e105]: 创作者中心·机构版提供机构榜单、分级权益、激励活动、学习中心等帮助机构成长的激励机制。
+  - generic [ref=e108]:
+    - generic [ref=e109]:
+      - link "抖音社区自律公约" [ref=e110] [cursor=pointer]:
+        - /url: //lf3-cdn-tos.draftstatic.com/obj/ies-hotsoon-draft/douyin_creator/40db1b96-0eb0-4754-a052-16e8325af350.html
+      - link "账号授权协议" [ref=e111] [cursor=pointer]:
+        - /url: //lf3-beecdn.bytetos.com/obj/ies-fe-bee/bee_prod/biz_181/bee_prod_181_bee_publish_1095.html
+      - link "用户服务协议" [ref=e112] [cursor=pointer]:
+        - /url: " //www.douyin.com/agreement/"
+      - link "隐私政策" [ref=e113] [cursor=pointer]:
+        - /url: " //www.douyin.com/privacy/"
+      - link "账号找回" [ref=e114] [cursor=pointer]:
+        - /url: " //www.douyin.com/recovery_account/"
+      - link "联系我们" [ref=e115] [cursor=pointer]:
+        - /url: " //www.douyin.com/aboutus/"
+    - generic [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e118]: 2026 © 抖音
+        - link "京ICP备16016397号-3" [ref=e119] [cursor=pointer]:
+          - /url: https://beian.miit.gov.cn/
+        - link "北京抖音科技有限公司" [ref=e120] [cursor=pointer]:
+          - /url: https://zzlz.gsxt.gov.cn/businessCheck/verifKey.do?showType=p&serial=91110101MA0045N17U-SAIC_SHOW_10000091110101MA0045N17U1786086015946&signData=MEUCIQD5AvYF3cvxO42RKIk3Eq/fFIMoU/dSAamzDFnDVYkILwIgP3VOH9pKepaJyyY9WXFL2wjDsa2v7MgMwb/dS2t15s8=
+        - generic [ref=e122]: 增值电信业务经营许可证：京B2-20170846
+      - generic [ref=e123]:
+        - link "中国互联网举报中心" [ref=e124] [cursor=pointer]:
+          - /url: http://www.12377.cn/
+        - generic [ref=e125]: 网络文化经营许可证：京网文〔2025〕0181-061号
+        - generic [ref=e126]: 违法和不良信息举报：400-140-2108
+        - generic [ref=e127]: 举报邮箱：feedback@douyin.com
+      - generic [ref=e128]:
+        - img "pic" [ref=e129]
+        - link "京公网安备11000002002046号" [ref=e130] [cursor=pointer]:
+          - /url: http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11000002002046
+        - generic [ref=e131]: 地址：北京市海淀区北三环西路甲18号院4号楼2层2022
