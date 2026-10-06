@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Tue, 6 Oct 2026 00:00:00 +0800
+Subject: [PATCH] fp: preserve session API consistency
+
+修复 Session 指纹配置对原生 API 语义的破坏：限制网页可见内存取值，统一
+CSS 设备尺寸，保持 OfflineAudioContext 请求参数，避免空 Range 偏移，并
+固定 Canvas 快照的颜色格式。Client Hints 仅覆盖 Chromium 品牌并保留
+真实完整版本与 GREASE 品牌。
+
+diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+index aa43a2994a6b3..7480010c7e14d 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+@@ -190 +190 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+-      viz::ToClosestSkColorType(snapshot->GetSharedImageFormat()),
++      kRGBA_8888_SkColorType,
+
+diff --git a/third_party/blink/renderer/core/css/media_values.cc b/third_party/blink/renderer/core/css/media_values.cc
+index 7b16f7e47742b..b5ce2c49dd34f 100644
+--- a/third_party/blink/renderer/core/css/media_values.cc
++++ b/third_party/blink/renderer/core/css/media_values.cc
+@@ -6,0 +7,4 @@
++#include <optional>
++
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
+@@ -37,0 +42,43 @@ namespace blink {
++namespace {
++
++struct FingerprintDeviceSizeOverride {
++  int width;
++  int height;
++};
++
++std::optional<FingerprintDeviceSizeOverride>
++GetFingerprintDeviceSizeOverride() {
++  static const std::optional<FingerprintDeviceSizeOverride> override_value =
++      []() -> std::optional<FingerprintDeviceSizeOverride> {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!command_line->HasSwitch("fingerprint-config"))
++      return std::nullopt;
++
++    std::optional<base::Value> config = base::JSONReader::Read(
++        command_line->GetSwitchValueASCII("fingerprint-config"));
++    if (!config || !config->is_dict())
++      return std::nullopt;
++
++    const base::Value::Dict& root = config->GetDict();
++    const base::Value::Dict* modules = root.FindDict("modules");
++    const base::Value::Dict* screen = root.FindDict("screen");
++    if (!root.FindBool("enabled").value_or(false) ||
++        !modules || !modules->FindBool("screen").value_or(false) ||
++        !screen) {
++      return std::nullopt;
++    }
++
++    const std::optional<int> width = screen->FindInt("width");
++    const std::optional<int> height = screen->FindInt("height");
++    if (!width || !height || *width < 1 || *height < 1)
++      return std::nullopt;
++
++    return FingerprintDeviceSizeOverride{*width, *height};
++  }();
++
++  return override_value;
++}
++
++}  // namespace
++
+@@ -169,0 +217,3 @@ int MediaValues::CalculateDeviceWidth(LocalFrame* frame) {
++  if (const auto screen = GetFingerprintDeviceSizeOverride())
++    return screen->width;
++
+@@ -187,0 +238,3 @@ int MediaValues::CalculateDeviceHeight(LocalFrame* frame) {
++  if (const auto screen = GetFingerprintDeviceSizeOverride())
++    return screen->height;
++
+diff --git a/third_party/blink/renderer/core/dom/range.cc b/third_party/blink/renderer/core/dom/range.cc
+index c2ec584943458..5f2679ceb4946 100644
+--- a/third_party/blink/renderer/core/dom/range.cc
++++ b/third_party/blink/renderer/core/dom/range.cc
+@@ -1656,2 +1656,4 @@ DOMRectList* Range::getClientRects() const {
+-    for (gfx::QuadF& quad : quads)
+-      quad += offset;
++    for (gfx::QuadF& quad : quads) {
++      if (!quad.BoundingBox().IsEmpty())
++        quad += offset;
++    }
+@@ -1668 +1670,2 @@ DOMRect* Range::getBoundingClientRect() const {
+-  if (owner_document_->HasFingerprintClientRectsNoise()) {
++  if (owner_document_->HasFingerprintClientRectsNoise() &&
++      !result.IsEmpty()) {
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.cc b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+index 7cc6340bcd12d..f839326508438 100644
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.cc
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+@@ -48 +48,2 @@ std::optional<float> GetFingerprintDeviceMemoryOverride() {
+-    if (!device_memory || *device_memory < 1 || *device_memory > 1024)
++    if (!device_memory || (*device_memory != 1 && *device_memory != 2 &&
++                          *device_memory != 4 && *device_memory != 8))
+
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index e9c1ee6d35ada..e8a2ef96180b1 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -31,0 +32 @@
++#include "base/containers/span.h"
+@@ -42,0 +44 @@
++#include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
+@@ -58 +60 @@ namespace {
+-std::optional<float> GetFingerprintAudioSampleRateNoise() {
++std::optional<float> GetFingerprintAudioNoise() {
+@@ -90 +92 @@ std::optional<float> GetFingerprintAudioSampleRateNoise() {
+-        return static_cast<float>(normalized * 0.02);
++        return static_cast<float>(normalized * 0.00001);
+@@ -183,7 +184,0 @@ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
+-  float adjusted_sample_rate = sample_rate;
+-  if (const auto sample_rate_noise = GetFingerprintAudioSampleRateNoise()) {
+-    adjusted_sample_rate = std::clamp(
+-        sample_rate + *sample_rate_noise,
+-        audio_utilities::MinAudioBufferSampleRate(),
+-        audio_utilities::MaxAudioBufferSampleRate());
+-  }
+@@ -191 +186 @@ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
+-      this, number_of_channels, number_of_frames, adjusted_sample_rate);
++      this, number_of_channels, number_of_frames, sample_rate);
+@@ -430,0 +426,13 @@ void OfflineAudioContext::FireCompletionEvent() {
++    if (const auto audio_noise = GetFingerprintAudioNoise()) {
++      for (unsigned channel = 0; channel < rendered_buffer->numberOfChannels();
++           ++channel) {
++        if (NotShared<DOMFloat32Array> channel_data =
++                rendered_buffer->getChannelData(channel)) {
++          base::span<float> samples = channel_data->AsSpan();
++          for (float& sample : samples) {
++            sample = std::clamp(sample + *audio_noise, -1.0f, 1.0f);
++          }
++        }
++      }
++    }
++
+diff --git a/electron/shell/browser/fingerprint/fingerprint_profile_parser.cc b/electron/shell/browser/fingerprint/fingerprint_profile_parser.cc
+index a0f78ffc00..15cca6f9f1 100644
+--- a/electron/shell/browser/fingerprint/fingerprint_profile_parser.cc
++++ b/electron/shell/browser/fingerprint/fingerprint_profile_parser.cc
+@@ -231,3 +231,7 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
+-  if (*hardware_concurrency < 1 || *hardware_concurrency > 1024 ||
+-      *device_memory < 1 || *device_memory > 1024) {
+-    SetError(error_message, "Fingerprint 硬件参数范围无效");
++  if (*hardware_concurrency < 1 || *hardware_concurrency > 1024) {
++    SetError(error_message, "hardwareConcurrency 参数范围无效");
++    return std::nullopt;
++  }
++  if (*device_memory != 1 && *device_memory != 2 && *device_memory != 4 &&
++      *device_memory != 8) {
++    SetError(error_message, "deviceMemory 必须为 1、2、4 或 8 GiB");
+
+diff --git a/electron/shell/browser/fingerprint/fingerprint_config.cc b/electron/shell/browser/fingerprint/fingerprint_config.cc
+index 67341bc9f7..11089d654b 100644
+--- a/electron/shell/browser/fingerprint/fingerprint_config.cc
++++ b/electron/shell/browser/fingerprint/fingerprint_config.cc
+@@ -39,6 +39,10 @@ void ApplyClientHintsOverride(const FingerprintConfig& config,
+-  const std::string full_version = major_version + ".0.0.0";
+-  for (auto& brand : metadata->brand_version_list)
+-    brand.version = major_version;
+-  for (auto& brand : metadata->brand_full_version_list)
+-    brand.version = full_version;
+-  metadata->full_version = full_version;
++  for (auto& brand : metadata->brand_version_list) {
++    if (brand.brand == "Chromium" || brand.brand == "Google Chrome")
++      brand.version = major_version;
++  }
++  for (auto& brand : metadata->brand_full_version_list) {
++    if ((brand.brand == "Chromium" || brand.brand == "Google Chrome") &&
++        !metadata->full_version.empty()) {
++      brand.version = metadata->full_version;
++    }
++  }

@@ -228,9 +228,13 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
   const auto* platform = FindString(*hardware, "platform", error_message);
   if (!hardware_concurrency || !device_memory || !platform)
     return std::nullopt;
-  if (*hardware_concurrency < 1 || *hardware_concurrency > 1024 ||
-      *device_memory < 1 || *device_memory > 1024) {
-    SetError(error_message, "Fingerprint 硬件参数范围无效");
+  if (*hardware_concurrency < 1 || *hardware_concurrency > 1024) {
+    SetError(error_message, "hardwareConcurrency 参数范围无效");
+    return std::nullopt;
+  }
+  if (*device_memory != 1 && *device_memory != 2 && *device_memory != 4 &&
+      *device_memory != 8) {
+    SetError(error_message, "deviceMemory 必须为 1、2、4 或 8 GiB");
     return std::nullopt;
   }
   config.hardware.hardware_concurrency = *hardware_concurrency;

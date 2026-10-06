@@ -7,7 +7,7 @@ const { spawn } = require('node:child_process')
 const { app, BrowserWindow, Menu, webContents } = require('electron/main')
 
 const output = process.env.FP_TABS_TEST_OUTPUT
-const result = { ok: false, stages: [] }
+const result = { ok: false, stages: [], webrtc: [] }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const timeout = setTimeout(() => { app.exit(1) }, 60000)
 let server
@@ -19,6 +19,7 @@ const wizardProxyRequests = []
 const wizardDirectRequests = []
 const wizardProxyAuthorization = 'Basic ' + Buffer.from('wizard-user:wizard-secret').toString('base64')
 const permissionHandlers = new Map()
+const permissionCheckHandlers = new Map()
 const externalDecisions = []
 app.on('session-created', profileSession => {
   const setHandler = profileSession.setPermissionRequestHandler.bind(profileSession)
@@ -30,6 +31,11 @@ app.on('session-created', profileSession => {
         callback(allowed)
       }, details)
     }))
+  }
+  const setCheckHandler = profileSession.setPermissionCheckHandler.bind(profileSession)
+  profileSession.setPermissionCheckHandler = handler => {
+    permissionCheckHandlers.set(profileSession, handler)
+    setCheckHandler(handler)
   }
 })
 
@@ -130,7 +136,11 @@ async function run () {
     draft.name = name
     draft.url = url
     draft.fingerprint.hardware.hardwareConcurrency = cpu
+    draft.fingerprint.modules.webrtc = cpu === 4
     if (cpu === 12) {
+      draft.fingerprint.locale.language = 'en-US'
+      draft.fingerprint.locale.languages = ['en-US', 'en']
+      draft.fingerprint.browser.acceptLanguage = 'en-US,en;q=0.9'
       draft.url = 'http://fingerprint-tooltip-proxy.invalid/'
       draft.proxy = { mode: 'http', server: url.replace(/\/$/, ''), username: '测试代理账户', password: '测试代理密码' }
     }
@@ -163,9 +173,32 @@ async function run () {
     assert.equal(signals.webgl.shaderLog, '', 'WebGL Shader 编译日志不为空。')
     assert.equal(signals.webgl.getParameterCalls, 32, 'WebGL 参数读取回归次数不正确。')
     assert.ok(Number.isFinite(signals.webgl.getParameterElapsedMs), 'WebGL 参数读取耗时不可用。')
+    assert.equal(signals.intlLocale, profiles[index].fingerprint.locale.language, 'Intl 区域与环境语言不一致。')
     assert.equal(typeof signals.webgl2.available, 'boolean', 'WebGL2 能力结果缺失。')
     assert.ok(signals.canvas2dDataUrlLength > 0, 'Canvas 2D 对照结果为空。')
+    assert.equal(typeof signals.webrtc?.supported, 'boolean', 'WebRTC 候选采集结果缺失。')
+    if (profiles[index].fingerprint.modules.webrtc && signals.webrtc.supported) {
+      assert.equal(signals.webrtc.hasUdpNonMdnsHost, false, 'WebRTC 防护环境暴露了非 mDNS UDP host 候选。')
+      assert.equal(signals.webrtc.hasUdpSrflx, false, 'WebRTC 防护环境暴露了 UDP srflx 公网候选。')
+    }
+    const stunUrls = (process.env.FP_WEBRTC_STUN_URLS || '').split(',').map(value => value.trim()).filter(Boolean)
+    const stunResult = stunUrls.length > 0
+      ? await contents.executeJavaScript(`window.collectWebRTCCandidates(${JSON.stringify(stunUrls.map(url => ({ urls: url })))})`)
+      : null
+    if (stunResult && profiles[index].fingerprint.modules.webrtc && stunResult.supported) {
+      assert.equal(stunResult.hasUdpNonMdnsHost, false, 'WebRTC 防护环境的 STUN 探测暴露了非 mDNS UDP host 候选。')
+      assert.equal(stunResult.hasUdpSrflx, false, 'WebRTC 防护环境的 STUN 探测暴露了 UDP srflx 公网候选。')
+    }
+    result.webrtc.push({
+      environmentId: tab.environmentId,
+      profileName: profiles[index].name,
+      protectionEnabled: Boolean(profiles[index].fingerprint.modules.webrtc),
+      local: signals.webrtc,
+      stun: stunResult,
+      stunUrls
+    })
   }
+  await record('WebRTC ICE 候选分类与防护策略验证通过')
   const chrome = await dashboard.webContents.executeJavaScript("({ tabs: document.querySelectorAll('#unified-tabs [role=tab]').length, selected: document.querySelectorAll('#unified-tabs [aria-selected=true]').length, overflow: getComputedStyle(document.querySelector('#unified-tabs')).overflow })")
   assert.deepEqual(chrome, { tabs: 3, selected: 1, overflow: 'hidden' }, '环境标签栏布局不符合浏览器式管理。')
   await record('环境标签同窗创建、首页保留和无滚动条通过')
@@ -208,11 +241,15 @@ async function run () {
   const protocolContents = contentsFor(snapshot.tabs[0])
   const permissionHandler = permissionHandlers.get(protocolContents.session)
   assert.equal(typeof permissionHandler, 'function', '网页会话没有设置外部协议权限处理。')
-  for (const [permission, expected] of [['openExternal', false], ['media', true]]) {
+  for (const [permission, expected] of [['openExternal', false], ['media', false], ['fullscreen', true]]) {
     let allowed
     permissionHandler(protocolContents, permission, value => { allowed = value }, {})
-    assert.equal(allowed, expected, '外部协议权限策略不正确。')
+    assert.equal(allowed, expected, '网页权限请求策略不正确。')
   }
+  const permissionCheckHandler = permissionCheckHandlers.get(protocolContents.session)
+  assert.equal(typeof permissionCheckHandler, 'function', '网页会话没有设置权限检查处理。')
+  assert.equal(permissionCheckHandler(protocolContents, 'media', url, {}), false, '媒体权限检查不应默认放行。')
+  assert.equal(permissionCheckHandler(protocolContents, 'fullscreen', url, {}), true, '全屏权限检查策略不正确。')
   await protocolContents.executeJavaScript(`(() => {
     const frame = document.createElement('iframe')
     frame.hidden = true
@@ -341,6 +378,7 @@ async function run () {
   await startWizard('向导直连环境', `${url}?wizard=direct`)
   assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-proxy-mode').value"), 'direct', '新建环境没有默认选择直连。')
   assert.equal(await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[name=proxyServer], [data-action=check-proxy]'))"), false, '直连仍被要求填写或检查代理。')
+  assert.ok((await dashboard.webContents.executeJavaScript("document.querySelector('#wizard-form').textContent")).includes('网络出口位置尚未验证'), '网络位置风险提示没有显示。')
   await click('#wizard-form button[type="submit"]')
   await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[data-fingerprint-path=\\\"hardware.hardwareConcurrency\\\"]'))"), '指纹自定义页面没有加载。')
   const generatedSeed = await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-path=\\\"noise.seed\\\"]')?.value")

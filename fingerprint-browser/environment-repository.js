@@ -252,19 +252,22 @@ class EnvironmentRepository {
     return await this.enqueue(async () => {
       const now = Date.now()
       const id = randomUUID()
+      const environmentProfile = clone(profile)
+      environmentProfile.fingerprint = clone(profile.fingerprint)
+      environmentProfile.fingerprint.noise.seed = `environment-${randomUUID()}`
       const dataDir = ensureEnvironmentPath(this.dataRoot, id, path.join(this.tabsRoot, id))
       const environment = normalizeEnvironment({
         id,
         schemaVersion: 1,
-        profileId: profile.id,
-        profileName: profile.name,
-        group: profile.group || DEFAULT_ENVIRONMENT_GROUP,
-        storage: profile.storage || DEFAULT_ENVIRONMENT_STORAGE,
+        profileId: environmentProfile.id,
+        profileName: environmentProfile.name,
+        group: environmentProfile.group || DEFAULT_ENVIRONMENT_GROUP,
+        storage: environmentProfile.storage || DEFAULT_ENVIRONMENT_STORAGE,
         metadataRevision: 1,
-        profileRevision: profile.revision,
+        profileRevision: environmentProfile.revision,
         dataDir,
-        proxy: profile.proxy,
-        fingerprint: profile.fingerprint,
+        proxy: environmentProfile.proxy,
+        fingerprint: environmentProfile.fingerprint,
         creationUrl,
         lastUrl: creationUrl,
         status: 'closed',
@@ -272,7 +275,7 @@ class EnvironmentRepository {
         updatedAt: now
       }, this.dataRoot)
       await this.fileSystem.mkdir(dataDir, { recursive: true })
-      await writeAtomicText(this.fileSystem, path.join(dataDir, 'fingerprint.json'), `${JSON.stringify(profile, null, 2)}\n`)
+      await writeAtomicText(this.fileSystem, path.join(dataDir, 'fingerprint.json'), `${JSON.stringify(environmentProfile, null, 2)}\n`)
       try {
         await this.persist([...this.records, environment])
       } catch (error) {

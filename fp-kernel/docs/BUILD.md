@@ -1,5 +1,7 @@
 # 构建环境
 
+所有 Chromium/Electron 构建必须先遵守根目录 [项目协作规则](../../AGENTS.md) 的缓存保护要求：禁止全量编译，复用现有输出目录，修改前后预演并核验失效原因。缓存不可用或出现无法解释的大范围重编时必须停止，不得清理重来。仅修改应用层时复用已有运行时，无需原生编译。
+
 目标平台：Windows x64。
 
 工具位置：
@@ -40,9 +42,10 @@ override_electron_version = "37.2.6"
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
 $env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Professional'
 $env:WINDOWSSDKDIR = 'I:\Windows Kits\10'
-gn.bat gen out\Release
+ninja.bat -C out\Release -n -d explain electron
 autoninja.bat -C out\Release -j 8 electron
+ninja.bat -C out\Release -n -d explain electron:electron_dist_zip
 autoninja.bat -C out\Release -j 8 electron:electron_dist_zip
 ```
 
-只在配置发生变化时执行 `gn.bat gen`；它保留现有编译产物。版本变化后，依赖版本头文件的目标需要增量重编并重新链接，无需清理输出目录。后续升级时应同步调整显式版本号，并核对 `fp-kernel/version.json` 的上游版本。
+上述预演命令与实际编译命令必须分步执行，只有核验预演结果通过后才能继续，禁止整段直接运行。仅在任务确需修改 GN 输入且影响已核验时，才在原目录执行 `gn.bat gen out\Release`，随后重新预演；保留编译产物不代表配置变化不会触发大范围重编。版本变化后，依赖版本头文件的目标需要增量重编并重新链接，无需清理输出目录。后续升级时应同步调整显式版本号，并核对 `fp-kernel/version.json` 的上游版本；若无法复用兼容缓存，必须停止构建并报告。

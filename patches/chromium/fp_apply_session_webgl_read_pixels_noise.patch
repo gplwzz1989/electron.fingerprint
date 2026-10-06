@@ -46,7 +46,12 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
        return std::nullopt;
  
 +    const base::Value::Dict* noise = root.FindDict("noise");
-+    const std::string* seed = noise ? noise->FindString("seed") : nullptr;
++    const bool canvas_noise_enabled =
++        modules->FindBool("canvas").value_or(false) && noise &&
++        noise->FindBool("canvas").value_or(false);
++    const std::string* seed = canvas_noise_enabled && noise
++                                  ? noise->FindString("seed")
++                                  : nullptr;
      return FingerprintWebGLOverride{String::FromUTF8(*vendor),
 -                                    String::FromUTF8(*renderer)};
 +                                    String::FromUTF8(*renderer),
@@ -115,4 +120,3 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
        const auto& ukm_params = GetUkmParameters();
 -- 
 2.47.0.windows.2
-

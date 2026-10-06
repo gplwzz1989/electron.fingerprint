@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Mon, 5 Oct 2026 20:00:00 +0800
+Subject: fp: initialize renderer locale from browser context
+
+---
+ content/browser/renderer_host/render_process_host_impl.cc | 8 +++++---
+ electron/shell/browser/electron_browser_client.cc         | 6 ++++++
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 48d3325f5f20e..bf7f1db1201e8 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3382,9 +3382,11 @@ void RenderProcessHostImpl::AppendRendererCommandLine(
+   PropagateBrowserCommandLineToRenderer(browser_command_line, command_line);
+ 
+   // Pass on the browser locale.
+-  const std::string locale =
+-      GetContentClient()->browser()->GetApplicationLocale();
+-  command_line->AppendSwitchASCII(switches::kLang, locale);
++  if (!command_line->HasSwitch(switches::kLang)) {
++    const std::string locale =
++        GetContentClient()->browser()->GetApplicationLocale();
++    command_line->AppendSwitchASCII(switches::kLang, locale);
++  }
+ 
+   // A non-empty RendererCmdPrefix implies that Zygote is disabled.
+   if (!base::CommandLine::ForCurrentProcess()
+diff --git a/electron/shell/browser/electron_browser_client.cc b/electron/shell/browser/electron_browser_client.cc
+index 04ae62e927..d13f40b1cd 100644
+--- a/electron/shell/browser/electron_browser_client.cc
++++ b/electron/shell/browser/electron_browser_client.cc
+@@ -128,6 +128,7 @@
+ #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+ #include "third_party/blink/public/mojom/badging/badging.mojom.h"
+ #include "ui/base/resource/resource_bundle.h"
++#include "ui/base/ui_base_switches.h"
+ #include "ui/native_theme/native_theme.h"
+ #include "v8/include/v8.h"
+ 
+@@ -609,6 +610,11 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
+       const auto* fingerprint_config =
+           electron_browser_context->fingerprint_context()->GetConfig();
+       if (fingerprint_config && fingerprint_config->enabled) {
++        if (fingerprint_config->modules.locale &&
++            !fingerprint_config->locale.language.empty()) {
++          command_line->AppendSwitchASCII(::switches::kLang,
++                                          fingerprint_config->locale.language);
++        }
+         std::string serialized_config;
+         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
+                                     &serialized_config)) {
+-- 
+2.47.0.windows.2

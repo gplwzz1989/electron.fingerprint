@@ -58,6 +58,110 @@
       return result
     }
 
+    function parseIceCandidate (candidate) {
+      const fields = String(candidate || '').trim().split(/\s+/)
+      const typeIndex = fields.indexOf('typ')
+      const address = fields[4] || ''
+      const type = typeIndex > 0 ? fields[typeIndex + 1] || 'unknown' : 'unknown'
+      const protocol = (fields[2] || '').toLowerCase()
+      const isMdns = /\.local$/i.test(address)
+      const isPrivate = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(address)
+      return {
+        candidate: String(candidate || ''),
+        type,
+        protocol,
+        address,
+        port: Number(fields[5]) || null,
+        isMdns,
+        isPrivate
+      }
+    }
+
+    async function collectWebRTCCandidates (iceServers = []) {
+      if (typeof RTCPeerConnection !== 'function') return { supported: false, reason: 'RTCPeerConnection 不可用。' }
+      let peerConnection
+      const candidates = []
+      const errors = []
+      try {
+        peerConnection = new RTCPeerConnection({ iceServers })
+        peerConnection.onicecandidate = event => {
+          if (event.candidate?.candidate) candidates.push(event.candidate.candidate)
+        }
+        peerConnection.onicecandidateerror = event => {
+          errors.push({
+            url: event.url || '',
+            errorCode: event.errorCode || 0,
+            errorText: event.errorText || ''
+          })
+        }
+        peerConnection.createDataChannel('fingerprint-probe')
+        await peerConnection.setLocalDescription(await peerConnection.createOffer())
+        await new Promise(resolve => {
+          const timeout = setTimeout(resolve, 4000)
+          if (peerConnection.iceGatheringState === 'complete') {
+            clearTimeout(timeout)
+            resolve()
+            return
+          }
+          peerConnection.addEventListener('icegatheringstatechange', () => {
+            if (peerConnection.iceGatheringState === 'complete') {
+              clearTimeout(timeout)
+              resolve()
+            }
+          })
+        })
+        const sdpCandidates = (peerConnection.localDescription?.sdp || '')
+          .split('\r\n')
+          .filter(line => line.startsWith('a=candidate:'))
+          .map(line => line.slice(2))
+        const uniqueCandidates = [...new Set([...candidates, ...sdpCandidates])]
+        const stats = []
+        try {
+          const reports = await peerConnection.getStats()
+          reports.forEach(report => {
+            if (report.type !== 'local-candidate' && report.type !== 'candidate-pair') return
+            const address = report.address || report.ip || ''
+            stats.push({
+              type: report.type,
+              candidateType: report.candidateType || '',
+              protocol: report.protocol || '',
+              address,
+              port: report.port || null,
+              relayProtocol: report.relayProtocol || '',
+              url: report.url || ''
+            })
+          })
+        } catch {
+          errors.push({ url: '', errorCode: 0, errorText: '读取 WebRTC 统计失败。' })
+        }
+        const parsed = uniqueCandidates.map(parseIceCandidate)
+        const outcome = errors.length > 0 || peerConnection.iceGatheringState === 'failed'
+          ? 'network-error'
+          : parsed.length > 0
+            ? 'candidate'
+            : 'no-candidate'
+        return {
+          supported: true,
+          outcome,
+          gatheringState: peerConnection.iceGatheringState,
+          candidates: parsed,
+          stats,
+          errors,
+          hasHost: parsed.some(item => item.type === 'host'),
+          hasMdnsHost: parsed.some(item => item.type === 'host' && item.isMdns),
+          hasSrflx: parsed.some(item => item.type === 'srflx'),
+          hasRelay: parsed.some(item => item.type === 'relay'),
+          hasNonMdnsHost: parsed.some(item => item.type === 'host' && !item.isMdns),
+          hasUdpSrflx: parsed.some(item => item.type === 'srflx' && item.protocol === 'udp'),
+          hasUdpNonMdnsHost: parsed.some(item => item.type === 'host' && item.protocol === 'udp' && !item.isMdns)
+        }
+      } catch {
+        return { supported: true, outcome: 'network-error', gatheringState: peerConnection?.iceGatheringState || 'failed', candidates: [], stats: [], errors: [{ url: '', errorCode: 0, errorText: 'WebRTC 候选采集失败。' }] }
+      } finally {
+        peerConnection?.close()
+      }
+    }
+
     async function readFingerprint () {
       const webgl = readWebGL('webgl')
       const webgl2 = readWebGL('webgl2')
@@ -69,6 +173,7 @@
       const signals = {
         language: navigator.language,
         languages: [...navigator.languages],
+        intlLocale: Intl.DateTimeFormat().resolvedOptions().locale,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         hardwareConcurrency: navigator.hardwareConcurrency,
         deviceMemory: navigator.deviceMemory,
@@ -79,14 +184,15 @@
         webglRenderer: webgl.unmaskedRenderer || '不可用',
         webgl,
         webgl2,
+        webrtc: await collectWebRTCCandidates(),
         canvas2dDataUrlLength: canvas.toDataURL().length,
         acceptLanguage: headers.acceptLanguage,
         userAgent: navigator.userAgent
       }
       const labels = {
-        language: '主语言', languages: '语言列表', timezone: '时区', hardwareConcurrency: '处理器线程数',
+        language: '主语言', languages: '语言列表', intlLocale: 'Intl 区域', timezone: '时区', hardwareConcurrency: '处理器线程数',
         deviceMemory: '设备内存（GB）', platform: '平台', screenWidth: '屏幕宽度', screenHeight: '屏幕高度',
-        webglVendor: '显卡厂商', webglRenderer: '显卡渲染器', webgl: 'WebGL1 能力', webgl2: 'WebGL2 能力',
+        webglVendor: '显卡厂商', webglRenderer: '显卡渲染器', webgl: 'WebGL1 能力', webgl2: 'WebGL2 能力', webrtc: 'WebRTC 候选',
         canvas2dDataUrlLength: 'Canvas 2D 数据长度', acceptLanguage: '请求语言', userAgent: '浏览器标识'
       }
       for (const [key, value] of Object.entries(signals)) {
@@ -99,6 +205,7 @@
         document.querySelector('#signals').append(row)
       }
       window.testSignals = signals
+      window.collectWebRTCCandidates = collectWebRTCCandidates
       document.querySelector('#ready').textContent = '页面读取成功 · 可切换顶部标签对比指纹'
     }
     void readFingerprint().catch(error => {

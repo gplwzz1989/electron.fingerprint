@@ -23,6 +23,8 @@ async function run () {
     assert.equal(created.storage, 'cloud')
     assert.equal(created.metadataRevision, 1)
     assert.equal(path.dirname(created.dataDir), path.join(root, 'tabs'))
+    assert.notEqual(created.fingerprint.noise.seed, 'win11-cn-desktop-stable', '环境快照不应复用模板种子。')
+    assert.equal(JSON.parse(await fs.readFile(path.join(created.dataDir, 'fingerprint.json'), 'utf8')).fingerprint.noise.seed, created.fingerprint.noise.seed, '环境磁盘快照与环境记录的种子不一致。')
     await repository.update(created.id, { status: 'open', lastUrl: 'https://example.com/next', creationUrl: 'https://example.com/changed' })
     const reloaded = new EnvironmentRepository(root)
     await reloaded.load()

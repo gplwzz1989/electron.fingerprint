@@ -8,6 +8,7 @@ const { createSocks5Proxy } = require('./socks5-proxy')
 
 const HEADER_HEIGHT = 88
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
+const ALLOWED_PERMISSION_TYPES = new Set(['fullscreen', 'pointerLock', 'clipboard-sanitized-write'])
 
 class EnvironmentLaunchError extends Error {
   constructor (message, result) {
@@ -20,6 +21,10 @@ class EnvironmentLaunchError extends Error {
 function proxyTimeoutMs () {
   const configured = Number(process.env.FP_PROXY_TIMEOUT_MS)
   return Number.isFinite(configured) && configured > 0 ? Math.min(configured, 60000) : DEFAULT_PROXY_TIMEOUT_MS
+}
+
+function isPermissionAllowed (permission) {
+  return ALLOWED_PERMISSION_TYPES.has(permission)
 }
 
 async function checkProxyConnection (proxy) {
@@ -284,8 +289,9 @@ class TabBrowser {
     const tabSession = session.fromPath(dataDir)
     // 外部协议在旧内核中默认放行，统一拒绝网页唤起外部程序，覆盖隐藏子框架。
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => {
-      callback(permission !== 'openExternal')
+      callback(isPermissionAllowed(permission))
     })
+    tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
     const proxyBridge = await applyProxyConfig(tabSession, snapshot.proxy, url)
     try {
     const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)

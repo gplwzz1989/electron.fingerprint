@@ -137,6 +137,9 @@ function validateFingerprintProfile (profile) {
   ensureOnlyKeys(profile.hardware, ['hardwareConcurrency', 'deviceMemory', 'platform'], 'hardware')
   for (const key of ['hardwareConcurrency', 'deviceMemory']) {
     const value = profile.hardware[key]
+    if (key === 'deviceMemory' && ![1, 2, 4, 8].includes(value)) {
+      fail('hardware.deviceMemory 必须是 1、2、4 或 8 GiB。')
+    }
     if (!Number.isInteger(value) || value < 1 || value > 1024) {
       fail(`hardware.${key} 必须是 1 到 1024 之间的整数。`)
     }

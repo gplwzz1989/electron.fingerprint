@@ -25,9 +25,9 @@
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects、WebRTC IP 处理策略 |
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | WebGL 像素、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
+| 仍未真正覆盖的主要项目 | WebGL 像素噪声的独立开关/格式覆盖、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
 | FP-16 默认行为 | `modules.runtimeInspector` 未设置或为 `false` 时保持原生 CDP Runtime；只有显式为 `true` 时收敛 Runtime Inspector 暴露 |
-| 编译状态 | FP-12 已验证；FP-13～FP-18 代码、测试和文档已提交，Electron 增量编译与运行测试待验证 |
+| 编译状态 | Release 已复用现有缓存完成 Locale/Intl 相关增量编译和链接；本轮 Session 一致性改动已完成补丁登记和预演前准备，尚未执行本轮原生增量编译；FP-16～FP-18 的完整运行时验证仍待完成 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -149,18 +149,18 @@ WEBGL_debug_renderer_info vendor / renderer
 | `navigator.hardwareConcurrency` | `hardware.hardwareConcurrency`、`modules.navigator` | **已生效** | Blink 统一 Navigator 入口读取配置；Window 和普通 Worker 测试覆盖 |
 | `navigator.deviceMemory` | `hardware.deviceMemory`、`modules.navigator` | **已生效** | Blink Navigator 入口读取 Session 配置；无有效配置时保留 Chromium 原始值 |
 | User-Agent | `browser.userAgent`、`modules.ua` | **已生效** | BrowserContext 统一覆盖 `navigator.userAgent` 和请求 User-Agent；无效、未启用或模块禁用时保留原生值 |
-| Client Hints | `modules.clientHints` | **已生效** | 复用 Chromium 原生 `UserAgentOverride`；覆盖 `navigator.userAgentData`、高熵 `uaFullVersion` 和协商后的 `Sec-CH-UA`，未启用时保留原生值 |
-| Locale | `locale.language`、`locale.languages`、`browser.acceptLanguage`、`modules.locale` | **已生效** | Renderer 偏好覆盖 `navigator.language`、`navigator.languages`；NetworkContext 使用配置的 `Accept-Language` |
+| Client Hints | `modules.clientHints` | **已生效，待本轮回归** | 复用 Chromium 原生 `UserAgentOverride`；仅改写 Chromium/Google Chrome 品牌，保留真实完整版本和 GREASE 品牌，覆盖 `navigator.userAgentData`、高熵 `uaFullVersion` 和协商后的 `Sec-CH-UA`，未启用时保留原生值 |
+| Locale | `locale.language`、`locale.languages`、`browser.acceptLanguage`、`modules.locale` | **已生效** | Electron 在 Renderer 创建前传递配置语言；Chromium 保留已有 `--lang`，从而统一 `navigator.language`、`navigator.languages` 与 Intl 区域；NetworkContext 使用配置的 `Accept-Language` |
 | Timezone | `locale.timezone`、`modules.timezone` | **已生效** | Blink 时区控制器覆盖 ICU/V8 时区；无效或关闭时保留 Chromium 原始值 |
 | Navigator 平台 | `hardware.platform`、`modules.navigator` | **已生效** | Blink Navigator 入口支持 `Win32`、`MacIntel` 和 `Linux x86_64`；关闭模块时保留原生值 |
 | Screen 与 DPR | `screen.*`、`modules.screen` | **已生效** | Blink Screen 和 LocalFrame 读取 Session 配置；无效、未启用或模块禁用时保留原生值 |
 | WebGL GPU 信息 | `graphics.webglVendor`、`graphics.webglRenderer`、`modules.webgl` | **已生效** | 仅覆盖 `WEBGL_debug_renderer_info` 的 vendor/renderer；无效、未启用或模块禁用时保留原生值 |
 | Canvas 像素 | `noise.canvas`、`modules.canvas` | **已生效** | 对 2D Canvas 快照应用 Session seed 像素噪声，覆盖 `getImageData()` 和 `toDataURL()`；无效、未启用或模块禁用时保留原生值 |
 | Canvas 文本测量 | `noise.canvas`、`modules.canvas` | **已生效** | 对 Canvas 2D 文本指标应用 Session seed 的微小稳定扰动；无效、未启用或模块禁用时保留原生值 |
-| Audio | `noise.audio`、`modules.audio` | **已生效** | 对 `OfflineAudioContext` 使用 Session seed 的微小采样率扰动，影响离线渲染结果；无效、未启用或模块禁用时保留原生值 |
+| Audio | `noise.audio`、`modules.audio` | **已生效，待本轮回归** | 保持 `OfflineAudioContext` 请求的采样率、帧数和时长关系，在渲染完成后的样本数据边界应用 Session seed 的微小扰动；无效、未启用或模块禁用时保留原生值 |
 | Fonts | `hardware.platform`、`modules.fonts` | **已生效** | 按 Session 目标平台替代和隐藏代表性字体，影响 CSS 字体选择与 Canvas 文本渲染；无效、未启用或模块禁用时保留原生值 |
-| ClientRects | `noise.rects` | **已生效** | 对 Element 与 Range 的 DOM Rect 查询应用 Session seed 的稳定微小偏移；无效、关闭或无 Profile 时保留原生值 |
-| WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，待验证 | 对 `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 应用 Session seed 噪声；其他格式保留原生结果 |
+| ClientRects | `noise.rects` | **已生效，待本轮回归** | 对非空 Element 与 Range 的 DOM Rect 查询应用 Session seed 的稳定微小偏移；空 Range/零尺寸结果保留原生零值；无效、关闭或无 Profile 时保留原生值 |
+| WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，基础验证通过 | 标签回归已验证 `RGBA + UNSIGNED_BYTE` 读回和无 GL 错误；独立噪声开关、跨环境像素差异及其他格式仍待验证 |
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
@@ -258,9 +258,9 @@ Canvas 文本测量在 `profile.enabled === true`、`profile.modules.canvas === 
 扰动覆盖宽度、水平边界、垂直边界和可用基线指标，不改变空字符串的测量结果。
 
 Audio 噪声在 `profile.enabled === true`、`profile.modules.audio === true` 且
-`noise.audio === true`、`noise.seed` 非空时对 `OfflineAudioContext` 的采样率应用基于
-seed 的稳定微小扰动，并限制在 Chromium 支持范围内；无效、未启用或模块禁用时保留
-原生采样率和离线渲染行为。
+`noise.audio === true`、`noise.seed` 非空时保持 `OfflineAudioContext` 请求的采样率和
+帧数，在渲染完成后的 `AudioBuffer` 样本数据边界应用基于 seed 的稳定微小扰动；无效、
+未启用或模块禁用时保留原生采样率和离线渲染行为。
 
 字体平台过滤在 `profile.enabled === true`、`profile.modules.fonts === true` 且目标平台
 与当前运行平台不同时生效。对代表性目标平台字体使用本地可用字体替代，对当前平台
@@ -270,8 +270,9 @@ seed 的稳定微小扰动，并限制在 Chromium 支持范围内；无效、�
 
 ClientRects 噪声在 `profile.enabled === true`、`noise.rects === true` 且 `noise.seed`
 非空时，对每个 Document 生成基于 seed 的稳定 X/Y 微小偏移，并应用于 Element 与 Range
-的 `getClientRects()`、`getBoundingClientRect()`；无效、关闭或无 Profile 时保留原生 DOM
-Rect 结果。当前偏移约束在 ±0.001 CSS 像素范围内，不改变元素尺寸。
+的 `getClientRects()`、`getBoundingClientRect()`；空 Range 和零尺寸结果不应用偏移；无效、
+关闭或无 Profile 时保留原生 DOM Rect 结果。当前偏移约束在 ±0.001 CSS 像素范围内，不
+改变元素尺寸。
 
 WebGL 像素噪声在 `profile.enabled === true`、`modules.webgl === true` 且 `noise.seed`
 非空时生效。当前只处理 `RGBA + UNSIGNED_BYTE`，并保留 `GL_PACK_ALIGNMENT` 的行填充；
@@ -409,13 +410,16 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - `fp-kernel/tools/verify-version.py`：版本清单通过；
 - `fp-kernel/tools/verify-patches.py`：补丁基础文件通过。
 - FP-13 ClientRects：使用现有 Release 运行时执行 Element 与 Range 的四类 DOM Rect 查询；不同 Session 结果隔离，关闭 `noise.rects` 与无 Profile 结果一致，运行时 SHA-256 为 `426212649B947AC899FDE396B3EFA0108B5255733D5FF1D7BDDCA07561E0723E`。
+- Locale/Intl 修复：`npm run test:tabs` 退出码为 0，标签回归断言 `Intl.DateTimeFormat().resolvedOptions().locale` 与环境语言一致；`dist/electron-diagnostics/tabs/result.json` 的 `ok` 为 `true`。
+- Release 发行证据：`electron:electron_dist_zip` 预演为 `ninja: no work to do.`；`electron.exe` SHA-256 为 `D56C0F4802639C2935275CE0ED523C13E29011F91ABB277FB900465B098B401A`，发行客户端 SHA-256 为 `B4B753A4A28D6B28E400E8AFB8B0413344D6C0B92466BE1ED19933BC698C4D16`，与 `release-manifest.json` 一致。
+- 修复后 A/B 外部页面采集：CreepJS、BrowserLeaks、Pixelscan、AmIUnique 均成功读取；两环境的语言、Intl 区域、时区和请求语言一致。Pixelscan 仍报告 `inconsistent` 和自动化行为，A 仍存在出口/时区错配；EFF 结果页本轮未在等待窗口内完成评分，未计入通过。
 
 ### 7.3 尚未形成的验证证据
 
 当前不能据现有记录认定以下项目已经通过：
 
 - 全量 Chromium Patch System 应用后的构建验证；
-- FP-14～FP-17 的完整增量编译和运行时定向测试；
+- FP-14 的独立噪声开关、跨环境像素差异和完整格式覆盖；
 - FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
 - FP-17 的 ServiceWorker 启动、重启和跨进程请求头回归；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 真实 ICE 候选的验证；
@@ -465,6 +469,7 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 | `patches/chromium/fp_apply_session_font_platform_filtering.patch` | 字体平台过滤补丁 |
 | `patches/chromium/fp_apply_session_client_rects_noise.patch` | ClientRects 噪声补丁 |
 | `patches/chromium/fp_apply_session_webgl_read_pixels_noise.patch` | WebGL `readPixels()` 像素噪声补丁 |
+| `patches/chromium/fp_fix_session_consistency.patch` | Session 内存、Client Hints、CSS 屏幕尺寸、Canvas 颜色格式、OfflineAudio 和空 Range 一致性修复补丁 |
 | `patches/chromium/fp_disable_forced_webdriver.patch` | `navigator.webdriver` 强制标记修复补丁 |
 | `patches/chromium/fp_hide_headless_chrome_product_name.patch` | Headless UA 产品名隐藏补丁 |
 | `patches/v8/fp_reduce_v8_runtime_inspector_exposure.patch` | V8 Runtime Inspector 暴露收敛补丁 |

@@ -128,6 +128,7 @@
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/badging/badging.mojom.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_switches.h"
 #include "ui/native_theme/native_theme.h"
 #include "v8/include/v8.h"
 
@@ -610,6 +611,11 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
       const auto* fingerprint_config =
           electron_browser_context->fingerprint_context()->GetConfig();
       if (fingerprint_config && fingerprint_config->enabled) {
+        if (fingerprint_config->modules.locale &&
+            !fingerprint_config->locale.language.empty()) {
+          command_line->AppendSwitchASCII(::switches::kLang,
+                                          fingerprint_config->locale.language);
+        }
         std::string serialized_config;
         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
                                     &serialized_config)) {

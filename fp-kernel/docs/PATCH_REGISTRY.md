@@ -4,19 +4,19 @@
 | --- | --- | --- |
 | FP-00 | 进行中 | Session/BrowserContext 配置、Renderer 启动参数传输；基础隔离回归待完成 |
 | FP-01 | 已完成 | `navigator.hardwareConcurrency` 已加入 Blink 统一 Navigator 入口；单点测试、补丁导出和增量编译通过 |
-| FP-02 | 已完成 | `navigator.deviceMemory` 已加入 Blink Navigator 入口；单点测试、补丁导出和增量编译通过 |
+| FP-02 | 已完成 | `navigator.deviceMemory` 已加入 Blink Navigator 入口；合法网页可见值收敛为 1、2、4、8 GiB，单点测试、补丁导出和增量编译通过 |
 | FP-03 | 已完成 | `browser.userAgent` 配置已统一覆盖 `navigator.userAgent` 和请求 User-Agent；Session 隔离及模块禁用测试通过 |
-| FP-04 | 已完成 | 复用 Chromium 原生 `UserAgentOverride` 覆盖 Client Hints；`navigator.userAgentData`、高熵 `uaFullVersion` 和 `Sec-CH-UA` 测试通过，Session 隔离和模块禁用回归通过；Electron 增量编译通过 |
-| FP-05 | 已完成 | `navigator.language`、`navigator.languages`、`Accept-Language` 和 Intl 时区已接入 Session 配置；Chromium 补丁、网络上下文更新、Electron 增量编译和 13 项定向测试通过 |
+| FP-04 | 已完成 | 复用 Chromium 原生 `UserAgentOverride` 覆盖 Client Hints；仅改写 Chromium/Google Chrome 品牌，保留真实完整版本和 GREASE 品牌；Session 隔离和模块禁用回归通过；本轮一致性补丁待增量编译 |
+| FP-05 | 已完成 | `navigator.language`、`navigator.languages`、`Accept-Language`、Intl 区域和 Intl 时区已接入 Session 配置；Chromium 区域入口、网络上下文更新、Electron 增量编译和标签回归测试通过 |
 | FP-06 | 已完成 | `navigator.platform` 已支持 `Win32`、`MacIntel` 和 `Linux x86_64`；Schema、Browser Process 校验、Chromium 补丁、Session 隔离测试和 Electron 增量编译通过 |
 | FP-07 | 已完成 | Screen 与 DPR 已接入 `screen.width`、`screen.height`、`screen.availWidth`、`screen.availHeight` 和 `devicePixelRatio`；Session 隔离、模块关闭/无 Profile 回退、补丁导出和 Electron 增量编译通过 |
 | FP-08 | 已完成 | `WEBGL_debug_renderer_info` 的 vendor/renderer 已读取 Session 配置；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-09 | 已完成 | Canvas 2D 的 `getImageData()` 与 `toDataURL()` 已使用 Session seed 生成像素噪声；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-10 | 已完成 | Canvas 2D 的 `measureText()` 已使用 Session seed 生成稳定的微小指标扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
-| FP-11 | 已完成 | `OfflineAudioContext` 已使用 Session seed 生成稳定的微小采样率扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
+| FP-11 | 已完成 | `OfflineAudioContext` 保持请求采样率、帧数和时长关系，在完成后的 AudioBuffer 样本边界使用 Session seed 生成稳定的微小扰动；本轮一致性补丁待增量编译与回归 |
 | FP-12 | 已完成 | 字体缓存已支持按 Session 目标平台替代和隐藏代表性字体；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
-| FP-13 | 已完成 | Element 与 Range 的 ClientRects 查询已使用 Session seed 生成稳定的微小 X/Y 偏移；Session 隔离、noise.rects 关闭/无 Profile 回退、定向测试和补丁导出已完成。2026-10-05 使用现有 Release 运行时完成四类查询冒烟验证：不同 Session 结果隔离，关闭模块与无 Profile 结果一致；Electron 37.2.6，运行时 SHA-256 为 `426212649B947AC899FDE396B3EFA0108B5255733D5FF1D7BDDCA07561E0723E` |
-| FP-14 | 已实现，待验证 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 已使用 Session seed 生成稳定像素噪声；Session 隔离、模块关闭/无 Profile 回退测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
+| FP-13 | 已完成 | Element 与 Range 的 ClientRects 查询已使用 Session seed 生成稳定的微小 X/Y 偏移；空 Range/零尺寸结果保持原生零值；本轮一致性补丁待增量编译与回归。2026-10-05 使用现有 Release 运行时完成四类查询冒烟验证：不同 Session 结果隔离，关闭模块与无 Profile 结果一致 |
+| FP-14 | 已实现，基础验证通过 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 已使用 Session seed 生成稳定像素噪声；标签回归已验证 RGBA 读回、无 GL 错误和补丁构建，独立的噪声开关、格式覆盖及跨环境像素差异测试仍待完成 |
 | FP-15 | 已实现，待验证 | `AutomationControlled` 开启时不再强制暴露 `navigator.webdriver=true`，保留显式自动化探针覆盖；定向测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 | FP-16 | 已实现，待验证 | Headless UA 已隐藏 `HeadlessChrome` 产品名；`modules.runtimeInspector=true` 时降低 bindings、console message 和 enabled 状态暴露，未设置或为 `false` 时保持原生 CDP Runtime；补丁登记已完成，Electron 增量编译、DevTools/自动化兼容性和运行测试待验证 |
 | FP-17 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 的指纹配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`；端到端回归测试已补充，增量编译和运行验证待完成 |
