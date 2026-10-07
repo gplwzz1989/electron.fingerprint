@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('browserApi', {
   selectTab: id => ipcRenderer.invoke('tabs:select', id),
   closeTab: id => ipcRenderer.invoke('tabs:close', id),
   navigateTab: payload => ipcRenderer.invoke('tabs:navigate', payload),
+  openDevToolsTab: id => ipcRenderer.invoke('tabs:devtools', id),
   newPageTab: payload => ipcRenderer.invoke('tabs:new-page', payload),
   showDashboard: () => ipcRenderer.invoke('tabs:dashboard'),
   onTabsChanged: callback => {

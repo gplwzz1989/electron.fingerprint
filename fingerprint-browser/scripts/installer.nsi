@@ -2,6 +2,9 @@ Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
 !include "WinVer.nsh"
+!include "LogicLib.nsh"
+!include "StrFunc.nsh"
+${StrStr}
 
 !define APP_NAME "栖界指纹浏览器"
 !define APP_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser"
@@ -45,6 +48,23 @@ Function .onInit
     MessageBox MB_ICONSTOP "此安装包需要 Windows 10 或更新版本。"
     Abort
   ${EndIf}
+  app_check:
+    nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq 指纹浏览器.exe" /NH /FO CSV'
+    Pop $0
+    Pop $1
+    ${StrStr} $2 $1 "指纹浏览器.exe"
+    ${If} $2 != ""
+      MessageBox MB_ICONEXCLAMATION|MB_YESNO "检测到栖界指纹浏览器正在运行。确认后将强制结束客户端，未保存的操作可能丢失，是否继续安装？" IDYES app_terminate
+      Abort
+    ${EndIf}
+    Goto app_check_done
+  app_terminate:
+    nsExec::ExecToStack 'taskkill /IM "指纹浏览器.exe" /T /F'
+    Pop $0
+    Pop $1
+    Sleep 500
+    Goto app_check
+  app_check_done:
 FunctionEnd
 
 Section "安装客户端"

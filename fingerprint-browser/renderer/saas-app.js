@@ -220,12 +220,21 @@ function renderUnifiedTabs (snapshot = { activeId: null, tabs: [] }) {
     item.append(select, close)
     tabbar.append(item)
   }
+  const newTab = document.createElement('button')
+  newTab.type = 'button'
+  newTab.className = 'unified-tab-new'
+  newTab.dataset.action = 'new-default-tab'
+  newTab.setAttribute('aria-label', '使用默认参数新建标签')
+  newTab.title = '使用默认参数新建标签'
+  newTab.innerHTML = icon('plus')
+  tabbar.append(newTab)
   const active = activeUnifiedTab()
   const address = document.getElementById('unified-address')
   const back = document.getElementById('unified-back')
   const forward = document.getElementById('unified-forward')
   const reload = document.getElementById('unified-reload')
   const go = document.getElementById('unified-go')
+  const devtools = document.getElementById('unified-devtools')
   const fingerprint = document.getElementById('unified-fingerprint')
   if (fingerprint) {
     if (!fingerprint.firstElementChild) fingerprint.innerHTML = icon('fingerprint')
@@ -238,6 +247,7 @@ function renderUnifiedTabs (snapshot = { activeId: null, tabs: [] }) {
   if (back) back.disabled = !active?.canGoBack
   if (forward) forward.disabled = !active?.canGoForward
   if (reload) reload.disabled = !active
+  if (devtools) devtools.disabled = !active
   if (go) go.disabled = !active
   document.body.classList.toggle('environment-tab-active', Boolean(active))
 }
@@ -258,6 +268,20 @@ async function operateUnifiedTab (operation) {
     renderUnifiedTabs(response)
   } catch (error) {
     toast(error?.message || '标签操作失败，请重试。')
+  }
+}
+
+async function createDefaultTab () {
+  const profile = profiles.find(item => item.id === 'win11-cn-desktop') || profiles[0]
+  if (!profile) return toast('没有可用的默认浏览器配置，请先创建配置。')
+  try {
+    const response = await window.browserApi.launchProfile({ id: profile.id })
+    if (!response?.ok) throw new Error(response?.error || '新建标签失败，请重试。')
+    const snapshot = await window.browserApi.listTabs()
+    if (!snapshot?.ok) throw new Error(snapshot?.error || '读取新标签状态失败，请重试。')
+    renderUnifiedTabs(snapshot)
+  } catch (error) {
+    toast(error?.message || '新建标签失败，请重试。')
   }
 }
 
@@ -688,8 +712,10 @@ document.addEventListener('click', event => {
     case 'notifications': filter = 'issues'; navigate('environments'); break
     case 'toggle': { const on = target.getAttribute('aria-checked') !== 'true'; target.classList.toggle('on', on); target.setAttribute('aria-checked', String(on)); toast('已切换演示设置，不影响真实客户端。'); break }
     case 'dashboard-tab': void window.browserApi.showDashboard(); break
+    case 'new-default-tab': void createDefaultTab(); break
     case 'environment-tab': void operateUnifiedTab(() => window.browserApi.selectTab(target.dataset.id)); break
     case 'close-environment-tab': void operateUnifiedTab(() => window.browserApi.closeTab(target.dataset.id)); break
+    case 'open-devtools': void operateUnifiedTab(() => window.browserApi.openDevToolsTab(activeUnifiedTab()?.id)); break
     case 'browser-tab': document.querySelectorAll('.browser-tab').forEach(tab => tab.classList.toggle('active', tab === target)); document.getElementById('website-title').textContent = target.dataset.tab; break
     case 'new-browser-tab': { const tab = document.createElement('button'); tab.className = 'browser-tab'; tab.dataset.action = 'browser-tab'; tab.dataset.tab = '新标签'; tab.innerHTML = `${icon('browser')}新标签 ${icon('close')}`; target.before(tab); toast('已添加环境内网页标签演示，共享本环境会话。'); break }
     case 'browser-refresh': case 'browser-back': toast('浏览器导航为设计演示，不执行真实页面请求。'); break

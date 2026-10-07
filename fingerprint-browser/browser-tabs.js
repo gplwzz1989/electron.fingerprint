@@ -213,6 +213,13 @@ class TabBrowser {
     this.notify()
   }
 
+  openDevTools (id) {
+    const tab = this.getTab(id)
+    const contents = tab.view.webContents
+    if (contents.isDestroyed()) throw new ProfileValidationError('当前标签页面已关闭，请重新打开后再调试。')
+    contents.openDevTools({ mode: 'detach', activate: true })
+  }
+
   async open (profile, targetUrl, operationId) {
     if (typeof operationId === 'string' && operationId.trim()) {
       const existing = this.createOperations.get(operationId)

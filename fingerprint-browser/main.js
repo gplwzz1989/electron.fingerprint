@@ -155,7 +155,7 @@ function registerIpc () {
       throw new ProfileValidationError('当前页面无权操作浏览器配置或标签。')
     }
   }
-  for (const action of ['list', 'select', 'close', 'navigate', 'new-page', 'dashboard']) {
+  for (const action of ['list', 'select', 'close', 'navigate', 'new-page', 'devtools', 'dashboard']) {
     ipcMain.handle(`tabs:${action}`, async (event, payload) => {
       try {
         assertTrusted(event)
@@ -169,6 +169,7 @@ function registerIpc () {
           await tabBrowser.navigate(payload)
           dashboardWindow?.webContents.send('environments:changed')
         }
+        if (action === 'devtools') tabBrowser.openDevTools(payload)
         if (action === 'new-page') {
           actionResult = await tabBrowser.openPageTab(payload?.environmentId, payload?.url)
           dashboardWindow?.webContents.send('environments:changed')
@@ -360,7 +361,9 @@ async function createDashboard () {
     minWidth: 980,
     minHeight: 680,
     title: '指纹浏览器 · 栖界工作空间',
-    backgroundColor: '#0d1118',
+    backgroundColor: '#f1f3f6',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#f1f3f6', symbolColor: '#273143', height: 44 },
     icon: APPLICATION_ICON,
     autoHideMenuBar: true,
     webPreferences: {
