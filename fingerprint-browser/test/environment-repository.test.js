@@ -38,6 +38,35 @@ async function run () {
     assert.equal(moved.group, '客户支持')
     assert.equal(moved.metadataRevision, 2)
     await assert.rejects(reloaded.updateGroup(created.id, '电商运营', 1), /已被其他操作修改/)
+    const editedFingerprint = {
+      ...moved.fingerprint,
+      hardware: { ...moved.fingerprint.hardware, hardwareConcurrency: 4, deviceMemory: 2 },
+      noise: { ...moved.fingerprint.noise, seed: '不能替换环境种子' }
+    }
+    const edited = await reloaded.updateProfile(created.id, {
+      name: '已编辑环境',
+      group: '客户支持',
+      creationUrl: 'https://example.com/edited',
+      proxy: { mode: 'http', server: 'http://127.0.0.1:8080', username: '', password: '' },
+      fingerprint: editedFingerprint,
+      expectedMetadataRevision: moved.metadataRevision,
+      expectedProfileRevision: moved.profileRevision
+    })
+    assert.equal(edited.profileName, '已编辑环境')
+    assert.equal(edited.creationUrl, 'https://example.com/edited')
+    assert.equal(edited.profileRevision, 2)
+    assert.equal(edited.metadataRevision, 3)
+    assert.equal(edited.fingerprint.hardware.deviceMemory, 2)
+    assert.equal(edited.fingerprint.noise.seed, moved.fingerprint.noise.seed, '环境稳定指纹种子不可通过编辑替换。')
+    const editedDiskProfile = JSON.parse(await fs.readFile(path.join(edited.dataDir, 'fingerprint.json'), 'utf8'))
+    assert.equal(editedDiskProfile.url, edited.creationUrl)
+    assert.deepEqual(editedDiskProfile.proxy, edited.proxy)
+    assert.deepEqual(editedDiskProfile.fingerprint, edited.fingerprint)
+    await reloaded.update(created.id, { status: 'open' })
+    await assert.rejects(reloaded.updateProfile(created.id, { proxy: edited.proxy, expectedProfileRevision: edited.profileRevision }), /先关闭浏览器环境/)
+    const runningRename = await reloaded.updateProfile(created.id, { name: '运行中可编辑名称', expectedMetadataRevision: edited.metadataRevision })
+    assert.equal(runningRename.profileName, '运行中可编辑名称')
+    await reloaded.update(created.id, { status: 'closed' })
     await reloaded.renameGroup('客户支持', '内容营销')
     assert.equal(reloaded.list()[0].group, '内容营销')
 

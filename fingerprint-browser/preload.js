@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('browserApi', {
   closeEnvironment: id => ipcRenderer.invoke('environments:close', id),
   deleteEnvironment: id => ipcRenderer.invoke('environments:delete', id),
   updateEnvironmentGroup: payload => ipcRenderer.invoke('environments:update-group', payload),
+  updateEnvironment: payload => ipcRenderer.invoke('environments:update', payload),
   listGroups: () => ipcRenderer.invoke('groups:list'),
   createGroup: name => ipcRenderer.invoke('groups:create', { name }),
   updateGroup: payload => ipcRenderer.invoke('groups:update', payload),

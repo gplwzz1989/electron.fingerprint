@@ -163,6 +163,16 @@ class TabBrowser {
     }
   }
 
+  updateEnvironmentProfile (environment) {
+    for (const tab of this.tabs.values()) {
+      if (tab.environmentId !== environment.id) continue
+      tab.profile.name = environment.profileName
+      tab.profile.url = environment.creationUrl
+      tab.profile.revision = environment.profileRevision
+    }
+    this.notify()
+  }
+
   notify () {
     if (this.window && !this.window.isDestroyed()) this.window.webContents.send('tabs:changed', this.snapshot())
   }

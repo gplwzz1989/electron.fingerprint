@@ -251,6 +251,29 @@ function registerIpc () {
     }
   })
 
+  ipcMain.handle('environments:update', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const hasGroup = Object.hasOwn(payload || {}, 'group')
+      const group = payload?.group === undefined || payload?.group === null ? '' : String(payload.group).trim()
+      if (hasGroup && group !== DEFAULT_GROUP_NAME && !groupRepository.getByName(group)) throw new ProfileValidationError('要设置的业务分组不存在，请先创建分组。')
+      const update = {
+        expectedMetadataRevision: payload?.metadataRevision,
+        expectedProfileRevision: payload?.profileRevision
+      }
+      if (Object.hasOwn(payload || {}, 'group')) update.group = group
+      for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint']) {
+        if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
+      }
+      const environment = await environmentRepository.updateProfile(payload?.id, update)
+      tabBrowser.updateEnvironmentProfile(environment)
+      dashboardWindow?.webContents.send('environments:changed')
+      return { ok: true, environment, environments: environmentRepository.list(), ...tabBrowser.snapshot() }
+    } catch (error) {
+      return errorResult('编辑浏览器环境', error, '编辑浏览器环境失败，请刷新后重试。')
+    }
+  })
+
   ipcMain.handle('groups:list', async event => {
     try {
       assertTrusted(event)

@@ -316,6 +316,59 @@ class EnvironmentRepository {
     })
   }
 
+  async updateProfile (id, patch = {}) {
+    return await this.enqueue(async () => {
+      const current = this.get(id)
+      if (!current) throw new ProfileValidationError('找不到浏览器环境。')
+      if (patch.expectedMetadataRevision !== undefined && patch.expectedMetadataRevision !== current.metadataRevision) {
+        throw new ProfileValidationError('环境信息已被其他操作修改，请刷新后重试。')
+      }
+      if (patch.expectedProfileRevision !== undefined && patch.expectedProfileRevision !== current.profileRevision) {
+        throw new ProfileValidationError('环境配置已被其他操作修改，请刷新后重试。')
+      }
+      if (Object.hasOwn(patch, 'fingerprint') && (!patch.fingerprint || typeof patch.fingerprint !== 'object' || Array.isArray(patch.fingerprint))) {
+        throw new ProfileValidationError('环境指纹配置无效。')
+      }
+      const profileChanged = Object.hasOwn(patch, 'proxy') || Object.hasOwn(patch, 'fingerprint')
+      if (current.status === 'open' && profileChanged) {
+        throw new ProfileValidationError('请先关闭浏览器环境，再修改代理或指纹参数。')
+      }
+      const nextFingerprint = Object.hasOwn(patch, 'fingerprint')
+        ? {
+            ...patch.fingerprint,
+            id: current.profileId,
+            noise: { ...patch.fingerprint?.noise, seed: current.fingerprint.noise.seed }
+          }
+        : current.fingerprint
+      const profile = createProfileRecord({
+        id: current.profileId,
+        name: Object.hasOwn(patch, 'name') ? patch.name : current.profileName,
+        group: Object.hasOwn(patch, 'group') ? patch.group : current.group,
+        storage: current.storage,
+        url: Object.hasOwn(patch, 'creationUrl') ? patch.creationUrl : current.creationUrl,
+        revision: profileChanged ? current.profileRevision + 1 : current.profileRevision,
+        fingerprint: nextFingerprint,
+        proxy: Object.hasOwn(patch, 'proxy') ? patch.proxy : current.proxy
+      })
+      const metadataChanged = profile.name !== current.profileName || profile.group !== current.group || profile.url !== current.creationUrl
+      const next = normalizeEnvironment({
+        ...current,
+        profileName: profile.name,
+        group: profile.group,
+        proxy: profile.proxy,
+        fingerprint: profile.fingerprint,
+        profileRevision: profile.revision,
+        metadataRevision: metadataChanged ? current.metadataRevision + 1 : current.metadataRevision,
+        creationUrl: profile.url,
+        id,
+        updatedAt: Date.now()
+      }, this.dataRoot)
+      await writeAtomicText(this.fileSystem, path.join(current.dataDir, 'fingerprint.json'), `${JSON.stringify(profile, null, 2)}\n`)
+      await this.persist(this.records.map(record => record.id === id ? next : record))
+      return clone(next)
+    })
+  }
+
   async renameGroup (from, to) {
     return await this.enqueue(async () => {
       const affected = this.records.filter(record => record.group === from)
