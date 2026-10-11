@@ -185,6 +185,12 @@ function fingerprintTooltip (tab) {
     `噪声：画布${status(noise.canvas)} · 音频${status(noise.audio)} · 元素尺寸${status(noise.rects)}`,
     `噪声种子：${noise.seed}`,
     `模块：${Object.entries(modules).map(([key, enabled]) => `${switches[key]}${status(enabled)}`).join('、')}`,
+    ...(tab.protection ? [
+      `按配置启用：${tab.protection.configured.join('、') || '无读回及网络保护'}`,
+      `未启用：${tab.protection.inactive.join('、') || '无'}`,
+      ...tab.protection.warnings,
+      tab.protection.verification
+    ] : []),
     ...(tab.warning ? [`兼容提示：${tab.warning}`] : [])
   ].join('\n')
 }
@@ -507,7 +513,7 @@ function environmentEditDialog (environment) {
   const fingerprint = running
     ? `<h3>指纹参数</h3><div class="notice warning">${icon('lock')}当前环境正在运行，指纹参数已锁定。关闭环境后可编辑，修改将在下次启动时生效。</div>`
     : `<h3>指纹参数</h3>${renderFingerprintFields(environmentEditDraft, { scope: 'environment', hideTemplateActions: true, hideSeed: true })}`
-  return `<form id="environment-edit-form"><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="metadataRevision" value="${escapeHTML(raw.metadataRevision)}"><input type="hidden" name="profileRevision" value="${escapeHTML(raw.profileRevision)}"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(raw.profileName)}"></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupOptions}</select></label><label class="field"><span>保存方式</span><input value="${raw.storage === 'cloud' ? '云同步（当前未接通）' : '仅本地'}" disabled></label></div><label class="field"><span>启动网址</span><input type="url" name="creationUrl" required value="${escapeHTML(raw.creationUrl)}"><small>只修改下次启动地址；最近访问地址由浏览器自动记录。</small></label><div class="form-divider"></div>${proxyFields}<div class="form-divider"></div>${fingerprint}<div class="form-divider"></div><div class="notice">${icon('lock')}环境 ID、数据目录、创建时间、来源配置 ID、配置版本、最近访问地址和稳定指纹种子不可编辑。</div></form>`
+  return `<form id="environment-edit-form" novalidate><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="metadataRevision" value="${escapeHTML(raw.metadataRevision)}"><input type="hidden" name="profileRevision" value="${escapeHTML(raw.profileRevision)}"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(raw.profileName)}"></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupOptions}</select></label><label class="field"><span>保存方式</span><input value="${raw.storage === 'cloud' ? '云同步（当前未接通）' : '仅本地'}" disabled></label></div><label class="field"><span>启动网址</span><input type="url" name="creationUrl" required value="${escapeHTML(raw.creationUrl)}"><small>只修改下次启动地址；最近访问地址由浏览器自动记录。</small></label><div class="form-divider"></div>${proxyFields}<div class="form-divider"></div>${fingerprint}<div class="form-divider"></div><div class="notice">${icon('lock')}环境 ID、数据目录、创建时间、来源配置 ID、配置版本、最近访问地址和稳定指纹种子不可编辑。</div></form>`
 }
 function environmentPage(empty = false) {
   const { total, pageCount } = pagedEnvironments()
@@ -788,7 +794,8 @@ document.addEventListener('change', event => {
 })
 document.addEventListener('submit', async event => {
   event.preventDefault()
-  if (event.target.id === 'group-create-form') {
+  const formId = event.target.getAttribute('id')
+  if (formId === 'group-create-form') {
     try {
       const data = new FormData(event.target)
       await applyGroupResponse(await window.browserApi.createGroup(String(data.get('name') || '').trim()))
@@ -797,7 +804,7 @@ document.addEventListener('submit', async event => {
     } catch (error) { toast(error?.message || '创建业务分组失败，请重试。') }
     return
   }
-  if (event.target.id === 'group-edit-form') {
+  if (formId === 'group-edit-form') {
     try {
       const data = new FormData(event.target)
       await applyGroupResponse(await window.browserApi.updateGroup({ id: data.get('id'), name: String(data.get('name') || '').trim() }))
@@ -808,7 +815,7 @@ document.addEventListener('submit', async event => {
     } catch (error) { toast(error?.message || '修改业务分组失败，请重试。') }
     return
   }
-  if (event.target.id === 'environment-group-form') {
+  if (formId === 'environment-group-form') {
     try {
       const data = new FormData(event.target)
       const response = await window.browserApi.updateEnvironmentGroup({ id: data.get('id'), group: data.get('group'), metadataRevision: Number(data.get('revision')) })
@@ -820,7 +827,7 @@ document.addEventListener('submit', async event => {
     } catch (error) { toast(error?.message || '更新环境分组失败，请刷新后重试。') }
     return
   }
-  if (event.target.id === 'environment-edit-form') {
+  if (formId === 'environment-edit-form') {
     try {
       const data = new FormData(event.target)
       const environment = environments.find(item => item.id === data.get('id'))
@@ -862,7 +869,7 @@ document.addEventListener('submit', async event => {
     } catch (error) { toast(error?.message || '编辑浏览器环境失败，请刷新后重试。') }
     return
   }
-  if (event.target.id === 'wizard-form') {
+  if (formId === 'wizard-form') {
     if (wizardStep === 3 && wizardSubmitting) return
     if (wizardStep === 1) { const data = new FormData(event.target); draft = { ...draft, name: String(data.get('name')).trim(), group: data.get('group'), storage: data.get('storage'), url: String(data.get('url') || 'https://example.com').trim() }; if (!draft.name) { toast('请输入环境名称。'); return } }
     if (wizardStep === 2) {
@@ -914,9 +921,9 @@ document.addEventListener('submit', async event => {
       wizardSubmitting = false
     }
   }
-  if (event.target.id === 'invite-form') { const data = new FormData(event.target); members.push([String(data.get('name')).trim(), String(data.get('email')).trim(), data.get('role'), data.get('group'), '等待接受邀请', '待接受']); closeOverlay(); render(); toast('已加入邀请演示列表，没有发送邮件。') }
-  if (event.target.id === 'onboarding-form') { closeOverlay(); void startCreateWizard(); toast('已完成工作空间设置演示，继续创建首个环境。') }
-  if (event.target.id === 'address-form') toast('地址已输入；原型不会访问真实网站。')
+  if (formId === 'invite-form') { const data = new FormData(event.target); members.push([String(data.get('name')).trim(), String(data.get('email')).trim(), data.get('role'), data.get('group'), '等待接受邀请', '待接受']); closeOverlay(); render(); toast('已加入邀请演示列表，没有发送邮件。') }
+  if (formId === 'onboarding-form') { closeOverlay(); void startCreateWizard(); toast('已完成工作空间设置演示，继续创建首个环境。') }
+  if (formId === 'address-form') toast('地址已输入；原型不会访问真实网站。')
 })
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeOverlay()

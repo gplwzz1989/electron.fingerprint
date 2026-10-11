@@ -5,6 +5,7 @@ const { app, WebContentsView, session } = require('electron/main')
 const { applyFingerprintConfig } = require('./runtime-compat')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
+const { describeFingerprintProtection } = require('./fingerprint-protection')
 
 const HEADER_HEIGHT = 88
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
@@ -75,7 +76,8 @@ async function applyProxyConfig (profileSession, proxy, targetUrl) {
       return
     }
     if (config.mode === 'socks5' && (config.username || config.password)) proxyBridge = await createSocks5Proxy(config, proxyTimeoutMs())
-    await profileSession.setProxy({ proxyRules: proxyBridge?.server || config.server })
+    // 禁止 Chromium 对回环目标隐式绕过代理，代理环境只能使用配置的网络路径。
+    await profileSession.setProxy({ proxyRules: proxyBridge?.server || config.server, proxyBypassRules: '<-loopback>' })
     const resolution = await profileSession.resolveProxy(targetUrl)
     if (!resolution || /\bDIRECT\b/i.test(resolution)) throw new Error('代理解析结果包含直连。')
     await checkProxyConnection(config)
@@ -147,6 +149,7 @@ class TabBrowser {
         url: tab.url,
         dataDir: tab.dataDir,
         fingerprint: tab.profile.fingerprint,
+        protection: describeFingerprintProtection(tab.profile.fingerprint, tab.profile.proxy),
         userAgent: tab.view.webContents.getUserAgent(),
         proxy: {
           mode: tab.profile.proxy?.mode || 'direct',
@@ -476,4 +479,4 @@ class TabBrowser {
   }
 }
 
-module.exports = { TabBrowser }
+module.exports = { TabBrowser, applyProxyConfig }

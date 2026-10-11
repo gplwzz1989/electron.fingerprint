@@ -49,6 +49,11 @@ function run () {
   assert.equal(record.fingerprint.id, 'profile-test')
   assert.equal(record.group, '未分组')
   assert.equal(record.storage, 'local')
+  const legacyProfile = getDefaultProfile()
+  legacyProfile.hardware.deviceMemory = 16
+  const migratedRecord = createProfileRecord({ id: 'profile-legacy-memory', fingerprint: legacyProfile })
+  assert.equal(legacyProfile.hardware.deviceMemory, 16)
+  assert.equal(migratedRecord.fingerprint.hardware.deviceMemory, 8)
   const metadataRecord = createProfileRecord({
     id: 'profile-metadata',
     name: '元数据配置',

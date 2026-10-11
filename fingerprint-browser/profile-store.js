@@ -69,6 +69,15 @@ function clone (value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function migrateLegacyFingerprint (input) {
+  const migrated = clone(input)
+  if (migrated.hardware?.deviceMemory === 16) {
+    // 兼容旧版本保存的 16 GiB 网页可见值，迁移为当前网页 API 契约的 8 GiB。
+    migrated.hardware.deviceMemory = 8
+  }
+  return migrated
+}
+
 function fail (message) {
   throw new ProfileValidationError(message)
 }
@@ -184,17 +193,18 @@ function validateFingerprintProfile (profile) {
 
 function createFingerprintProfile (input = {}) {
   ensureObject(input, '指纹配置')
+  const migratedInput = migrateLegacyFingerprint(input)
   const base = clone(DEFAULT_PROFILE)
   const profile = {
     ...base,
-    ...input,
-    browser: { ...base.browser, ...(input.browser || {}) },
-    locale: { ...base.locale, ...(input.locale || {}) },
-    hardware: { ...base.hardware, ...(input.hardware || {}) },
-    screen: { ...base.screen, ...(input.screen || {}) },
-    graphics: { ...base.graphics, ...(input.graphics || {}) },
-    noise: { ...base.noise, ...(input.noise || {}) },
-    modules: { ...base.modules, ...(input.modules || {}) }
+    ...migratedInput,
+    browser: { ...base.browser, ...(migratedInput.browser || {}) },
+    locale: { ...base.locale, ...(migratedInput.locale || {}) },
+    hardware: { ...base.hardware, ...(migratedInput.hardware || {}) },
+    screen: { ...base.screen, ...(migratedInput.screen || {}) },
+    graphics: { ...base.graphics, ...(migratedInput.graphics || {}) },
+    noise: { ...base.noise, ...(migratedInput.noise || {}) },
+    modules: { ...base.modules, ...(migratedInput.modules || {}) }
   }
   validateFingerprintProfile(profile)
   return profile

@@ -22,6 +22,14 @@ async function run () {
     detached[0].name = '外部修改'
     assert.notEqual(repository.list()[0].name, detached[0].name, '返回对象可以修改内部配置。')
 
+    const legacyFile = path.join(root, 'legacy.json')
+    const legacyRecord = record('旧内存配置')
+    legacyRecord.fingerprint.hardware.deviceMemory = 16
+    await fs.writeFile(legacyFile, JSON.stringify([legacyRecord]), 'utf8')
+    const legacyRepository = new ProfileRepository(legacyFile)
+    assert.deepEqual(await legacyRepository.load([]), { recovered: false })
+    assert.equal(legacyRepository.list()[0].fingerprint.hardware.deviceMemory, 8)
+
     const before = repository.list()[0]
     const updates = await Promise.allSettled([
       repository.save({ ...before, name: '版本甲' }),

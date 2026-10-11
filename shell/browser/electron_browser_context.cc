@@ -5,6 +5,7 @@
 #include "shell/browser/electron_browser_context.h"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -23,6 +24,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -32,6 +34,7 @@
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"  // nogncheck
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/client_hints_controller_delegate.h"
 #include "content/public/browser/cors_origin_pattern_setter.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/render_process_host.h"
@@ -41,6 +44,7 @@
 #include "gin/arguments.h"
 #include "media/audio/audio_device_description.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "services/network/public/cpp/url_loader_factory_builder.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -105,6 +109,130 @@ using content::BrowserThread;
 namespace electron {
 
 namespace {
+
+const char kFingerprintClientHintsKey[] = "fingerprint-client-hints";
+
+class FingerprintClientHintsDelegate final
+    : public base::SupportsUserData::Data,
+      public content::ClientHintsControllerDelegate {
+ public:
+  void UpdateConfig(const fingerprint::FingerprintConfig& config,
+                    uint64_t revision) {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    if (revision_ == revision)
+      return;
+    metadata_ = embedder_support::GetUserAgentMetadata();
+    fingerprint::ApplyClientHintsOverride(config, &metadata_);
+    revision_ = revision;
+    accepted_hints_.clear();
+    additional_hints_.clear();
+  }
+
+  network::NetworkQualityTracker* GetNetworkQualityTracker() override {
+    return nullptr;
+  }
+
+  void GetAllowedClientHintsFromSource(
+      const url::Origin& origin,
+      blink::EnabledClientHints* hints) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    if (origin.opaque() || !network::IsOriginPotentiallyTrustworthy(origin))
+      return;
+    if (const auto found = accepted_hints_.find(origin);
+        found != accepted_hints_.end()) {
+      *hints = found->second;
+    }
+    for (const auto hint : additional_hints_)
+      hints->SetIsEnabled(hint, true);
+  }
+
+  bool IsJavaScriptAllowed(const GURL& url,
+                           content::RenderFrameHost* parent_rfh) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    // 导航自身的脚本开关由 Chromium 检查；子框架还须遵循所属页面设置。
+    auto* contents = parent_rfh
+                         ? content::WebContents::FromRenderFrameHost(parent_rfh)
+                         : nullptr;
+    return network::IsUrlPotentiallyTrustworthy(url) &&
+           (!parent_rfh ||
+            (contents &&
+             contents->GetOrCreateWebPreferences().javascript_enabled));
+  }
+
+  blink::UserAgentMetadata GetUserAgentMetadata() override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    return metadata_;
+  }
+
+  void PersistClientHints(
+      const url::Origin& origin,
+      content::RenderFrameHost* parent_rfh,
+      const std::vector<network::mojom::WebClientHintsType>& hints) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    // 只缓存可信主框架来源；子框架的提示继承与委派继续由 Chromium 判断。
+    if (parent_rfh || origin.opaque() ||
+        !IsJavaScriptAllowed(origin.GetURL(), nullptr))
+      return;
+    blink::EnabledClientHints accepted;
+    for (const auto hint : hints) {
+      if (IsSupportedHint(hint))
+        accepted.SetIsEnabled(hint, true);
+    }
+    if (accepted.GetEnabledHints().empty()) {
+      accepted_hints_.erase(origin);
+      return;
+    }
+    // 限制单会话缓存大小；未命中来源重新协商，不写入环境持久化文件。
+    if (!accepted_hints_.contains(origin) && accepted_hints_.size() >= 256)
+      accepted_hints_.erase(accepted_hints_.begin());
+    accepted_hints_[origin] = accepted;
+  }
+
+  void SetAdditionalClientHints(
+      const std::vector<network::mojom::WebClientHintsType>& hints) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    additional_hints_.clear();
+    for (const auto hint : hints) {
+      if (IsSupportedHint(hint))
+        additional_hints_.push_back(hint);
+    }
+  }
+
+  void ClearAdditionalClientHints() override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    additional_hints_.clear();
+  }
+
+  void SetMostRecentMainFrameViewportSize(const gfx::Size& size) override {}
+  gfx::Size GetMostRecentMainFrameViewportSize() override { return {}; }
+
+ private:
+  static bool IsSupportedHint(network::mojom::WebClientHintsType hint) {
+    using Hint = network::mojom::WebClientHintsType;
+    // 本次仅接入用户代理提示，避免新增尚未核验的硬件与网络提示旁路。
+    switch (hint) {
+      case Hint::kUA:
+      case Hint::kUAMobile:
+      case Hint::kUAPlatform:
+      case Hint::kUAArch:
+      case Hint::kUAModel:
+      case Hint::kUAFullVersion:
+      case Hint::kUAPlatformVersion:
+      case Hint::kUABitness:
+      case Hint::kUAFullVersionList:
+      case Hint::kUAWoW64:
+      case Hint::kUAFormFactors:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  std::optional<uint64_t> revision_;
+  blink::UserAgentMetadata metadata_;
+  std::map<url::Origin, blink::EnabledClientHints> accepted_hints_;
+  std::vector<network::mojom::WebClientHintsType> additional_hints_;
+};
 
 // Copied from chrome/browser/media/webrtc/desktop_capture_devices_util.cc.
 media::mojom::CaptureHandlePtr CreateCaptureHandle(
@@ -633,7 +761,19 @@ ElectronBrowserContext::GetBrowsingDataRemoverDelegate() {
 
 content::ClientHintsControllerDelegate*
 ElectronBrowserContext::GetClientHintsControllerDelegate() {
-  return nullptr;
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  const auto* config = fingerprint_context_.GetConfig();
+  if (!config || !config->enabled || !config->modules.client_hints)
+    return nullptr;
+  auto* delegate = static_cast<FingerprintClientHintsDelegate*>(
+      GetUserData(kFingerprintClientHintsKey));
+  if (!delegate) {
+    auto owned = std::make_unique<FingerprintClientHintsDelegate>();
+    delegate = owned.get();
+    SetUserData(kFingerprintClientHintsKey, std::move(owned));
+  }
+  delegate->UpdateConfig(*config, fingerprint_context_.revision());
+  return delegate;
 }
 
 content::StorageNotificationService*

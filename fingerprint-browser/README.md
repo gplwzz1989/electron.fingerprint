@@ -71,11 +71,21 @@ npm start
 npm test
 npm run test:tabs
 npm run test:environments
+npm run test:fingerprint
+npm run test:fingerprint -- --require-client-hints
 npm run test:package
 npm run test:package:data
 ```
 
 统一标签原生测试直接加载真实项目，在同一窗口打开两个独立环境，核对固定首页、单环境单标签、环境定位、无横向滚动条、视图布局、关闭状态和返回首页行为，并使用独立测试数据，不覆盖日常配置。结果在仓库的 `dist/electron-diagnostics/tabs`。
+
+指纹基线测试复用现有运行时，每次在 `dist/electron-diagnostics/fingerprint` 下创建独立记录和数据目录，保存源码/运行时哈希、脱敏测试配置及页面真实结果。覆盖三环境隔离、两个顶级站点与共同第三方、页面/Worker、画布重复读取、静音音频、本地 STUN 对照和代理中途失效。第二批补充 IndexedDB/缓存存储分区与页面恢复、HTTPS 客户端提示协商、独立/共享/后台工作线程、重定向和加密 WebSocket 的代理路径与故障阻断。地址栏指纹提示同时列出按配置启用和未启用的保护；这不代表运行时验证通过。
+
+HTTPS 诊断需要 OpenSSL 3，可用 `FP_TEST_OPENSSL` 指定程序路径，也会查找系统及现有 Git 安装附带的程序。每轮生成有效期两天的独立 CA/服务端证书，私钥仅用于该轮本地诊断。Node 先校验证书链和主机名，再由诊断 Session 只信任该证书及三处指定测试主机；没有系统证书导入或忽略证书错误参数，并验证未授权会话和主机被拒绝。这是限定诊断会话的证书信任，不代表公网受信任证书部署。
+
+公开网络、DNS、IPv6、QUIC、远端 TURN、完整代理认证和跨进程恢复等未测部分单独列出；HTTP 代理上的 HTTPS CONNECT 隧道不等同于 HTTPS 代理。`result.json` 的 `ok` 表示基线断言和采集完成，`gaps` 表示实测保护差距，`protectionReady` 为整体保护状态，不能将采集完成当成全部保护达标。高熵客户端提示缺失时保留字段与样本，不伪造请求头补齐测试。旧内存自动迁移行为保持当前实现，后续显式迁移预览仍待开发。
+
+`--require-client-hints` 用于客户端提示修复验收：开启配置的两个环境必须完成双站高熵用户代理提示协商，缺失请求头时退出失败。普通诊断继续保留旧运行时的能力缺口。两种模式均检查未协商来源、空响应清除、会话/来源隔离、同会话新页面、关闭配置/脚本及未授权子框架；原生入口仅缓存用户代理提示，不新增硬件或网络提示。
 
 配置数据保存到 Electron 的用户数据目录下的 `profiles.json`。项目自带的
 `profiles/win11-cn-desktop.json` 只在首次启动时作为默认配置模板使用。
