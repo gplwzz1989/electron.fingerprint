@@ -82,11 +82,14 @@ index 105e63597d299..a7441966a3836 100644
      return false;
    }
  
-@@ -149,21 +195,26 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+@@ -149,21 +195,25 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
  
    // TODO(crbug.com/377325952): Extend domain part to follow the general
    // partitioning properties.
 +  uint64_t noise_token = CanvasNoiseToken::Get();
++  if (fingerprint_canvas_seed) {
++    noise_token = base::PersistentHash(fingerprint_canvas_seed->Utf8());
++  }
    String noise_domain;
 -  if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
 -    Frame& top_frame = window->GetFrame()->Tree().Top();
@@ -95,21 +98,19 @@ index 105e63597d299..a7441966a3836 100644
 -  } else if (auto* worker = DynamicTo<WorkerGlobalScope>(execution_context)) {
 -    noise_domain =
 -        GetDomainFromSecurityOrigin(worker->top_level_frame_security_origin());
-+  if (fingerprint_canvas_seed) {
-+    noise_token = base::PersistentHash(fingerprint_canvas_seed->Utf8());
-   } else {
+-  } else {
 -    NOTREACHED();
-+    if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
-+      Frame& top_frame = window->GetFrame()->Tree().Top();
-+      noise_domain = GetDomainFromSecurityOrigin(
-+          top_frame.GetSecurityContext()->GetSecurityOrigin());
-+    } else if (auto* worker = DynamicTo<WorkerGlobalScope>(execution_context)) {
-+      noise_domain = GetDomainFromSecurityOrigin(
-+          worker->top_level_frame_security_origin());
-+    } else {
-+      NOTREACHED();
-+    }
-   }
+-  }
++  if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
++    Frame& top_frame = window->GetFrame()->Tree().Top();
++    noise_domain = GetDomainFromSecurityOrigin(
++        top_frame.GetSecurityContext()->GetSecurityOrigin());
++  } else if (auto* worker = DynamicTo<WorkerGlobalScope>(execution_context)) {
++    noise_domain =
++        GetDomainFromSecurityOrigin(worker->top_level_frame_security_origin());
++  } else {
++    NOTREACHED();
++  }
  
    // TODO(crbug.com/392627601): Use the token that is piped down from the
    // browser.

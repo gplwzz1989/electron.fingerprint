@@ -127,15 +127,22 @@ index e9c1ee6d35ada..e8a2ef96180b1 100644
 @@ -191 +186 @@ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
 -      this, number_of_channels, number_of_frames, adjusted_sample_rate);
 +      this, number_of_channels, number_of_frames, sample_rate);
-@@ -430,0 +426,13 @@ void OfflineAudioContext::FireCompletionEvent() {
+@@ -430,0 +426,19 @@ void OfflineAudioContext::FireCompletionEvent() {
 +    if (const auto audio_noise = GetFingerprintAudioNoise()) {
++      const float base_noise = *audio_noise;
 +      for (unsigned channel = 0; channel < rendered_buffer->numberOfChannels();
 +           ++channel) {
 +        if (NotShared<DOMFloat32Array> channel_data =
 +                rendered_buffer->getChannelData(channel)) {
 +          base::span<float> samples = channel_data->AsSpan();
++          uint32_t state = 2166136261u ^ channel;
 +          for (float& sample : samples) {
-+            sample = std::clamp(sample + *audio_noise, -1.0f, 1.0f);
++            if (sample > 1e-7f || sample < -1e-7f) {
++              state = state * 16777619u + 374761393u;
++              const float factor =
++                  (static_cast<float>(state & 0x7FFF) / 32767.0f - 0.5f) * 2.0f;
++              sample = std::clamp(sample + base_noise * factor, -1.0f, 1.0f);
++            }
 +          }
 +        }
 +      }
