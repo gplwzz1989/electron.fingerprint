@@ -616,6 +616,19 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
           command_line->AppendSwitchASCII(::switches::kLang,
                                           fingerprint_config->locale.language);
         }
+        if (fingerprint_config->modules.webgl) {
+          command_line->AppendSwitch("disable-webgpu");
+          if (command_line->HasSwitch("disable-features")) {
+            std::string existing =
+                command_line->GetSwitchValueASCII("disable-features");
+            if (!existing.empty())
+              existing += ",";
+            existing += "WebGPU";
+            command_line->AppendSwitchASCII("disable-features", existing);
+          } else {
+            command_line->AppendSwitchASCII("disable-features", "WebGPU");
+          }
+        }
         std::string serialized_config;
         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
                                     &serialized_config)) {

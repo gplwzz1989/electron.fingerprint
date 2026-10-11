@@ -58,8 +58,13 @@ function previewFingerprintProfile (input, runtime, proxy) {
         errors.push('请求语言格式无效，请使用有效语言标记及 0 到 1 的权重，例如 zh-CN,zh;q=0.9。')
       }
     }
-    if (modules.webgl && /D3D|Direct3D/i.test(graphics.webglRenderer) && runtime.platform !== 'win32') {
-      errors.push('当前宿主不支持 Windows 图形后端，请使用本机图形参数。')
+    if (modules.webgl) {
+      if (/Apple|Metal/i.test(graphics.webglRenderer) && runtime.platform !== 'darwin') {
+        errors.push('非 macOS 宿主不支持 Apple 图形渲染器，请使用与本机操作系统相容的显卡参数。')
+      }
+      if (/D3D|Direct3D/i.test(graphics.webglRenderer) && runtime.platform !== 'win32') {
+        errors.push('当前宿主不支持 Windows 图形后端，请使用本机图形参数。')
+      }
     }
   }
   return {

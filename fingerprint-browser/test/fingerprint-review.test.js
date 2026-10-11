@@ -61,5 +61,9 @@ assert.deepEqual(preview.changes.map(({ field, before, after }) => ({ field, bef
 assert.equal(preview.fingerprint.noise.seed, legacy.noise.seed)
 assert.throws(() => assertFingerprintSave(legacy, runtime), /先预览并确认/)
 assert.doesNotThrow(() => assertFingerprintSave(preview.fingerprint, runtime))
+const appleGpu = structuredClone(profile)
+appleGpu.graphics.webglRenderer = 'Apple M2 Metal'
+assert.equal(previewFingerprintProfile(appleGpu, runtime).canSave, false)
+assert.match(previewFingerprintProfile(appleGpu, runtime).errors.join(''), /Apple 图形渲染器/)
 assert.throws(() => previewFingerprintProfile(null, runtime), /必须是对象/)
 console.log('配置组合校验、模块边界、宿主匹配和旧内存只读预览自检通过。')

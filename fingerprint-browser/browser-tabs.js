@@ -314,7 +314,10 @@ class TabBrowser {
     tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
     const proxyBridge = await applyProxyConfig(tabSession, snapshot.proxy, url)
     try {
-    const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)
+      if (snapshot.proxy && snapshot.proxy.mode !== 'direct' && snapshot.fingerprint?.modules) {
+        snapshot.fingerprint.modules.webrtc = true
+      }
+      const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)
     const view = new WebContentsView({ webPreferences: {
       // 当前 Testing 内核需要显式初始化为显示状态，否则原生视图没有可截图的绘制表面。
       show: true,

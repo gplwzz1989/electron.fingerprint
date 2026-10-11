@@ -18,6 +18,10 @@ const {
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
+// 默认关闭 WebGPU，防止物理显卡驱动与硬件底层信息穿透伪装
+app.commandLine.appendSwitch('disable-webgpu')
+app.commandLine.appendSwitch('disable-features', 'WebGPU')
+
 try {
   app.setPath('userData', initialDataRoot)
   app.setPath('sessionData', initialDataRoot)
