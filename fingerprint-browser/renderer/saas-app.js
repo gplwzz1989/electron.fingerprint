@@ -154,7 +154,22 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
     <section><h3>浏览器与语言</h3><div class="form-row">${text('browser.userAgent', '用户代理（留空使用内核默认值）', fingerprint.browser.userAgent, '留空使用当前内核')}</div><div class="form-row">${text('browser.acceptLanguage', '请求语言', fingerprint.browser.acceptLanguage)}${text('locale.language', '主要语言', fingerprint.locale.language)}</div><div class="form-row">${text('locale.languages', '语言列表（逗号分隔）', fingerprint.locale.languages.join(', '))}${text('locale.timezone', '时区', fingerprint.locale.timezone, '例如 Asia/Shanghai')}</div></section>
     <div class="form-divider"></div><section><h3>设备与屏幕</h3><div class="form-row">${select('hardware.platform', '操作系统平台', fingerprint.hardware.platform, ['Win32', 'MacIntel', 'Linux x86_64'])}${number('hardware.hardwareConcurrency', 'CPU 线程数', fingerprint.hardware.hardwareConcurrency)}</div><div class="form-row">${select('hardware.deviceMemory', '网页可见内存（GiB）', fingerprint.hardware.deviceMemory, [1, 2, 4, 8])}${number('screen.deviceScaleFactor', '屏幕缩放', fingerprint.screen.deviceScaleFactor, 0.1)}</div><div class="form-row">${number('screen.width', '屏幕宽度', fingerprint.screen.width)}${number('screen.height', '屏幕高度', fingerprint.screen.height)}</div><div class="form-row">${number('screen.availWidth', '可用宽度', fingerprint.screen.availWidth)}${number('screen.availHeight', '可用高度', fingerprint.screen.availHeight)}</div></section>
     <div class="form-divider"></div><section><h3>图形与噪声</h3><div class="form-row">${text('graphics.webglVendor', 'WebGL 厂商', fingerprint.graphics.webglVendor)}${text('graphics.webglRenderer', 'WebGL 渲染器', fingerprint.graphics.webglRenderer)}</div>${seed}<div class="radio-cards">${toggle('noise.canvas', 'Canvas 噪声', fingerprint.noise.canvas)}${toggle('noise.audio', 'Audio 噪声', fingerprint.noise.audio)}${toggle('noise.rects', '元素尺寸噪声', fingerprint.noise.rects)}</div></section>
-    <details class="advanced"><summary>指纹模块开关</summary><div class="radio-cards">${modules.map(([key, label]) => toggle(`modules.${key}`, label, fingerprint.modules[key])).join('')}</div><small>关闭模块时使用内核原生行为；配置保存成功不代表已通过所有网站检测。</small></details>`
+    <details class="advanced"><summary>指纹模块开关</summary><div class="radio-cards">${modules.map(([key, label]) => toggle(`modules.${key}`, label, fingerprint.modules[key])).join('')}</div><small>关闭模块时使用内核原生行为；配置保存成功不代表已通过所有网站检测。</small></details>
+    <div class="form-divider"></div>${btn('检查配置组合', 'preview-fingerprint', 'small', `type="button"${scope}`)}<div data-fingerprint-review="${options.scope || 'wizard'}" role="status" aria-live="polite"></div>`
+}
+
+async function reviewFingerprint (targetDraft, proxy, forSave = false) {
+  const source = cloneValue(targetDraft.fingerprint)
+  const preview = await window.browserApi.previewFingerprint({ fingerprint: source, proxy })
+  if (!preview?.ok) throw new Error(preview?.error || '无法检查指纹配置，请重试。')
+  if (JSON.stringify(source) !== JSON.stringify(targetDraft.fingerprint)) throw new Error('检查期间配置已修改，请重新检查。')
+  const node = document.querySelector(`[data-fingerprint-review="${targetDraft === draft ? 'wizard' : 'environment'}"]`)
+  if (node) node.innerHTML = `<div class="notice ${preview.canSave ? '' : 'error'}">${[preview.canSave ? '配置组合检查通过。' : '请先修正以下配置：', ...preview.errors, ...preview.changes.map(change => change.message), ...preview.warnings, preview.verification].map(escapeHTML).join('<br>')}</div>`
+  if (!forSave) return preview
+  if (!preview.canSave) throw new Error(preview.errors.join(''))
+  const notices = [...preview.changes.map(change => change.message), ...preview.warnings]
+  if (notices.length && !window.confirm(`${notices.join('\n')}\n是否按以上内容保存？`)) return null
+  return preview.fingerprint
 }
 
 function activeUnifiedTab () {
@@ -726,6 +741,16 @@ document.addEventListener('click', event => {
     case 'wizard-back': wizardStep--; render(); break
     case 'regenerate-fingerprint': void regenerateFingerprint(); break
     case 'restore-fingerprint': restoreFingerprint(); break
+    case 'preview-fingerprint': {
+      const targetDraft = target.dataset.fingerprintScope === 'environment' ? environmentEditDraft : draft
+      void (async () => {
+        try {
+          const proxy = targetDraft === draft ? draft.proxy : { mode: new FormData(document.getElementById('environment-edit-form')).get('proxyMode') }
+          await reviewFingerprint(targetDraft, proxy)
+        } catch (error) { toast(error?.message || '无法检查指纹配置，请重试。') }
+      })()
+      break
+    }
     case 'retry-diagnostic': toast('当前诊断服务尚未连接，请在代理资源中检查连接后重试。'); break
     case 'open-proxies': navigate('proxies'); break
     case 'retry-sync': toast('同步服务尚未连接，当前环境数据仍保存在本机。'); break
@@ -777,6 +802,8 @@ document.addEventListener('input', event => {
     if (target.dataset.fingerprintPath === 'browser.userAgent' && value === '') value = null
     if (target.dataset.fingerprintPath === 'locale.languages') value = String(value).split(/[,，]/).map(item => item.trim()).filter(Boolean)
     setFingerprintField(target.dataset.fingerprintPath, value, targetDraft)
+    const review = document.querySelector(`[data-fingerprint-review="${targetDraft === draft ? 'wizard' : 'environment'}"]`)
+    if (review) review.textContent = '配置已修改，请重新检查。'
   }
   const proxyField = { proxyServer: 'server', proxyUsername: 'username', proxyPassword: 'password' }[event.target.name]
   if (proxyField && event.target.closest('#wizard-form')) {
@@ -857,7 +884,11 @@ document.addEventListener('submit', async event => {
             return
           }
         }
-        update.fingerprint = cloneValue(environmentEditDraft?.fingerprint)
+        if (JSON.stringify(environmentEditDraft?.fingerprint) !== JSON.stringify(environment.raw.fingerprint)) {
+          const fingerprint = await reviewFingerprint(environmentEditDraft, update.proxy, true)
+          if (!fingerprint) return
+          update.fingerprint = fingerprint
+        }
       }
       const response = await window.browserApi.updateEnvironment(update)
       if (!response?.ok) throw new Error(response?.error || '编辑浏览器环境失败，请刷新后重试。')
@@ -893,6 +924,9 @@ document.addEventListener('submit', async event => {
       profile.storage = draft.storage
       profile.url = draft.url || profile.url
       profile.proxy = draft.proxy
+      const fingerprint = await reviewFingerprint(draft, profile.proxy, true)
+      if (!fingerprint) return
+      profile.fingerprint = fingerprint
       const operationId = crypto.randomUUID()
       const saveResponse = await window.browserApi.saveProfile(profile)
       if (!saveResponse?.ok) throw new Error(saveResponse?.error || '保存浏览器配置失败。')

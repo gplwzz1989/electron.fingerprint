@@ -16,7 +16,7 @@ function describeFingerprintProtection (fingerprint, proxy = {}) {
   if (proxy.mode && proxy.mode !== 'direct' && !(active && modules.webrtc)) warnings.push('代理环境未开启非代理 UDP 限制，需检查实时通信泄漏。')
   const uaMajor = fingerprint.browser.userAgent?.match(/Chrome\/(\d+)\./)?.[1]
   if (active && modules.ua && uaMajor && Number(uaMajor) !== fingerprint.browser.chromiumMajor) warnings.push('用户代理版本与配置的内核主版本不一致。')
-  if (active && modules.locale && fingerprint.locale.languages[0] !== fingerprint.locale.language) warnings.push('主要语言与语言列表首项不一致。')
+  if (active && modules.locale && Intl.getCanonicalLocales(fingerprint.locale.languages[0])[0] !== Intl.getCanonicalLocales(fingerprint.locale.language)[0]) warnings.push('主要语言与语言列表首项不一致。')
   return {
     configured: capabilities.filter(([, enabled]) => enabled).map(([label]) => label),
     inactive: capabilities.filter(([, enabled]) => !enabled).map(([label]) => label),

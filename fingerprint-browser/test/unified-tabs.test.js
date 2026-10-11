@@ -130,6 +130,26 @@ async function run () {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const url = `http://127.0.0.1:${server.address().port}/`
+  const reviewDraft = (await invoke(dashboard, 'getDraft')).profile
+  assert.equal(reviewDraft.fingerprint.modules.webrtc, true, '新草稿未默认限制非代理 UDP。')
+  const profileFile = path.join(process.env.FP_BROWSER_DATA_DIR, 'profiles.json')
+  const profilesBeforeReview = await fs.readFile(profileFile, 'utf8')
+  reviewDraft.fingerprint.hardware.deviceMemory = 16
+  const legacyPreview = await invoke(dashboard, 'previewFingerprint', reviewDraft)
+  assert.equal(legacyPreview.canSave, true)
+  assert.equal(legacyPreview.changes.length, 1, '旧内存调整没有提供影响预览。')
+  assert.equal(legacyPreview.fingerprint.hardware.deviceMemory, 8)
+  const deniedMigration = await dashboard.webContents.executeJavaScript(`window.browserApi.saveProfile(${JSON.stringify(reviewDraft)})`)
+  assert.equal(deniedMigration.ok, false, '保存接口静默调整了旧内存提交值。')
+  assert.match(deniedMigration.error, /先预览并确认/)
+  reviewDraft.fingerprint = legacyPreview.fingerprint
+  reviewDraft.fingerprint.locale.languages = ['en-US']
+  const invalidPreview = await invoke(dashboard, 'previewFingerprint', reviewDraft)
+  assert.equal(invalidPreview.canSave, false, '语言组合矛盾没有显示。')
+  const deniedInconsistent = await dashboard.webContents.executeJavaScript(`window.browserApi.saveProfile(${JSON.stringify(reviewDraft)})`)
+  assert.equal(deniedInconsistent.ok, false, '直接调用保存接口绕过了组合校验。')
+  assert.equal(await fs.readFile(profileFile, 'utf8'), profilesBeforeReview, '预览或拒绝保存修改了配置文件。')
+  await record('只读内存调整预览和直接保存组合校验通过')
   const profiles = []
   for (const [name, cpu] of [['环境一 · 上海', 4], ['环境二 · 纽约', 12]]) {
     const draft = (await invoke(dashboard, 'getDraft')).profile
@@ -296,6 +316,14 @@ async function run () {
   assert.deepEqual(finalChrome, { tabs: 2, selected: 1, body: false }, '返回 SaaS 首页后的标签状态不正确。')
   assert.equal(await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').disabled"), true, '返回首页后指纹图标没有停用。')
   await invoke(dashboard, 'closeTab', first.id)
+  const closedBeforeReview = (await invoke(dashboard, 'listEnvironments')).environments.find(item => item.id === first.environmentId)
+  const environmentFile = path.join(first.dataDir, 'fingerprint.json')
+  const environmentBeforeReview = await fs.readFile(environmentFile, 'utf8')
+  const invalidEnvironmentFingerprint = structuredClone(closedBeforeReview.fingerprint)
+  invalidEnvironmentFingerprint.locale.languages = ['en-US']
+  const deniedEnvironmentReview = await dashboard.webContents.executeJavaScript(`window.browserApi.updateEnvironment(${JSON.stringify({ id: first.environmentId, metadataRevision: closedBeforeReview.metadataRevision, profileRevision: closedBeforeReview.profileRevision, fingerprint: invalidEnvironmentFingerprint })})`)
+  assert.equal(deniedEnvironmentReview.ok, false, '环境编辑接口绕过了组合校验。')
+  assert.equal(await fs.readFile(environmentFile, 'utf8'), environmentBeforeReview, '组合检查失败修改了环境快照。')
   await record('关闭环境、状态同步和返回首页通过')
 
   const templatesBeforeDelete = (await invoke(dashboard, 'listProfiles')).profiles.length
@@ -390,6 +418,30 @@ async function run () {
   await click('#wizard-form button[type="submit"]')
   await waitFor(async () => await dashboard.webContents.executeJavaScript("Boolean(document.querySelector('[data-fingerprint-path=\\\"hardware.hardwareConcurrency\\\"]'))"), '指纹自定义页面没有加载。')
   const generatedSeed = await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-path=\\\"noise.seed\\\"]')?.value")
+  const migrationConfirmation = await dashboard.webContents.executeJavaScript(`(async () => {
+    const originalConfirm = window.confirm
+    const originalMemory = draft.fingerprint.hardware.deviceMemory
+    const messages = []
+    try {
+      draft.fingerprint.hardware.deviceMemory = 16
+      window.confirm = message => { messages.push(message); return false }
+      const cancelled = await reviewFingerprint(draft, draft.proxy, true)
+      window.confirm = message => { messages.push(message); return true }
+      const accepted = await reviewFingerprint(draft, draft.proxy, true)
+      return { cancelled, acceptedMemory: accepted.hardware.deviceMemory, originalMemory: draft.fingerprint.hardware.deviceMemory, messages }
+    } finally { window.confirm = originalConfirm; draft.fingerprint.hardware.deviceMemory = originalMemory }
+  })()`)
+  assert.equal(migrationConfirmation.cancelled, null, '取消内存调整后仍继续保存。')
+  assert.equal(migrationConfirmation.acceptedMemory, 8, '确认内存调整后没有提交兼容值。')
+  assert.equal(migrationConfirmation.originalMemory, 16, '预览修改了原指纹草稿。')
+  assert.ok(migrationConfirmation.messages.every(message => message.includes('16 GiB') && message.includes('8 GiB')), '内存调整确认没有展示前后影响。')
+  await fingerprintInput('locale.language', 'en-US')
+  await click('[data-action="preview-fingerprint"]')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('[data-fingerprint-review=wizard]')?.textContent.includes('语言列表首项')"), '创建向导没有显示配置矛盾。')
+  await click('#wizard-form button[type="submit"]')
+  await waitFor(async () => await dashboard.webContents.executeJavaScript("document.querySelector('#toast')?.textContent.includes('语言列表首项')"), '配置矛盾没有阻止向导保存。')
+  assert.equal((await invoke(dashboard, 'listEnvironments')).environments.some(item => item.profileName === '向导直连环境'), false, '矛盾配置仍创建了环境。')
+  await fingerprintInput('locale.language', 'zh-CN')
     assert.ok(generatedSeed, '指纹草稿没有自动生成种子。')
     await fingerprintInput('hardware.hardwareConcurrency', '6')
     await fingerprintInput('hardware.deviceMemory', '4')

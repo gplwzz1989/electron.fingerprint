@@ -6,6 +6,7 @@ const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
 const { ProfileRepository } = require('./profile-repository')
+const { previewFingerprintProfile, assertFingerprintSave } = require('./fingerprint-review')
 const { dataRoot: resolveDataRoot } = require('./data-directory')
 const {
   DEFAULT_URL,
@@ -16,6 +17,7 @@ const {
 } = require('./profile-store')
 
 const initialDataRoot = resolveDataRoot()
+const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
 try {
   app.setPath('userData', initialDataRoot)
   app.setPath('sessionData', initialDataRoot)
@@ -265,6 +267,7 @@ function registerIpc () {
       for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint']) {
         if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
       }
+      if (Object.hasOwn(update, 'fingerprint')) assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy)
       const environment = await environmentRepository.updateProfile(payload?.id, update)
       tabBrowser.updateEnvironmentProfile(environment)
       dashboardWindow?.webContents.send('environments:changed')
@@ -327,6 +330,13 @@ function registerIpc () {
       assertTrusted(event)
       const id = `profile-${randomUUID().slice(0, 8)}`
       const fingerprint = getDefaultProfile()
+      // 仅新草稿默认限制非代理 UDP，不改写已保存环境的开关。
+      fingerprint.modules.webrtc = true
+      if (process.platform !== 'win32') {
+        fingerprint.hardware.platform = { darwin: 'MacIntel', linux: 'Linux x86_64' }[process.platform] || fingerprint.hardware.platform
+        fingerprint.graphics.webglVendor = ''
+        fingerprint.graphics.webglRenderer = ''
+      }
       fingerprint.id = id
       fingerprint.noise.seed = `environment-${randomUUID()}`
       return {
@@ -343,9 +353,19 @@ function registerIpc () {
     }
   })
 
+  ipcMain.handle('profiles:preview', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      return { ok: true, ...previewFingerprintProfile(payload?.fingerprint, fingerprintRuntime, payload?.proxy) }
+    } catch (error) {
+      return errorResult('预览指纹配置', error, '无法检查指纹配置，请检查填写内容。')
+    }
+  })
+
   ipcMain.handle('profiles:save', async (event, payload) => {
     try {
       assertTrusted(event)
+      assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy)
       const nextProfile = await profileRepository.save(payload)
       tabBrowser.window?.webContents.send('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }

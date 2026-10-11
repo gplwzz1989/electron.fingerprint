@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('browserApi', {
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
   getDraft: () => ipcRenderer.invoke('profiles:draft'),
+  previewFingerprint: profile => ipcRenderer.invoke('profiles:preview', profile),
   saveProfile: profile => ipcRenderer.invoke('profiles:save', profile),
   deleteProfile: id => ipcRenderer.invoke('profiles:delete', id),
   launchProfile: payload => ipcRenderer.invoke('profiles:launch', payload),
