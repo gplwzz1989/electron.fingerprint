@@ -14,6 +14,7 @@ const {
   createProfileRecord,
   getDefaultProfile,
   getPresetTemplates,
+  getPresetTemplateById,
   normalizeUrl
 } = require('./profile-store')
 const { AutomationServer } = require('./automation-server')
@@ -341,11 +342,20 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:draft', async event => {
+  ipcMain.handle('profiles:draft', async (event, payload) => {
     try {
       assertTrusted(event)
       const id = `profile-${randomUUID().slice(0, 8)}`
-      const fingerprint = getDefaultProfile()
+      let fingerprint = null
+      if (payload?.presetId) {
+        const preset = getPresetTemplateById(payload.presetId)
+        if (preset) {
+          fingerprint = clone(preset.profile)
+        }
+      }
+      if (!fingerprint) {
+        fingerprint = getDefaultProfile()
+      }
       // 仅新草稿默认限制非代理 UDP，不改写已保存环境的开关。
       fingerprint.modules.webrtc = true
       if (process.platform !== 'win32') {
