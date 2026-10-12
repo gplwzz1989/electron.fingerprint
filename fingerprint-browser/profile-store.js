@@ -1,4 +1,6 @@
 const { randomUUID } = require('node:crypto')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const DEFAULT_URL = 'https://example.com'
 const DEFAULT_PROXY = { mode: 'direct', server: '', username: '', password: '' }
@@ -253,9 +255,75 @@ function createProxyConfig (input) {
   return { mode, server, username, password }
 }
 
+const PRESET_METADATA = {
+  'win11-us-nvidia': {
+    name: 'Windows 11 · 美东 · RTX 3060',
+    description: 'Windows 11 / 英语(美东时区) / NVIDIA GeForce RTX 3060 / 16核 8G / 1080P'
+  },
+  'win10-us-intel': {
+    name: 'Windows 10 · 美西 · Intel UHD 630',
+    description: 'Windows 10 / 英语(美西时区) / Intel UHD Graphics 630 / 8核 8G / 2K 分辨率'
+  },
+  'win11-ja-intel': {
+    name: 'Windows 11 · 日本 · Intel Iris Xe',
+    description: 'Windows 11 / 日语(东京时区) / Intel Iris Xe Graphics / 16核 8G / 1.25 缩放'
+  }
+}
+
+let cachedPresetTemplates = null
+
+function getPresetTemplates () {
+  if (cachedPresetTemplates) return clone(cachedPresetTemplates)
+  const profilesDir = path.join(__dirname, 'profiles')
+  const templates = []
+  try {
+    if (fs.existsSync(profilesDir)) {
+      const files = fs.readdirSync(profilesDir).filter(name => name.endsWith('.json'))
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(profilesDir, file), 'utf8')
+          const profile = JSON.parse(content)
+          validateFingerprintProfile(profile)
+          const meta = PRESET_METADATA[profile.id] || {
+            name: profile.id,
+            description: `${profile.locale?.language || ''} / ${profile.locale?.timezone || ''} / ${profile.graphics?.webglRenderer || ''}`
+          }
+          templates.push({
+            id: profile.id,
+            name: meta.name,
+            description: meta.description,
+            profile
+          })
+        } catch {
+          // 忽略单个损坏的模板
+        }
+      }
+    }
+  } catch {
+    // 目录不可读时降级
+  }
+  cachedPresetTemplates = templates
+  return clone(templates)
+}
+
+function getPresetTemplateById (id) {
+  if (!id) return null
+  const templates = getPresetTemplates()
+  return templates.find(item => item.id === id) || null
+}
+
 function createProfileRecord (input = {}) {
   ensureObject(input, '浏览器配置记录')
-  const source = input.fingerprint || input
+  let source = input.fingerprint
+  if (!source && input.presetId) {
+    const preset = getPresetTemplateById(input.presetId)
+    if (preset) {
+      source = preset.profile
+    }
+  }
+  if (!source) {
+    source = input
+  }
   ensureObject(source, '指纹配置')
   const requestedId = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : source.id
   const id = requestedId || `profile-${randomUUID().slice(0, 8)}`
@@ -285,6 +353,9 @@ module.exports = {
   createFingerprintProfile,
   createProfileRecord,
   getDefaultProfile,
+  getPresetTemplates,
+  getPresetTemplateById,
   normalizeUrl,
   validateFingerprintProfile
 }
+

@@ -13,8 +13,10 @@ const {
   ProfileValidationError,
   createProfileRecord,
   getDefaultProfile,
+  getPresetTemplates,
   normalizeUrl
 } = require('./profile-store')
+const { AutomationServer } = require('./automation-server')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -35,6 +37,7 @@ let profileRepository = null
 let environmentRepository = null
 let groupRepository = null
 let tabBrowser = null
+let automationServer = null
 let quitting = false
 let startup = Promise.resolve()
 
@@ -192,6 +195,15 @@ function registerIpc () {
       }
     })
   }
+  ipcMain.handle('presets:list', async event => {
+    try {
+      assertTrusted(event)
+      return { ok: true, presets: getPresetTemplates() }
+    } catch (error) {
+      return errorResult('读取预设模板', error, '读取预设模板失败。')
+    }
+  })
+
   ipcMain.handle('profiles:list', async event => {
     try {
       assertTrusted(event)
@@ -452,6 +464,17 @@ async function start () {
       onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
     })
     registerIpc()
+    automationServer = new AutomationServer({
+      profileRepository,
+      environmentRepository,
+      groupRepository,
+      tabBrowser
+    })
+    try {
+      await automationServer.start()
+    } catch (serverError) {
+      console.warn('[自动化服务启动提示]', serverError?.message || serverError)
+    }
     await createDashboard()
     if (recovered) {
       await dialog.showMessageBox(dashboardWindow, {
@@ -481,6 +504,7 @@ app.on('before-quit', event => {
   quitting = true
   void (async () => {
     await startup
+    await automationServer?.stop()
     await tabBrowser?.shutdown()
     await environmentRepository?.waitForWrites()
     await groupRepository?.waitForWrites()

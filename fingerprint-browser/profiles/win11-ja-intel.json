@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "win11-ja-intel",
+  "enabled": true,
+  "browser": {
+    "family": "Chrome",
+    "chromiumMajor": 138,
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "acceptLanguage": "ja,en-US;q=0.8,en;q=0.6"
+  },
+  "locale": {
+    "language": "ja",
+    "languages": ["ja", "en-US", "en"],
+    "timezone": "Asia/Tokyo"
+  },
+  "hardware": {
+    "hardwareConcurrency": 8,
+    "deviceMemory": 8,
+    "platform": "Win32"
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "availWidth": 1920,
+    "availHeight": 1040,
+    "deviceScaleFactor": 1.25
+  },
+  "graphics": {
+    "webglVendor": "Google Inc. (Intel)",
+    "webglRenderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "noise": {
+    "seed": "win11-ja-intel-seed",
+    "canvas": true,
+    "audio": true,
+    "rects": true
+  },
+  "modules": {
+    "ua": true,
+    "clientHints": true,
+    "locale": true,
+    "timezone": true,
+    "navigator": true,
+    "screen": true,
+    "webgl": true,
+    "canvas": true,
+    "audio": true,
+    "fonts": false,
+    "webrtc": true,
+    "runtimeInspector": false
+  }
+}

@@ -6,6 +6,8 @@ const { defaultDataRoot, dataRoot } = require('../data-directory')
 const {
   createProfileRecord,
   getDefaultProfile,
+  getPresetTemplates,
+  getPresetTemplateById,
   validateFingerprintProfile
 } = require('../profile-store')
 
@@ -78,6 +80,23 @@ function run () {
   assert.throws(() => createProfileRecord({ proxy: { ...socksProxy, password: '密'.repeat(86) }, fingerprint: getDefaultProfile() }), /255 字节/)
   assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'direct', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /直连模式/)
   assert.throws(() => createProfileRecord({ id: 'profile-invalid-proxy', proxy: { mode: 'socks5', server: 'http://127.0.0.1:8080' }, fingerprint: getDefaultProfile() }), /socks5 协议/)
+
+  const presets = getPresetTemplates()
+  assert.ok(Array.isArray(presets))
+  assert.ok(presets.length >= 3)
+  const nvidiaPreset = getPresetTemplateById('win11-us-nvidia')
+  assert.ok(nvidiaPreset)
+  assert.equal(nvidiaPreset.id, 'win11-us-nvidia')
+  assert.equal(nvidiaPreset.profile.graphics.webglVendor, 'Google Inc. (NVIDIA)')
+  assert.equal(getPresetTemplateById('unknown-preset'), null)
+
+  const recordFromPreset = createProfileRecord({
+    id: 'preset-record-1',
+    name: '预设生成配置',
+    presetId: 'win11-us-nvidia'
+  })
+  assert.equal(recordFromPreset.fingerprint.graphics.webglVendor, 'Google Inc. (NVIDIA)')
+  assert.equal(recordFromPreset.fingerprint.locale.timezone, 'America/New_York')
 
   const launch = getLaunchOptions({ FP_BROWSER_DATA_DIR: './数据目录', FP_ELECTRON_RUNTIME: './运行时', TEST_VALUE: '保留' })
   assert.ok(launch.args.includes(`--user-data-dir=${path.resolve('./数据目录')}`))
