@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises')
 const net = require('node:net')
 const { randomUUID } = require('node:crypto')
-const { app, WebContentsView, session } = require('electron/main')
+const { app, BrowserWindow, WebContentsView, session } = require('electron/main')
 const { applyFingerprintConfig } = require('./runtime-compat')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
@@ -326,9 +326,47 @@ class TabBrowser {
       nodeIntegration: false,
       sandbox: true
     } })
-    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl }
+    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
-    contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    contents.setWindowOpenHandler(({ url, disposition }) => {
+      const isHttpOrBlank = /^https?:\/\//i.test(url) || url === 'about:blank'
+      switch (disposition) {
+        case 'new-window': {
+          if (!isHttpOrBlank) return { action: 'deny' }
+          return {
+            action: 'allow',
+            createWindow: (options) => {
+              const popup = new BrowserWindow({
+                ...options,
+                autoHideMenuBar: true
+              })
+              tab.popups.add(popup)
+              popup.once('closed', () => {
+                tab.popups.delete(popup)
+              })
+              popup.webContents.on('will-navigate', (event, target) => {
+                if (!/^https?:\/\//i.test(target) && target !== 'about:blank') {
+                  event.preventDefault()
+                }
+              })
+              popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+              return popup.webContents
+            }
+          }
+        }
+        case 'default':
+        case 'other':
+        case 'foreground-tab':
+        case 'background-tab': {
+          if (isHttpOrBlank && url !== 'about:blank') {
+            void contents.loadURL(url)
+          }
+          return { action: 'deny' }
+        }
+        default:
+          return { action: 'deny' }
+      }
+    })
     for (const event of ['will-navigate', 'will-redirect']) {
       contents.on(event, (navigationEvent, target) => {
         if (!/^https?:\/\//i.test(target) && target !== 'about:blank') navigationEvent.preventDefault()
@@ -416,6 +454,12 @@ class TabBrowser {
       if (this.window && !this.window.isDestroyed() && this.window.contentView.children.includes(tab.view)) {
         this.window.contentView.removeChildView(tab.view)
       }
+      if (tab.popups) {
+        for (const popup of tab.popups) {
+          if (!popup.isDestroyed()) popup.destroy()
+        }
+        tab.popups.clear()
+      }
       this.tabs.delete(id)
       if (contents && !contents.isDestroyed()) contents.close()
       tab.proxyBridge?.close()
@@ -445,6 +489,12 @@ class TabBrowser {
           const tab = this.tabs.get(id)
           await this.environmentRepository.update(tab?.environmentId || id, { status: 'closed' }).catch(updateError => console.error('[保存环境状态]', updateError))
           this.onEnvironmentChanged()
+          if (tab?.popups) {
+            for (const popup of tab.popups) {
+              if (!popup.isDestroyed()) popup.destroy()
+            }
+            tab.popups.clear()
+          }
           const contents = tab?.view?.webContents
           if (contents && !contents.isDestroyed()) contents.close()
           tab?.proxyBridge?.close()
