@@ -103,6 +103,7 @@ class TabBrowser {
     this.createOperations = new Map()
     this.activeId = null
     this.shuttingDown = null
+    this.mediaHub = options.mediaHub || null
     app.on('login', (event, contents, _request, authInfo, callback) => {
       if (!authInfo.isProxy) return
       const tab = [...this.tabs.values()].find(item => item.view.webContents === contents)
@@ -224,6 +225,10 @@ class TabBrowser {
       .map(tab => tab.id)
   }
 
+  setMediaHub (mediaHub) {
+    this.mediaHub = mediaHub
+  }
+
   select (id) {
     const tab = this.getTab(id)
     this.activeId = id
@@ -232,6 +237,9 @@ class TabBrowser {
     this.window.focus()
     tab.view.webContents.focus()
     this.notify()
+    if (this.mediaHub) {
+      void this.mediaHub.extractCurrentMedia()
+    }
   }
 
   openDevTools (id) {
@@ -316,6 +324,9 @@ class TabBrowser {
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
     // 严格使用规范目录路径，确保 LevelDB 与 SQLite WAL 存储引擎正常工作并保持持久化登录态。
     const tabSession = session.fromPath(dataDir)
+    if (this.mediaHub?.sniffer) {
+      this.mediaHub.sniffer.attachSession(tabSession, () => this.activeId)
+    }
     // 外部协议在旧内核中默认放行，统一拒绝网页唤起外部程序，覆盖隐藏子框架。
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => {
       callback(isPermissionAllowed(permission))
@@ -383,10 +394,21 @@ class TabBrowser {
     }
     contents.on('page-title-updated', (_event, title) => { tab.title = title; this.notify() })
     contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; this.notify() })
-    contents.on('did-stop-loading', () => { tab.loading = false; tab.preserveLastUrl = false; this.notify() })
+    contents.on('did-stop-loading', () => {
+      tab.loading = false
+      tab.preserveLastUrl = false
+      this.notify()
+      if (this.mediaHub && this.activeId === tab.id) {
+        void this.mediaHub.extractCurrentMedia()
+      }
+    })
     for (const event of ['did-navigate', 'did-navigate-in-page']) {
       contents.on(event, () => {
         tab.url = contents.getURL()
+        if (this.mediaHub) {
+          this.mediaHub.sniffer.clearTab(tab.id)
+          this.mediaHub.cachedExtractions.delete(tab.id)
+        }
         if (!tab.preserveLastUrl) void this.saveEnvironmentUrl(tab)
         this.notify()
       })
@@ -460,6 +482,10 @@ class TabBrowser {
         lastUrl: contents && !contents.isDestroyed() ? contents.getURL() || tab.url : tab.url
       })
       this.onEnvironmentChanged()
+      if (this.mediaHub) {
+        this.mediaHub.sniffer.clearTab(id)
+        this.mediaHub.cachedExtractions.delete(id)
+      }
       if (this.window && !this.window.isDestroyed() && this.window.contentView.children.includes(tab.view)) {
         this.window.contentView.removeChildView(tab.view)
       }

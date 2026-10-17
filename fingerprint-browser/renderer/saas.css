@@ -29,6 +29,10 @@
 #unified-address{width:100%;border:0;outline:0;background:transparent;color:#334158;text-align:center;font-size:12px;min-width:0}
 #unified-address:disabled{color:#8993a1}
 #unified-devtools{min-width:78px!important;font-size:11px!important}
+#unified-media{display:inline-flex;align-items:center;gap:4px;font-size:11px!important;min-width:58px!important;padding:0 8px!important}
+#unified-media svg{width:14px;height:14px}
+.unified-media-badge{background:#ef4444;color:#fff;font-size:9px;font-weight:700;line-height:1;padding:2px 5px;border-radius:10px}
+#unified-media.has-media{color:#2563eb;font-weight:600}
 #unified-go{font-size:11px!important;min-width:42px!important}
 #unified-fingerprint{display:inline-grid;place-items:center;flex-shrink:0}
 #unified-fingerprint svg{width:18px;height:18px}

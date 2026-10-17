@@ -250,6 +250,107 @@ class AutomationServer {
       return { ok: true, ...result, ...this.tabBrowser.snapshot() }
     }
 
+    // 导航标签页
+    if (method === 'POST' && pathname === '/api/v1/tabs/navigate') {
+      if (!this.tabBrowser) {
+        const error = new Error('浏览器未初始化，无法导航。')
+        error.statusCode = 503
+        throw error
+      }
+      const tabId = body.tabId || body.id || this.tabBrowser.activeId
+      const targetUrl = normalizeUrl(body.url)
+      await this.tabBrowser.navigate({ id: tabId, action: 'load', url: targetUrl })
+      return { ok: true, ...this.tabBrowser.snapshot() }
+    }
+
+    // 媒体解析提取与下载测试
+    if (method === 'GET' && pathname === '/api/v1/media/debug') {
+      const mediaHub = this.tabBrowser?.mediaHub
+      return {
+        ok: true,
+        tasks: mediaHub?.downloadManager ? Array.from(mediaHub.downloadManager.tasks.values()) : [],
+        activeTab: mediaHub ? mediaHub.getActiveTab()?.url : null,
+        extractions: mediaHub?.cachedExtractions ? Array.from(mediaHub.cachedExtractions.entries()) : []
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/media/test-extract') {
+      const mediaHub = this.tabBrowser?.mediaHub
+      if (!mediaHub) return { ok: false, error: 'MediaHub 未挂载' }
+      const res = await mediaHub.extractCurrentMedia()
+      return { ok: true, extraction: res }
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/media/probe') {
+      const { net } = require('electron')
+      const targetUrl = body.url
+      const headers = body.headers || {}
+      const tab = this.tabBrowser?.getTab(this.tabBrowser?.activeId)
+      const tabSession = tab?.view?.webContents?.session
+
+      const results = {}
+
+      // Test 1: electron net.request WITH tabSession
+      results.net_with_session = await new Promise(resolve => {
+        try {
+          const req = net.request({ url: targetUrl, session: tabSession, useSessionCookies: true })
+          for (const [k, v] of Object.entries(headers)) req.setHeader(k, v)
+          req.on('response', res => resolve({ status: res.statusCode, headers: res.headers }))
+          req.on('error', err => resolve({ error: err.message }))
+          req.end()
+        } catch (e) {
+          resolve({ error: e.message })
+        }
+      })
+
+      // Test 2: electron net.request WITHOUT session
+      results.net_without_session = await new Promise(resolve => {
+        try {
+          const req = net.request({ url: targetUrl })
+          for (const [k, v] of Object.entries(headers)) req.setHeader(k, v)
+          req.on('response', res => resolve({ status: res.statusCode, headers: res.headers }))
+          req.on('error', err => resolve({ error: err.message }))
+          req.end()
+        } catch (e) {
+          resolve({ error: e.message })
+        }
+      })
+
+      // Test 3: Node native fetch
+      try {
+        const fetchRes = await fetch(targetUrl, { headers })
+        results.node_fetch = { status: fetchRes.status, ok: fetchRes.ok }
+      } catch (e) {
+        results.node_fetch = { error: e.message }
+      }
+
+      // Test 4: tab playinfo inspect
+      try {
+        results.playinfo = await tab.view.webContents.executeJavaScript(`(() => {
+          const pi = window.__playinfo__?.data?.dash;
+          return {
+            videoTracks: (pi?.video || []).map(v => ({ id: v.id, codecid: v.codecid, codecs: v.codecs, width: v.width, height: v.height }))
+          };
+        })()`)
+      } catch (e) {
+        results.playinfo = { error: e.message }
+      }
+
+      return { ok: true, results }
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/media/download') {
+      const mediaHub = this.tabBrowser?.mediaHub
+      if (!mediaHub) return { ok: false, error: 'MediaHub 未挂载' }
+      const tab = mediaHub.getActiveTab()
+      const task = mediaHub.downloadManager.startDownload({
+        tabId: tab?.id,
+        session: tab?.view?.webContents?.session,
+        resource: body.resource
+      })
+      return { ok: true, task }
+    }
+
     // 未知路由 404
     const notFound = new Error(`未找到接口 ${method} ${pathname}`)
     notFound.statusCode = 404

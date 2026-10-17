@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld('browserApi', {
   openDevToolsTab: id => ipcRenderer.invoke('tabs:devtools', id),
   newPageTab: payload => ipcRenderer.invoke('tabs:new-page', payload),
   showDashboard: () => ipcRenderer.invoke('tabs:dashboard'),
+  toggleMediaPopover: bounds => ipcRenderer.invoke('media:toggle-popover', bounds),
+  onMediaCountChanged: callback => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('media:count-changed', listener)
+    return () => ipcRenderer.removeListener('media:count-changed', listener)
+  },
   onTabsChanged: callback => {
     const listener = (_event, snapshot) => callback(snapshot)
     ipcRenderer.on('tabs:changed', listener)

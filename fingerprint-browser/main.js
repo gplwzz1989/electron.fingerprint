@@ -18,6 +18,7 @@ const {
   normalizeUrl
 } = require('./profile-store')
 const { AutomationServer } = require('./automation-server')
+const { MediaHub } = require('./media-hub')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -39,6 +40,7 @@ let environmentRepository = null
 let groupRepository = null
 let tabBrowser = null
 let automationServer = null
+let mediaHub = null
 let quitting = false
 let startup = Promise.resolve()
 
@@ -154,7 +156,8 @@ async function launchProfile (payload) {
 function registerIpc () {
   const trustedPages = new Set([
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href,
-    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'browser.html')).href
+    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'browser.html')).href,
+    require('node:url').pathToFileURL(path.join(__dirname, 'media-hub', 'popover.html')).href
   ])
   // 只有本地管理页和标签栏可调用应用接口，远程网页不能操作其他标签。
   function assertTrusted (event) {
@@ -446,6 +449,14 @@ async function createDashboard () {
     dashboardWindow = null
   })
   tabBrowser?.attachWindow(dashboardWindow)
+  if (!mediaHub) {
+    mediaHub = new MediaHub()
+    mediaHub.attach({ tabBrowser, dashboardWindow })
+    tabBrowser?.setMediaHub(mediaHub)
+  } else {
+    mediaHub.dashboardWindow = dashboardWindow
+    if (mediaHub.popoverWindow) mediaHub.popoverWindow.parentWindow = dashboardWindow
+  }
   dashboardWindow.show()
   dashboardWindow.focus()
   dashboardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

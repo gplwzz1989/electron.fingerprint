@@ -1038,7 +1038,9 @@ function renderUnifiedTabs (snapshot = { activeId: null, tabs: [] }) {
   const reload = document.getElementById('unified-reload')
   const go = document.getElementById('unified-go')
   const devtools = document.getElementById('unified-devtools')
+  const mediaBtn = document.getElementById('unified-media')
   const fingerprint = document.getElementById('unified-fingerprint')
+  if (mediaBtn) mediaBtn.disabled = !active
   if (fingerprint) {
     if (!fingerprint.firstElementChild) fingerprint.innerHTML = icon('fingerprint')
     fingerprint.disabled = !active
@@ -1849,6 +1851,27 @@ window.browserApi.onEnvironmentsChanged(() => { void loadRealData(false) })
 window.browserApi.onProfilesChanged(() => { void loadRealData(false) })
 window.browserApi.onGroupsChanged(() => { void loadRealData(false) })
 window.browserApi.onTabsChanged(renderUnifiedTabs)
+document.getElementById('unified-media')?.addEventListener('click', event => {
+  const rect = event.currentTarget.getBoundingClientRect()
+  void window.browserApi?.toggleMediaPopover?.({
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height
+  })
+})
+window.browserApi?.onMediaCountChanged?.(({ tabId, count }) => {
+  const active = activeUnifiedTab()
+  if (active && active.id === tabId) {
+    const badge = document.getElementById('unified-media-badge')
+    const btn = document.getElementById('unified-media')
+    if (badge) {
+      badge.textContent = count
+      badge.style.display = count > 0 ? 'inline-block' : 'none'
+    }
+    btn?.classList.toggle('has-media', count > 0)
+  }
+})
 document.getElementById('support-icon').innerHTML = icon('help')
 document.getElementById('search-icon').innerHTML = icon('search')
 document.getElementById('notification-icon').innerHTML = icon('bell')
