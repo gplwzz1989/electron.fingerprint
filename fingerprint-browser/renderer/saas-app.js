@@ -138,22 +138,799 @@ function restoreFingerprint () {
   toast('已恢复推荐指纹值。')
 }
 
+const FINGERPRINT_PRESETS = [
+  {
+    id: 'win11-cn-intel',
+    name: 'Windows 11 · 简体中文 · Intel UHD 核显 · 1080p (国内标准办公)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'zh-CN',
+      languages: ['zh-CN', 'zh'],
+      acceptLanguage: 'zh-CN,zh;q=0.9',
+      timezone: 'Asia/Shanghai',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics, D3D11)'
+    }
+  },
+  {
+    id: 'win11-us-nvidia-rtx3060',
+    name: 'Windows 11 · 英语美国 · NVIDIA RTX 3060 · 1080p · 纽约时区 (跨境出海推荐)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/New_York',
+      cpu: 16,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (NVIDIA)',
+      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-us-nvidia-rtx4070-2k',
+    name: 'Windows 11 · 英语美国 · NVIDIA RTX 4070 · 2K超清 · 洛杉矶时区 (旗舰高配)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/Los_Angeles',
+      cpu: 16,
+      memory: 8,
+      width: 2560,
+      height: 1440,
+      availWidth: 2560,
+      availHeight: 1400,
+      scale: 1.25,
+      webglVendor: 'Google Inc. (NVIDIA)',
+      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win10-us-intel-chicago',
+    name: 'Windows 10 · 英语美国 · Intel UHD 630 · 1080p · 芝加哥时区 (稳健办公)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/Chicago',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-gb-london',
+    name: 'Windows 11 · 英语英国 · Intel Iris Xe · 1080p · 伦敦时区 (英国站点)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-GB',
+      languages: ['en-GB', 'en'],
+      acceptLanguage: 'en-GB,en;q=0.9',
+      timezone: 'Europe/London',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-ja-tokyo',
+    name: 'Windows 11 · 日语日本 · Intel UHD · 1080p · 东京时区 (日本站点)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'ja-JP',
+      languages: ['ja-JP', 'ja'],
+      acceptLanguage: 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+      timezone: 'Asia/Tokyo',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics, D3D11)'
+    }
+  },
+  {
+    id: 'win11-de-berlin',
+    name: 'Windows 11 · 德语德国 · AMD Radeon RX 580 · 1080p · 柏林时区 (欧洲德语区)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'de-DE',
+      languages: ['de-DE', 'de', 'en'],
+      acceptLanguage: 'de-DE,de;q=0.9,en;q=0.8',
+      timezone: 'Europe/Berlin',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (AMD)',
+      webglRenderer: 'ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-fr-paris',
+    name: 'Windows 11 · 法语法国 · Intel UHD 630 · 1080p · 巴黎时区 (欧洲法语区)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'fr-FR',
+      languages: ['fr-FR', 'fr', 'en'],
+      acceptLanguage: 'fr-FR,fr;q=0.9,en;q=0.8',
+      timezone: 'Europe/Paris',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-sg-singapore',
+    name: 'Windows 11 · 英语新加坡 · Intel Iris Xe · 1080p · 新加坡时区 (东南亚市场)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-SG',
+      languages: ['en-SG', 'en', 'zh-CN'],
+      acceptLanguage: 'en-SG,en;q=0.9,zh-CN;q=0.8',
+      timezone: 'Asia/Singapore',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'macos-us-m2',
+    name: 'macOS Sonoma · 英语美国 · Apple M2 · 1440×900 (Mac 平台)',
+    data: {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/New_York',
+      cpu: 8,
+      memory: 8,
+      width: 1440,
+      height: 900,
+      availWidth: 1440,
+      availHeight: 860,
+      scale: 2,
+      webglVendor: 'Google Inc. (Apple)',
+      webglRenderer: 'ANGLE (Apple, Apple M2, OpenGL 4.1)'
+    }
+  },
+  {
+    id: 'linux-us-amd',
+    name: 'Linux x86_64 · 英语美国 · AMD Radeon · 1080p (Linux 平台)',
+    data: {
+      platform: 'Linux x86_64',
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/New_York',
+      cpu: 8,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (AMD)',
+      webglRenderer: 'ANGLE (AMD, AMD Radeon RX 580, OpenGL 4.6)'
+    }
+  }
+]
+
+const USER_AGENT_OPTIONS = [
+  { value: '', label: '内核原生（留空使用当前内核原生 User-Agent）' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 138 (推荐)' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 10 · 32 位兼容模式 · Chrome 138' },
+  { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS · Intel / Sonoma · Chrome 138' },
+  { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS 14.4 Sonoma · Chrome 138' },
+  { value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Linux x86_64 · Ubuntu/Debian · Chrome 138' }
+]
+
+const LANGUAGE_OPTIONS = [
+  { value: 'zh-CN', label: 'zh-CN (简体中文 · 中国大陆)', defaultTimezone: 'Asia/Shanghai', defaultLanguages: ['zh-CN', 'zh'], defaultAccept: 'zh-CN,zh;q=0.9' },
+  { value: 'zh-TW', label: 'zh-TW (繁体中文 · 中国台湾)', defaultTimezone: 'Asia/Taipei', defaultLanguages: ['zh-TW', 'zh', 'en-US'], defaultAccept: 'zh-TW,zh;q=0.9,en-US;q=0.8' },
+  { value: 'zh-HK', label: 'zh-HK (繁体中文 · 中国香港)', defaultTimezone: 'Asia/Hong_Kong', defaultLanguages: ['zh-HK', 'zh', 'en-US'], defaultAccept: 'zh-HK,zh;q=0.9,en-US;q=0.8' },
+  { value: 'en-US', label: 'en-US (英语 · 美国)', defaultTimezone: 'America/New_York', defaultLanguages: ['en-US', 'en'], defaultAccept: 'en-US,en;q=0.9' },
+  { value: 'en-GB', label: 'en-GB (英语 · 英国)', defaultTimezone: 'Europe/London', defaultLanguages: ['en-GB', 'en'], defaultAccept: 'en-GB,en;q=0.9' },
+  { value: 'en-CA', label: 'en-CA (英语 · 加拿大)', defaultTimezone: 'America/Toronto', defaultLanguages: ['en-CA', 'en-US', 'en'], defaultAccept: 'en-CA,en-US;q=0.9,en;q=0.8' },
+  { value: 'en-AU', label: 'en-AU (英语 · 澳大利亚)', defaultTimezone: 'Australia/Sydney', defaultLanguages: ['en-AU', 'en-GB', 'en'], defaultAccept: 'en-AU,en-GB;q=0.9,en;q=0.8' },
+  { value: 'en-SG', label: 'en-SG (英语 · 新加坡)', defaultTimezone: 'Asia/Singapore', defaultLanguages: ['en-SG', 'en', 'zh-CN'], defaultAccept: 'en-SG,en;q=0.9,zh-CN;q=0.8' },
+  { value: 'ja-JP', label: 'ja-JP (日语 · 日本)', defaultTimezone: 'Asia/Tokyo', defaultLanguages: ['ja-JP', 'ja'], defaultAccept: 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' },
+  { value: 'ko-KR', label: 'ko-KR (韩语 · 韩国)', defaultTimezone: 'Asia/Seoul', defaultLanguages: ['ko-KR', 'ko'], defaultAccept: 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7' },
+  { value: 'de-DE', label: 'de-DE (德语 · 德国)', defaultTimezone: 'Europe/Berlin', defaultLanguages: ['de-DE', 'de', 'en'], defaultAccept: 'de-DE,de;q=0.9,en;q=0.8' },
+  { value: 'fr-FR', label: 'fr-FR (法语 · 法国)', defaultTimezone: 'Europe/Paris', defaultLanguages: ['fr-FR', 'fr', 'en'], defaultAccept: 'fr-FR,fr;q=0.9,en;q=0.8' },
+  { value: 'es-ES', label: 'es-ES (西班牙语 · 西班牙)', defaultTimezone: 'Europe/Madrid', defaultLanguages: ['es-ES', 'es', 'en'], defaultAccept: 'es-ES,es;q=0.9,en;q=0.8' },
+  { value: 'es-MX', label: 'es-MX (西班牙语 · 墨西哥)', defaultTimezone: 'America/Mexico_City', defaultLanguages: ['es-MX', 'es', 'en'], defaultAccept: 'es-MX,es;q=0.9,en;q=0.8' },
+  { value: 'pt-BR', label: 'pt-BR (葡萄牙语 · 巴西)', defaultTimezone: 'America/Sao_Paulo', defaultLanguages: ['pt-BR', 'pt', 'en'], defaultAccept: 'pt-BR,pt;q=0.9,en;q=0.8' },
+  { value: 'pt-PT', label: 'pt-PT (葡萄牙语 · 葡萄牙)', defaultTimezone: 'Europe/Lisbon', defaultLanguages: ['pt-PT', 'pt', 'en'], defaultAccept: 'pt-PT,pt;q=0.9,en;q=0.8' },
+  { value: 'ru-RU', label: 'ru-RU (俄语 · 俄罗斯)', defaultTimezone: 'Europe/Moscow', defaultLanguages: ['ru-RU', 'ru', 'en'], defaultAccept: 'ru-RU,ru;q=0.9,en;q=0.8' },
+  { value: 'it-IT', label: 'it-IT (意大利语 · 意大利)', defaultTimezone: 'Europe/Rome', defaultLanguages: ['it-IT', 'it', 'en'], defaultAccept: 'it-IT,it;q=0.9,en;q=0.8' },
+  { value: 'nl-NL', label: 'nl-NL (荷兰语 · 荷兰)', defaultTimezone: 'Europe/Amsterdam', defaultLanguages: ['nl-NL', 'nl', 'en'], defaultAccept: 'nl-NL,nl;q=0.9,en;q=0.8' },
+  { value: 'pl-PL', label: 'pl-PL (波兰语 · 波兰)', defaultTimezone: 'Europe/Warsaw', defaultLanguages: ['pl-PL', 'pl', 'en'], defaultAccept: 'pl-PL,pl;q=0.9,en;q=0.8' },
+  { value: 'tr-TR', label: 'tr-TR (土耳其语 · 土耳其)', defaultTimezone: 'Europe/Istanbul', defaultLanguages: ['tr-TR', 'tr', 'en'], defaultAccept: 'tr-TR,tr;q=0.9,en;q=0.8' },
+  { value: 'vi-VN', label: 'vi-VN (越南语 · 越南)', defaultTimezone: 'Asia/Ho_Chi_Minh', defaultLanguages: ['vi-VN', 'vi', 'en-US'], defaultAccept: 'vi-VN,vi;q=0.9,en-US;q=0.8' },
+  { value: 'th-TH', label: 'th-TH (泰语 · 泰国)', defaultTimezone: 'Asia/Bangkok', defaultLanguages: ['th-TH', 'th', 'en-US'], defaultAccept: 'th-TH,th;q=0.9,en-US;q=0.8' },
+  { value: 'id-ID', label: 'id-ID (印尼语 · 印度尼西亚)', defaultTimezone: 'Asia/Jakarta', defaultLanguages: ['id-ID', 'id', 'en-US'], defaultAccept: 'id-ID,id;q=0.9,en-US;q=0.8' },
+  { value: 'ms-MY', label: 'ms-MY (马来语 · 马来西亚)', defaultTimezone: 'Asia/Kuala_Lumpur', defaultLanguages: ['ms-MY', 'ms', 'en-US'], defaultAccept: 'ms-MY,ms;q=0.9,en-US;q=0.8' },
+  { value: 'fil-PH', label: 'fil-PH (菲律宾语 · 菲律宾)', defaultTimezone: 'Asia/Manila', defaultLanguages: ['fil-PH', 'fil', 'en-US'], defaultAccept: 'fil-PH,fil;q=0.9,en-US;q=0.8' },
+  { value: 'ar-SA', label: 'ar-SA (阿拉伯语 · 沙特阿拉伯)', defaultTimezone: 'Asia/Riyadh', defaultLanguages: ['ar-SA', 'ar', 'en'], defaultAccept: 'ar-SA,ar;q=0.9,en;q=0.8' },
+  { value: 'ar-AE', label: 'ar-AE (阿拉伯语 · 阿联酋)', defaultTimezone: 'Asia/Dubai', defaultLanguages: ['ar-AE', 'ar', 'en'], defaultAccept: 'ar-AE,ar;q=0.9,en;q=0.8' },
+  { value: 'hi-IN', label: 'hi-IN (印地语 · 印度)', defaultTimezone: 'Asia/Kolkata', defaultLanguages: ['hi-IN', 'hi', 'en-US'], defaultAccept: 'hi-IN,hi;q=0.9,en-US;q=0.8' },
+  { value: 'sv-SE', label: 'sv-SE (瑞典语 · 瑞典)', defaultTimezone: 'Europe/Stockholm', defaultLanguages: ['sv-SE', 'sv', 'en'], defaultAccept: 'sv-SE,sv;q=0.9,en;q=0.8' }
+]
+
+const ACCEPT_LANGUAGE_OPTIONS = [
+  'zh-CN,zh;q=0.9',
+  'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+  'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+  'zh-HK,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+  'en-US,en;q=0.9',
+  'en-US,en;q=0.9,zh-CN;q=0.8',
+  'en-GB,en;q=0.9',
+  'en-CA,en-US;q=0.9,en;q=0.8',
+  'en-AU,en-GB;q=0.9,en;q=0.8',
+  'en-SG,en;q=0.9,zh-CN;q=0.8',
+  'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+  'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'de-DE,de;q=0.9,en;q=0.8',
+  'fr-FR,fr;q=0.9,en;q=0.8',
+  'es-ES,es;q=0.9,en;q=0.8',
+  'es-MX,es;q=0.9,en;q=0.8',
+  'pt-BR,pt;q=0.9,en;q=0.8',
+  'pt-PT,pt;q=0.9,en;q=0.8',
+  'ru-RU,ru;q=0.9,en;q=0.8',
+  'it-IT,it;q=0.9,en;q=0.8',
+  'nl-NL,nl;q=0.9,en;q=0.8',
+  'pl-PL,pl;q=0.9,en;q=0.8',
+  'tr-TR,tr;q=0.9,en;q=0.8',
+  'vi-VN,vi;q=0.9,en-US;q=0.8',
+  'th-TH,th;q=0.9,en-US;q=0.8',
+  'id-ID,id;q=0.9,en-US;q=0.8',
+  'ms-MY,ms;q=0.9,en-US;q=0.8',
+  'fil-PH,fil;q=0.9,en-US;q=0.8',
+  'ar-SA,ar;q=0.9,en;q=0.8',
+  'ar-AE,ar;q=0.9,en;q=0.8',
+  'hi-IN,hi;q=0.9,en-US;q=0.8',
+  'sv-SE,sv;q=0.9,en;q=0.8'
+]
+
+const LANGUAGES_LIST_OPTIONS = [
+  'zh-CN, zh',
+  'zh-CN, zh, en-US, en',
+  'zh-TW, zh, en-US',
+  'zh-HK, zh, en-US',
+  'en-US, en',
+  'en-US, en, zh-CN',
+  'en-GB, en',
+  'en-CA, en-US, en',
+  'en-AU, en-GB, en',
+  'en-SG, en, zh-CN',
+  'ja-JP, ja',
+  'ja-JP, ja, en-US, en',
+  'ko-KR, ko',
+  'ko-KR, ko, en-US, en',
+  'de-DE, de, en',
+  'fr-FR, fr, en',
+  'es-ES, es, en',
+  'es-MX, es, en',
+  'pt-BR, pt, en',
+  'pt-PT, pt, en',
+  'ru-RU, ru, en',
+  'it-IT, it, en',
+  'nl-NL, nl, en',
+  'pl-PL, pl, en',
+  'tr-TR, tr, en',
+  'vi-VN, vi, en-US',
+  'th-TH, th, en-US',
+  'id-ID, id, en-US',
+  'ms-MY, ms, en-US',
+  'fil-PH, fil, en-US',
+  'ar-SA, ar, en',
+  'ar-AE, ar, en',
+  'hi-IN, hi, en-US',
+  'sv-SE, sv, en'
+]
+
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (中国标准时间 UTC+8 · 北京/上海)' },
+  { value: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong (香港时间 UTC+8)' },
+  { value: 'Asia/Taipei', label: 'Asia/Taipei (台北时间 UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (日本标准时间 UTC+9 · 东京)' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (韩国标准时间 UTC+9 · 首尔)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (新加坡时间 UTC+8)' },
+  { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala_Lumpur (马来西亚时间 UTC+8 · 吉隆坡)' },
+  { value: 'Asia/Bangkok', label: 'Asia/Bangkok (泰国时间 UTC+7 · 曼谷)' },
+  { value: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho_Chi_Minh (越南时间 UTC+7 · 胡志明)' },
+  { value: 'Asia/Jakarta', label: 'Asia/Jakarta (印尼时间 UTC+7 · 雅加达)' },
+  { value: 'Asia/Manila', label: 'Asia/Manila (菲律宾时间 UTC+8 · 马尼拉)' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (阿联酋时间 UTC+4 · 迪拜)' },
+  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (印度标准时间 UTC+5:30 · 新德里)' },
+  { value: 'Asia/Riyadh', label: 'Asia/Riyadh (沙特时间 UTC+3 · 利雅得)' },
+  { value: 'Asia/Almaty', label: 'Asia/Almaty (哈萨克斯坦时间 UTC+5)' },
+  { value: 'America/New_York', label: 'America/New_York (美国东部时间 UTC-5/-4 · 纽约/华盛顿)' },
+  { value: 'America/Chicago', label: 'America/Chicago (美国中部时间 UTC-6/-5 · 芝加哥)' },
+  { value: 'America/Denver', label: 'America/Denver (美国山地时间 UTC-7/-6 · 丹佛)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (美国太平洋时间 UTC-8/-7 · 洛杉矶/西雅图)' },
+  { value: 'America/Phoenix', label: 'America/Phoenix (美国亚利桑那时间 UTC-7 · 无夏令时)' },
+  { value: 'America/Anchorage', label: 'America/Anchorage (美国阿拉斯加时间 UTC-9/-8)' },
+  { value: 'Pacific/Honolulu', label: 'Pacific/Honolulu (美国夏威夷时间 UTC-10 · 檀香山)' },
+  { value: 'America/Toronto', label: 'America/Toronto (加拿大东部时间 UTC-5/-4 · 多伦多)' },
+  { value: 'America/Vancouver', label: 'America/Vancouver (加拿大太平洋时间 UTC-8/-7 · 温哥华)' },
+  { value: 'America/Mexico_City', label: 'America/Mexico_City (墨西哥时间 UTC-6 · 墨西哥城)' },
+  { value: 'Europe/London', label: 'Europe/London (英国时间 UTC+0/+1 · 伦敦)' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (欧洲中部时间 UTC+1/+2 · 德国柏林)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (欧洲中部时间 UTC+1/+2 · 法国巴黎)' },
+  { value: 'Europe/Rome', label: 'Europe/Rome (欧洲中部时间 UTC+1/+2 · 意大利罗马)' },
+  { value: 'Europe/Madrid', label: 'Europe/Madrid (欧洲中部时间 UTC+1/+2 · 西班牙马德里)' },
+  { value: 'Europe/Amsterdam', label: 'Europe/Amsterdam (欧洲中部时间 UTC+1/+2 · 荷兰阿姆斯特丹)' },
+  { value: 'Europe/Brussels', label: 'Europe/Brussels (欧洲中部时间 UTC+1/+2 · 比利时布鲁塞尔)' },
+  { value: 'Europe/Warsaw', label: 'Europe/Warsaw (欧洲中部时间 UTC+1/+2 · 波兰华沙)' },
+  { value: 'Europe/Zurich', label: 'Europe/Zurich (欧洲中部时间 UTC+1/+2 · 瑞士苏黎世)' },
+  { value: 'Europe/Dublin', label: 'Europe/Dublin (爱尔兰时间 UTC+0/+1 · 都柏林)' },
+  { value: 'Europe/Stockholm', label: 'Europe/Stockholm (瑞典时间 UTC+1/+2 · 斯德哥尔摩)' },
+  { value: 'Europe/Moscow', label: 'Europe/Moscow (俄罗斯莫斯科时间 UTC+3)' },
+  { value: 'Europe/Istanbul', label: 'Europe/Istanbul (土耳其时间 UTC+3 · 伊斯坦布尔)' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (澳大利亚东部时间 UTC+10/+11 · 悉尼)' },
+  { value: 'Australia/Melbourne', label: 'Australia/Melbourne (澳大利亚时间 UTC+10/+11 · 墨尔本)' },
+  { value: 'Australia/Brisbane', label: 'Australia/Brisbane (澳大利亚昆士兰时间 UTC+10)' },
+  { value: 'Australia/Perth', label: 'Australia/Perth (澳大利亚西部时间 UTC+8 · 珀斯)' },
+  { value: 'Pacific/Auckland', label: 'Pacific/Auckland (新西兰时间 UTC+12/+13 · 奥克兰)' },
+  { value: 'America/Sao_Paulo', label: 'America/Sao_Paulo (巴西时间 UTC-3 · 圣保罗)' },
+  { value: 'America/Buenos_Aires', label: 'America/Buenos_Aires (阿根廷时间 UTC-3 · 布宜诺斯艾利斯)' }
+]
+
+const PLATFORM_OPTIONS = [
+  { value: 'Win32', label: 'Win32 (Windows 桌面平台 · 推荐)' },
+  { value: 'MacIntel', label: 'MacIntel (macOS 桌面平台 · Intel/Apple Silicon)' },
+  { value: 'Linux x86_64', label: 'Linux x86_64 (Linux 桌面平台 · 64 位)' }
+]
+
+const CPU_OPTIONS = [
+  { value: 2, label: '2 核心 / 线程 (双核基础办公)' },
+  { value: 4, label: '4 核心 / 线程 (主流轻办公)' },
+  { value: 6, label: '6 核心 / 线程 (六核主流配置)' },
+  { value: 8, label: '8 核心 / 线程 (八核主流推荐)' },
+  { value: 12, label: '12 核心 / 线程 (高性能平台)' },
+  { value: 16, label: '16 核心 / 线程 (十六核高配主机)' },
+  { value: 20, label: '20 核心 / 线程 (混合异构多核)' },
+  { value: 24, label: '24 核心 / 线程 (高端工作站)' },
+  { value: 32, label: '32 核心 / 线程 (专业级工作站)' },
+  { value: 64, label: '64 核心 / 线程 (服务器级多核)' }
+]
+
+const MEMORY_OPTIONS = [
+  { value: 1, label: '1 GiB (低配轻量环境)' },
+  { value: 2, label: '2 GiB (入门办公配置)' },
+  { value: 4, label: '4 GiB (标准推荐配置)' },
+  { value: 8, label: '8 GiB (高性能极速推荐)' }
+]
+
+const SCALE_OPTIONS = [
+  { value: 1, label: '1.0 (100% 标准无缩放 · 最常用)' },
+  { value: 1.25, label: '1.25 (125% 笔记本高清推荐)' },
+  { value: 1.5, label: '1.5 (150% 2K/超清推荐)' },
+  { value: 1.75, label: '1.75 (175% 高分屏缩放)' },
+  { value: 2, label: '2.0 (200% Retina / 4K 常见)' },
+  { value: 2.5, label: '2.5 (250% 超高分辨率)' },
+  { value: 3, label: '3.0 (300% 极高分辨率视网膜)' }
+]
+
+const SCREEN_PRESETS = [
+  { label: '1920 × 1080 (1080p 全高清 · 最常见桌面，可用 1920×1040)', width: 1920, height: 1080, availWidth: 1920, availHeight: 1040 },
+  { label: '1366 × 768 (常见办公笔记本，可用 1366×728)', width: 1366, height: 768, availWidth: 1366, availHeight: 728 },
+  { label: '1440 × 900 (16:10 宽屏经典，可用 1440×860)', width: 1440, height: 900, availWidth: 1440, availHeight: 860 },
+  { label: '1536 × 864 (Windows 缩放推荐分辨率，可用 1536×824)', width: 1536, height: 864, availWidth: 1536, availHeight: 824 },
+  { label: '1600 × 900 (HD+ 宽屏，可用 1600×860)', width: 1600, height: 900, availWidth: 1600, availHeight: 860 },
+  { label: '1680 × 1050 (WSXGA+ 宽屏，可用 1680×1010)', width: 1680, height: 1050, availWidth: 1680, availHeight: 1010 },
+  { label: '1280 × 720 (720p 高清，可用 1280×680)', width: 1280, height: 720, availWidth: 1280, availHeight: 680 },
+  { label: '1280 × 800 (16:10 便携本，可用 1280×760)', width: 1280, height: 800, availWidth: 1280, availHeight: 760 },
+  { label: '1280 × 1024 (5:4 传统普屏，可用 1280×984)', width: 1280, height: 1024, availWidth: 1280, availHeight: 984 },
+  { label: '2560 × 1440 (2K QHD 极清超宽，可用 2560×1400)', width: 2560, height: 1440, availWidth: 2560, availHeight: 1400 },
+  { label: '2560 × 1600 (MacBook / 16:10 超清视网膜，可用 2560×1560)', width: 2560, height: 1600, availWidth: 2560, availHeight: 1560 },
+  { label: '3840 × 2160 (4K UHD 极清旗舰屏，可用 3840×2120)', width: 3840, height: 2160, availWidth: 3840, availHeight: 2120 }
+]
+
+const SCREEN_WIDTH_OPTIONS = [1024, 1280, 1366, 1440, 1536, 1600, 1680, 1920, 2560, 3840]
+const SCREEN_HEIGHT_OPTIONS = [720, 768, 800, 864, 900, 1024, 1050, 1080, 1440, 1600, 2160]
+const SCREEN_AVAIL_WIDTH_OPTIONS = [1024, 1280, 1366, 1440, 1536, 1600, 1680, 1920, 2560, 3840]
+const SCREEN_AVAIL_HEIGHT_OPTIONS = [680, 728, 760, 824, 860, 984, 1010, 1040, 1400, 1560, 2120]
+
+const WEBGL_PRESETS = [
+  {
+    name: 'NVIDIA GeForce RTX 3060 (D3D11 · Windows 独立显卡推荐)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'NVIDIA GeForce RTX 4070 (D3D11 · Windows 高端独显)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'NVIDIA GeForce RTX 4060 (D3D11 · Windows 主流独显)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'NVIDIA GeForce RTX 3080 (D3D11 · Windows 旗舰独显)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'NVIDIA GeForce GTX 1660 SUPER (D3D11 · Windows 经典独显)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'NVIDIA GeForce GTX 1060 6GB (D3D11 · Windows 常见独显)',
+    vendor: 'Google Inc. (NVIDIA)',
+    renderer: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'Intel(R) UHD Graphics (D3D11 · Windows 官方通用核显)',
+    vendor: 'Google Inc. (Intel)',
+    renderer: 'ANGLE (Intel, Intel(R) UHD Graphics, D3D11)'
+  },
+  {
+    name: 'Intel(R) UHD Graphics 630 (D3D11 · Windows 酷睿办公核显)',
+    vendor: 'Google Inc. (Intel)',
+    renderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'Intel(R) Iris(R) Xe Graphics (D3D11 · Windows 锐炬轻薄本核显)',
+    vendor: 'Google Inc. (Intel)',
+    renderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'Intel(R) HD Graphics 530 (D3D11 · Windows 经典核显)',
+    vendor: 'Google Inc. (Intel)',
+    renderer: 'ANGLE (Intel, Intel(R) HD Graphics 530 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'AMD Radeon RX 580 (D3D11 · Windows AMD 独立显卡)',
+    vendor: 'Google Inc. (AMD)',
+    renderer: 'ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'AMD Radeon(TM) Graphics (D3D11 · Windows 锐龙核显)',
+    vendor: 'Google Inc. (AMD)',
+    renderer: 'ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'AMD Radeon RX 6600 (D3D11 · Windows AMD 中端独显)',
+    vendor: 'Google Inc. (AMD)',
+    renderer: 'ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'AMD Radeon RX 6700 XT (D3D11 · Windows AMD 高端独显)',
+    vendor: 'Google Inc. (AMD)',
+    renderer: 'ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    name: 'Apple M1 (OpenGL 4.1 · macOS Apple Silicon)',
+    vendor: 'Google Inc. (Apple)',
+    renderer: 'ANGLE (Apple, Apple M1, OpenGL 4.1)'
+  },
+  {
+    name: 'Apple M2 (OpenGL 4.1 · macOS Apple Silicon)',
+    vendor: 'Google Inc. (Apple)',
+    renderer: 'ANGLE (Apple, Apple M2, OpenGL 4.1)'
+  },
+  {
+    name: 'Apple M3 (OpenGL 4.1 · macOS Apple Silicon)',
+    vendor: 'Google Inc. (Apple)',
+    renderer: 'ANGLE (Apple, Apple M3, OpenGL 4.1)'
+  },
+  {
+    name: 'AMD Radeon RX 580 (OpenGL 4.6 · Linux 平台)',
+    vendor: 'Google Inc. (AMD)',
+    renderer: 'ANGLE (AMD, AMD Radeon RX 580, OpenGL 4.6)'
+  },
+  {
+    name: 'Intel(R) UHD Graphics 630 (OpenGL 4.6 · Linux 平台)',
+    vendor: 'Google Inc. (Intel)',
+    renderer: 'ANGLE (Mesa, Mesa Intel(R) UHD Graphics 630, OpenGL 4.6)'
+  }
+]
+
+const WEBGL_VENDOR_OPTIONS = [
+  { value: 'Google Inc. (NVIDIA)', label: 'Google Inc. (NVIDIA) - 英伟达显卡' },
+  { value: 'Google Inc. (Intel)', label: 'Google Inc. (Intel) - 英特尔显卡' },
+  { value: 'Google Inc. (AMD)', label: 'Google Inc. (AMD) - 超威半导体显卡' },
+  { value: 'Google Inc. (Apple)', label: 'Google Inc. (Apple) - 苹果芯片显卡' },
+  { value: 'Google Inc. (Google)', label: 'Google Inc. (Google) - 软件虚拟渲染' }
+]
+
+const WEBGL_RENDERER_OPTIONS = [
+  'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (Intel, Intel(R) UHD Graphics, D3D11)',
+  'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (Intel, Intel(R) HD Graphics 530 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  'ANGLE (Apple, Apple M1, OpenGL 4.1)',
+  'ANGLE (Apple, Apple M2, OpenGL 4.1)',
+  'ANGLE (Apple, Apple M3, OpenGL 4.1)',
+  'ANGLE (AMD, AMD Radeon RX 580, OpenGL 4.6)',
+  'ANGLE (Mesa, Mesa Intel(R) UHD Graphics 630, OpenGL 4.6)'
+]
+
+const URL_PRESETS = [
+  { value: 'https://example.com', label: '默认测试空白页 (https://example.com)' },
+  { value: 'https://whoer.net', label: 'Whoer 指纹与伪装度检测 (https://whoer.net)' },
+  { value: 'https://browserleaks.com/ip', label: 'BrowserLeaks IP 与指纹检测 (https://browserleaks.com/ip)' },
+  { value: 'https://pixelscan.net', label: 'Pixelscan 机器人与风险检测 (https://pixelscan.net)' },
+  { value: 'https://ipinfo.io', label: 'IPinfo IP 地理位置查询 (https://ipinfo.io)' },
+  { value: 'https://www.google.com', label: 'Google 谷歌搜索 (https://www.google.com)' },
+  { value: 'https://www.amazon.com', label: 'Amazon 亚马逊商城 (https://www.amazon.com)' },
+  { value: 'https://www.ebay.com', label: 'eBay 跨境电商平台 (https://www.ebay.com)' },
+  { value: 'https://www.tiktok.com', label: 'TikTok 海外短视频 (https://www.tiktok.com)' },
+  { value: 'https://www.facebook.com', label: 'Facebook 社交平台 (https://www.facebook.com)' },
+  { value: 'https://www.instagram.com', label: 'Instagram 社交平台 (https://www.instagram.com)' },
+  { value: 'https://twitter.com', label: 'X / Twitter 平台 (https://twitter.com)' },
+  { value: 'https://www.youtube.com', label: 'YouTube 视频平台 (https://www.youtube.com)' },
+  { value: 'about:blank', label: '空白新标签页 (about:blank)' }
+]
+
+const NAME_PRESETS = [
+  '美国旗舰店 · 运营',
+  '美国站点 · 广告投放',
+  '英国品牌站 · 主账号',
+  '欧洲市场 · 跨境电商',
+  '日本独立站 · 营销推广',
+  '德国业务 · 客服专员',
+  'TikTok 运营 · 账号 01',
+  '社媒推广 · Facebook 矩阵',
+  '亚马逊测评 · 买家号',
+  '日常备用 · 独立环境'
+]
+
+const PROXY_PRESETS = [
+  { mode: 'http', server: 'http://198.51.100.24:8080', label: '美国静态代理 03 (HTTP · 198.51.100.24:8080)' },
+  { mode: 'socks5', server: 'socks5://203.0.113.56:1080', label: '英国业务代理 01 (SOCKS5 · 203.0.113.56:1080)' },
+  { mode: 'http', server: 'http://203.0.113.80:8080', label: '德国客服代理 01 (HTTP · 203.0.113.80:8080)' },
+  { mode: 'socks5', server: 'socks5://192.0.2.46:1080', label: '日本内容代理 01 (SOCKS5 · 192.0.2.46:1080)' }
+]
+
+function applyFingerprintPreset (presetId, targetDraft) {
+  const preset = FINGERPRINT_PRESETS.find(p => p.id === presetId)
+  if (!preset || !targetDraft?.fingerprint) return
+  const fp = targetDraft.fingerprint
+  fp.hardware.platform = preset.data.platform
+  fp.browser.userAgent = preset.data.userAgent
+  fp.locale.language = preset.data.language
+  fp.locale.languages = cloneValue(preset.data.languages)
+  fp.browser.acceptLanguage = preset.data.acceptLanguage
+  fp.locale.timezone = preset.data.timezone
+  fp.hardware.hardwareConcurrency = preset.data.cpu
+  fp.hardware.deviceMemory = preset.data.memory
+  fp.screen.width = preset.data.width
+  fp.screen.height = preset.data.height
+  fp.screen.availWidth = preset.data.availWidth
+  fp.screen.availHeight = preset.data.availHeight
+  fp.screen.deviceScaleFactor = preset.data.scale
+  fp.graphics.webglVendor = preset.data.webglVendor
+  fp.graphics.webglRenderer = preset.data.webglRenderer
+  if (targetDraft === draft) {
+    render()
+  } else if (currentEnvironment) {
+    const dialogBody = document.querySelector('.dialog.environment-edit .card-body')
+    if (dialogBody) dialogBody.innerHTML = environmentEditDialog(currentEnvironment)
+  }
+  toast(`已应用指纹预设：${preset.name.split(' (')[0]}`)
+}
+
+function applyScreenPreset (index, targetDraft) {
+  const preset = SCREEN_PRESETS[index]
+  if (!preset || !targetDraft?.fingerprint) return
+  const fp = targetDraft.fingerprint
+  fp.screen.width = preset.width
+  fp.screen.height = preset.height
+  fp.screen.availWidth = preset.availWidth
+  fp.screen.availHeight = preset.availHeight
+  if (targetDraft === draft) {
+    render()
+  } else if (currentEnvironment) {
+    const dialogBody = document.querySelector('.dialog.environment-edit .card-body')
+    if (dialogBody) dialogBody.innerHTML = environmentEditDialog(currentEnvironment)
+  }
+  toast(`已应用屏幕分辨率：${preset.label.split(' ')[0]}`)
+}
+
+function applyWebglPreset (index, targetDraft) {
+  const preset = WEBGL_PRESETS[index]
+  if (!preset || !targetDraft?.fingerprint) return
+  const fp = targetDraft.fingerprint
+  fp.graphics.webglVendor = preset.vendor
+  fp.graphics.webglRenderer = preset.renderer
+  if (targetDraft === draft) {
+    render()
+  } else if (currentEnvironment) {
+    const dialogBody = document.querySelector('.dialog.environment-edit .card-body')
+    if (dialogBody) dialogBody.innerHTML = environmentEditDialog(currentEnvironment)
+  }
+  toast(`已应用显卡预设：${preset.name.split(' (')[0]}`)
+}
+
+function applyLanguagePreset (langVal, targetDraft) {
+  const option = LANGUAGE_OPTIONS.find(o => o.value === langVal)
+  if (!option || !targetDraft?.fingerprint) return
+  const fp = targetDraft.fingerprint
+  fp.locale.language = option.value
+  fp.locale.languages = cloneValue(option.defaultLanguages)
+  fp.browser.acceptLanguage = option.defaultAccept
+  if (option.defaultTimezone) fp.locale.timezone = option.defaultTimezone
+  if (targetDraft === draft) {
+    render()
+  } else if (currentEnvironment) {
+    const dialogBody = document.querySelector('.dialog.environment-edit .card-body')
+    if (dialogBody) dialogBody.innerHTML = environmentEditDialog(currentEnvironment)
+  }
+}
+
 function renderFingerprintFields (targetDraft = draft, options = {}) {
   const fingerprint = targetDraft.fingerprint
   if (!fingerprint) return `<div class="notice warning">${icon('sync')}正在生成本机推荐指纹，请稍候。</div>`
   const scope = options.scope ? ` data-fingerprint-scope="${options.scope}"` : ''
   const disabled = options.disabled ? ' disabled' : ''
+  const select = (path, label, value, optionsList, extraAttr = '') => {
+    let hasCurrent = false
+    const renderedOptions = optionsList.map(item => {
+      const optVal = typeof item === 'object' && item !== null && 'value' in item ? item.value : item
+      const optLabel = typeof item === 'object' && item !== null && 'label' in item ? item.label : String(item)
+      const selected = String(optVal) === String(value)
+      if (selected) hasCurrent = true
+      return `<option value="${escapeHTML(optVal)}" ${selected ? 'selected' : ''}>${escapeHTML(optLabel)}</option>`
+    })
+    const fallbackOption = (!hasCurrent && value !== undefined && value !== null && value !== '')
+      ? `<option value="${escapeHTML(Array.isArray(value) ? value.join(', ') : value)}" selected>当前值: ${escapeHTML(Array.isArray(value) ? value.join(', ') : value)}</option>`
+      : ''
+    return `<label class="field"><span>${label}</span><select${scope}${disabled} data-fingerprint-path="${path}"${typeof value === 'number' ? ' data-fingerprint-type="number"' : ''}${extraAttr}>${fallbackOption}${renderedOptions.join('')}</select></label>`
+  }
   const text = (path, label, value, placeholder = '') => `<label class="field"><span>${label}</span><input${scope}${disabled} data-fingerprint-path="${path}" value="${escapeHTML(value ?? '')}" placeholder="${escapeHTML(placeholder)}" spellcheck="false"></label>`
-  const number = (path, label, value, min = 1) => `<label class="field"><span>${label}</span><input${scope}${disabled} data-fingerprint-path="${path}" data-fingerprint-type="number" type="number" min="${min}" step="${min < 1 ? min : 1}" value="${escapeHTML(value)}"></label>`
-  const select = (path, label, value, values) => `<label class="field"><span>${label}</span><select${scope}${disabled} data-fingerprint-path="${path}"${typeof value === 'number' ? ' data-fingerprint-type="number"' : ''}>${values.map(option => `<option value="${escapeHTML(option)}" ${option === value ? 'selected' : ''}>${escapeHTML(option)}</option>`).join('')}</select></label>`
   const toggle = (path, label, checked) => `<label class="radio-card"><input${scope}${disabled} type="checkbox" data-fingerprint-path="${path}" ${checked ? 'checked' : ''}><span>${label}</span></label>`
   const modules = [['ua', '用户代理'], ['clientHints', '客户端提示'], ['locale', '语言'], ['timezone', '时区'], ['navigator', '设备参数'], ['screen', '屏幕参数'], ['webgl', '图形参数'], ['canvas', '画布'], ['audio', '音频'], ['fonts', '字体'], ['webrtc', 'WebRTC'], ['runtimeInspector', '调试器兼容']]
-  const templateOption = options.hideTemplateActions ? '' : `<div class="template-option"><div><b>本机推荐指纹 · 可自定义</b><p>自动生成初始值，修改后会保存为该环境的独立指纹快照。</p></div><div>${btn('重新生成', 'regenerate-fingerprint', 'small', 'type="button"')} ${btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}</div></div>`
+
+  const presetSelector = `<div class="template-option" style="flex-direction:column;align-items:stretch;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><b>指纹方案快速预设 · 一键套用</b><p>选择下方推荐组合可一键配置系统、UA、语言、屏幕及显卡，支持在此基础上按项自选微调。</p></div>
+      ${options.hideTemplateActions ? '' : `<div>${btn('重新生成', 'regenerate-fingerprint', 'small', 'type="button"')} ${btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}</div>`}
+    </div>
+    <select${scope}${disabled} data-action="fingerprint-preset-change" style="width:100%;height:38px;padding:0 10px;border-radius:6px;border:1px solid #c9d5fa;background:#fff;color:#2c3e50;font-size:12px">
+      <option value="">-- 选择推荐指纹组合方案（一键应用） --</option>
+      ${FINGERPRINT_PRESETS.map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('')}
+    </select>
+  </div>`
+
   const seed = options.hideSeed ? `<div class="info-box">稳定指纹种子：<span class="mono">${escapeHTML(fingerprint.noise.seed)}</span><br>用于保持该环境的指纹稳定，创建后不可编辑。</div>` : text('noise.seed', '指纹种子', fingerprint.noise.seed, '自动生成的独立种子')
-  return `${templateOption}
-    <section><h3>浏览器与语言</h3><div class="form-row">${text('browser.userAgent', '用户代理（留空使用内核默认值）', fingerprint.browser.userAgent, '留空使用当前内核')}</div><div class="form-row">${text('browser.acceptLanguage', '请求语言', fingerprint.browser.acceptLanguage)}${text('locale.language', '主要语言', fingerprint.locale.language)}</div><div class="form-row">${text('locale.languages', '语言列表（逗号分隔）', fingerprint.locale.languages.join(', '))}${text('locale.timezone', '时区', fingerprint.locale.timezone, '例如 Asia/Shanghai')}</div></section>
-    <div class="form-divider"></div><section><h3>设备与屏幕</h3><div class="form-row">${select('hardware.platform', '操作系统平台', fingerprint.hardware.platform, ['Win32', 'MacIntel', 'Linux x86_64'])}${number('hardware.hardwareConcurrency', 'CPU 线程数', fingerprint.hardware.hardwareConcurrency)}</div><div class="form-row">${select('hardware.deviceMemory', '网页可见内存（GiB）', fingerprint.hardware.deviceMemory, [1, 2, 4, 8])}${number('screen.deviceScaleFactor', '屏幕缩放', fingerprint.screen.deviceScaleFactor, 0.1)}</div><div class="form-row">${number('screen.width', '屏幕宽度', fingerprint.screen.width)}${number('screen.height', '屏幕高度', fingerprint.screen.height)}</div><div class="form-row">${number('screen.availWidth', '可用宽度', fingerprint.screen.availWidth)}${number('screen.availHeight', '可用高度', fingerprint.screen.availHeight)}</div></section>
-    <div class="form-divider"></div><section><h3>图形与噪声</h3><div class="form-row">${text('graphics.webglVendor', 'WebGL 厂商', fingerprint.graphics.webglVendor)}${text('graphics.webglRenderer', 'WebGL 渲染器', fingerprint.graphics.webglRenderer)}</div>${seed}<div class="radio-cards">${toggle('noise.canvas', 'Canvas 噪声', fingerprint.noise.canvas)}${toggle('noise.audio', 'Audio 噪声', fingerprint.noise.audio)}${toggle('noise.rects', '元素尺寸噪声', fingerprint.noise.rects)}</div></section>
+
+  return `${presetSelector}
+    <section><h3>浏览器与语言</h3>
+      <div class="form-row">
+        ${select('browser.userAgent', '用户代理（User-Agent）', fingerprint.browser.userAgent ?? '', USER_AGENT_OPTIONS)}
+        ${select('locale.language', '主要语言（Language）', fingerprint.locale.language, LANGUAGE_OPTIONS, ' data-action="fingerprint-language-change"')}
+      </div>
+      <div class="form-row">
+        ${select('browser.acceptLanguage', '请求语言（Accept-Language）', fingerprint.browser.acceptLanguage, ACCEPT_LANGUAGE_OPTIONS)}
+        ${select('locale.languages', '语言列表（Languages）', fingerprint.locale.languages.join(', '), LANGUAGES_LIST_OPTIONS)}
+      </div>
+      <div class="form-row">
+        ${select('locale.timezone', '时区（Timezone）', fingerprint.locale.timezone, TIMEZONE_OPTIONS)}
+      </div>
+    </section>
+    <div class="form-divider"></div>
+    <section><h3>设备与屏幕</h3>
+      <div class="form-row">
+        ${select('hardware.platform', '操作系统平台（Platform）', fingerprint.hardware.platform, PLATFORM_OPTIONS)}
+        ${select('hardware.hardwareConcurrency', 'CPU 线程数', fingerprint.hardware.hardwareConcurrency, CPU_OPTIONS)}
+      </div>
+      <div class="form-row">
+        ${select('hardware.deviceMemory', '网页可见内存（GiB）', fingerprint.hardware.deviceMemory, MEMORY_OPTIONS)}
+        ${select('screen.deviceScaleFactor', '屏幕缩放比例', fingerprint.screen.deviceScaleFactor, SCALE_OPTIONS)}
+      </div>
+      <div class="form-row">
+        <label class="field" style="grid-column: span 2">
+          <span>常用屏幕分辨率预设（一键切换宽、高与可用工作区）</span>
+          <select${scope}${disabled} data-action="screen-preset-change">
+            <option value="">-- 选择常用分辨率预设组合 --</option>
+            ${SCREEN_PRESETS.map((p, idx) => `<option value="${idx}">${escapeHTML(p.label)}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        ${select('screen.width', '屏幕宽度（Width）', fingerprint.screen.width, SCREEN_WIDTH_OPTIONS)}
+        ${select('screen.height', '屏幕高度（Height）', fingerprint.screen.height, SCREEN_HEIGHT_OPTIONS)}
+      </div>
+      <div class="form-row">
+        ${select('screen.availWidth', '可用宽度（Avail Width）', fingerprint.screen.availWidth, SCREEN_AVAIL_WIDTH_OPTIONS)}
+        ${select('screen.availHeight', '可用高度（Avail Height）', fingerprint.screen.availHeight, SCREEN_AVAIL_HEIGHT_OPTIONS)}
+      </div>
+    </section>
+    <div class="form-divider"></div>
+    <section><h3>图形与噪声</h3>
+      <div class="form-row">
+        <label class="field" style="grid-column: span 2">
+          <span>常用 WebGL 显卡预设（一键同步厂商与渲染引擎）</span>
+          <select${scope}${disabled} data-action="webgl-preset-change">
+            <option value="">-- 选择常见独立显卡 / 核显预设 --</option>
+            ${WEBGL_PRESETS.map((p, idx) => `<option value="${idx}">${escapeHTML(p.name)}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        ${select('graphics.webglVendor', 'WebGL 厂商（Vendor）', fingerprint.graphics.webglVendor, WEBGL_VENDOR_OPTIONS)}
+        ${select('graphics.webglRenderer', 'WebGL 渲染器（Renderer）', fingerprint.graphics.webglRenderer, WEBGL_RENDERER_OPTIONS)}
+      </div>
+      ${seed}
+      <div class="radio-cards">
+        ${toggle('noise.canvas', 'Canvas 噪声', fingerprint.noise.canvas)}
+        ${toggle('noise.audio', 'Audio 噪声', fingerprint.noise.audio)}
+        ${toggle('noise.rects', '元素尺寸噪声', fingerprint.noise.rects)}
+      </div>
+    </section>
     <details class="advanced"><summary>指纹模块开关</summary><div class="radio-cards">${modules.map(([key, label]) => toggle(`modules.${key}`, label, fingerprint.modules[key])).join('')}</div><small>关闭模块时使用内核原生行为；配置保存成功不代表已通过所有网站检测。</small></details>
     <div class="form-divider"></div>${btn('检查配置组合', 'preview-fingerprint', 'small', `type="button"${scope}`)}<div data-fingerprint-review="${options.scope || 'wizard'}" role="status" aria-live="polite"></div>`
 }
@@ -519,16 +1296,18 @@ function environmentGroupDialog (environment) {
 }
 function environmentEditDialog (environment) {
   const raw = environment.raw
-  const running = raw.status === 'open'
+  const running = Boolean(raw?.status === 'open' || environment.state === '运行中')
   const proxy = raw.proxy || { mode: 'direct', server: '', username: '', password: '' }
   const groupOptions = groupNames().map(group => `<option ${group === environment.group ? 'selected' : ''}>${escapeHTML(group)}</option>`).join('')
+  const closeAndEditBtn = `<button class="button small" type="button" data-action="close-env-and-edit" data-id="${escapeHTML(environment.id)}" style="margin-left:12px">关闭环境并编辑</button>`
   const proxyFields = running
-    ? `<div class="notice warning">${icon('lock')}当前环境正在运行，代理配置已锁定。关闭环境后可编辑代理，修改将在下次启动时生效。</div>`
+    ? `<div class="notice warning">${icon('lock')}当前环境正在运行，代理配置已锁定。关闭环境后可编辑代理，修改将在下次启动时生效。${closeAndEditBtn}</div>`
     : `<h3>代理配置</h3><div class="form-row"><label class="field"><span>网络方式</span><select name="proxyMode" id="environment-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>代理地址</span><input name="proxyServer" type="url" value="${escapeHTML(proxy.server)}" placeholder="http://服务器地址:端口" spellcheck="false"></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><small>修改代理后需要重新打开环境，连接失败时不会自动切换为直连。</small>`
   const fingerprint = running
-    ? `<h3>指纹参数</h3><div class="notice warning">${icon('lock')}当前环境正在运行，指纹参数已锁定。关闭环境后可编辑，修改将在下次启动时生效。</div>`
+    ? `<h3>指纹参数</h3><div class="notice warning">${icon('lock')}当前环境正在运行，指纹参数已锁定。关闭环境后可编辑，修改将在下次启动时生效。${closeAndEditBtn}</div>`
     : `<h3>指纹参数</h3>${renderFingerprintFields(environmentEditDraft, { scope: 'environment', hideTemplateActions: true, hideSeed: true })}`
-  return `<form id="environment-edit-form" novalidate><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="metadataRevision" value="${escapeHTML(raw.metadataRevision)}"><input type="hidden" name="profileRevision" value="${escapeHTML(raw.profileRevision)}"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(raw.profileName)}"></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupOptions}</select></label><label class="field"><span>保存方式</span><input value="${raw.storage === 'cloud' ? '云同步（当前未接通）' : '仅本地'}" disabled></label></div><label class="field"><span>启动网址</span><input type="url" name="creationUrl" required value="${escapeHTML(raw.creationUrl)}"><small>只修改下次启动地址；最近访问地址由浏览器自动记录。</small></label><div class="form-divider"></div>${proxyFields}<div class="form-divider"></div>${fingerprint}<div class="form-divider"></div><div class="notice">${icon('lock')}环境 ID、数据目录、创建时间、来源配置 ID、配置版本、最近访问地址和稳定指纹种子不可编辑。</div></form>`
+  const editUrlFields = `<div class="form-row"><label class="field"><span>启动网址预设</span><select data-action="preset-edit-url"><option value="">-- 选择常用网址 --</option>${URL_PRESETS.map(u => `<option value="${u.value}" ${raw.creationUrl === u.value ? 'selected' : ''}>${escapeHTML(u.label)}</option>`).join('')}</select></label><label class="field"><span>启动网址<span class="required">*</span></span><input type="url" name="creationUrl" id="environment-edit-url-input" required value="${escapeHTML(raw.creationUrl)}"><small>只修改下次启动地址；最近访问地址由浏览器自动记录。</small></label></div>`
+  return `<form id="environment-edit-form" novalidate><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="metadataRevision" value="${escapeHTML(raw.metadataRevision)}"><input type="hidden" name="profileRevision" value="${escapeHTML(raw.profileRevision)}"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(raw.profileName)}"></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupOptions}</select></label><label class="field"><span>保存方式</span><input value="${raw.storage === 'cloud' ? '云同步（当前未接通）' : '仅本地'}" disabled></label></div>${editUrlFields}<div class="form-divider"></div>${proxyFields}<div class="form-divider"></div>${fingerprint}<div class="form-divider"></div><div class="notice">${icon('lock')}环境 ID、数据目录、创建时间、来源配置 ID、配置版本、最近访问地址和稳定指纹种子不可编辑。</div></form>`
 }
 function environmentPage(empty = false) {
   const { total, pageCount } = pagedEnvironments()
@@ -544,10 +1323,10 @@ function createPage() {
   const proxy = draft.proxy || { mode: 'direct', server: '', username: '', password: '' }
   const proxyLabel = proxy.mode === 'direct' ? '直连（不使用代理）' : proxy.server || '待填写代理地址'
   let fields = ''
-  if (wizardStep === 1) fields = `<label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队找到正确环境。</small></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupNames().map(g => `<option ${g === draft.group ? 'selected' : ''}>${escapeHTML(g)}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><label class="field"><span>启动网址</span><input type="url" value="${escapeHTML(draft.url)}" name="url"><small>示例网址，可在创建后修改。</small></label><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
-  if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div><div class="notice warning">${icon('alert')}网络出口位置尚未验证。创建后请在同一环境中检查公网 IP 地理位置，并将语言、地区和时区作为一组校验；代理地址本身不能证明出口所在地区。</div>`
-   if (wizardStep === 3) fields = renderFingerprintFields()
-   return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-item"><span>指纹摘要</span><b id="preview-fingerprint">${draft.fingerprint ? `${draft.fingerprint.locale.language} · ${draft.fingerprint.hardware.platform} · ${draft.fingerprint.screen.width} × ${draft.fingerprint.screen.height}` : '正在生成'}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络和指纹设置；代理连接失败时不会自动改为直连。</p></aside></div>`
+  if (wizardStep === 1) fields = `<div class="form-row"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" id="wizard-name-input" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队快速识别环境。</small></label><label class="field"><span>常用环境名称模板</span><select data-action="preset-name"><option value="">-- 选择快速填充环境名称 --</option>${NAME_PRESETS.map(n => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}</select><small>点击下拉选项快速填充左侧环境名称，也可继续编辑。</small></label></div><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupNames().map(g => `<option ${g === draft.group ? 'selected' : ''}>${escapeHTML(g)}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><div class="form-row"><label class="field"><span>启动网址预设</span><select data-action="preset-url"><option value="">-- 选择常用业务或检测网址 --</option>${URL_PRESETS.map(u => `<option value="${u.value}" ${draft.url === u.value ? 'selected' : ''}>${escapeHTML(u.label)}</option>`).join('')}</select><small>下拉快速选取常用网址，支持在右侧输入框自定义。</small></label><label class="field"><span>启动网址（确认地址）<span class="required">*</span></span><input type="url" id="wizard-url-input" value="${escapeHTML(draft.url)}" name="url" required><small>示例网址，创建后可在环境中随时调整。</small></label></div><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
+  if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<div class="form-row"><label class="field"><span>常用代理资源预设</span><select data-action="preset-proxy"><option value="">-- 选择预设代理快捷填入 --</option>${PROXY_PRESETS.filter(p => p.mode === proxy.mode).map(p => `<option value="${escapeHTML(p.server)}">${escapeHTML(p.label)}</option>`).join('')}</select><small>可直接从常用资源下拉选取，或在右侧输入框填写真实代理。</small></label><label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" id="wizard-proxy-server-input" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div><div class="notice warning">${icon('alert')}网络出口位置尚未验证。创建后请在同一环境中检查公网 IP 地理位置，并将语言、地区和时区作为一组校验；代理地址本身不能证明出口所在地区。</div>`
+  if (wizardStep === 3) fields = renderFingerprintFields()
+  return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-item"><span>指纹摘要</span><b id="preview-fingerprint">${draft.fingerprint ? `${draft.fingerprint.locale.language} · ${draft.fingerprint.hardware.platform} · ${draft.fingerprint.screen.width} × ${draft.fingerprint.screen.height}` : '正在生成'}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络和指纹设置；代理连接失败时不会自动改为直连。</p></aside></div>`
 }
 function proxiesPage() {
   const items = [['美国静态代理 03', 'HTTP', '美国 · 纽约', '198.51.100.24:8080', '126 ms', '2', '可用'], ['英国业务代理 01', 'SOCKS5', '英国 · 伦敦', '203.0.113.56:1080', '158 ms', '1', '可用'], ['法国内容代理 02', 'HTTP', '法国 · 巴黎', '192.0.2.18:8080', '—', '1', '连接失败'], ['德国客服代理 01', 'HTTP', '德国 · 柏林', '203.0.113.80:8080', '142 ms', '1', '可用'], ['日本内容代理 01', 'SOCKS5', '日本 · 东京', '192.0.2.46:1080', '86 ms', '1', '可用']]
@@ -692,8 +1471,27 @@ document.addEventListener('click', event => {
     }
     case 'edit-environment': {
       if (!e) return toast('找不到该环境，请刷新后重试。')
+      currentEnvironment = e
       environmentEditDraft = { fingerprint: cloneValue(e.raw.fingerprint) }
       dialog(`编辑“${escapeHTML(e.name)}”`, environmentEditDialog(e), '<button class="button" type="button" data-action="close-overlay">取消</button><button class="button primary" type="submit" form="environment-edit-form">保存修改</button>', 'environment-edit')
+      break
+    }
+    case 'close-env-and-edit': {
+      if (!e) return toast('找不到该环境，请刷新后重试。')
+      void (async () => {
+        try {
+          const response = await window.browserApi.closeEnvironment(e.id)
+          if (!response?.ok) throw new Error(response?.error || '关闭浏览器环境失败。')
+          applyEnvironmentSnapshot(response.environments)
+          const updated = environments.find(item => item.id === e.id) || e
+          currentEnvironment = updated
+          environmentEditDraft = { fingerprint: cloneValue(updated.raw.fingerprint) }
+          dialog(`编辑“${escapeHTML(updated.name)}”`, environmentEditDialog(updated), '<button class="button" type="button" data-action="close-overlay">取消</button><button class="button primary" type="submit" form="environment-edit-form">保存修改</button>', 'environment-edit')
+          toast('环境已关闭，现可编辑代理与指纹参数。')
+        } catch (error) {
+          toast(error?.message || '关闭环境失败，请重试。')
+        }
+      })()
       break
     }
     case 'detail-tab': {
@@ -790,21 +1588,27 @@ document.addEventListener('click', event => {
   }
 })
 
+function handleFingerprintFieldEvent (event) {
+  const target = event.target
+  if (!target.dataset.fingerprintPath) return
+  const targetDraft = target.dataset.fingerprintScope === 'environment' ? environmentEditDraft : draft
+  if (!targetDraft?.fingerprint) return
+  let value = target.type === 'checkbox' ? target.checked : target.value
+  if (target.dataset.fingerprintType === 'number') value = target.value === '' ? '' : Number(target.value)
+  if (target.dataset.fingerprintPath === 'browser.userAgent' && value === '') value = null
+  if (target.dataset.fingerprintPath === 'locale.languages') {
+    value = Array.isArray(value) ? value : String(value).split(/[,，]/).map(item => item.trim()).filter(Boolean)
+  }
+  setFingerprintField(target.dataset.fingerprintPath, value, targetDraft)
+  const review = document.querySelector(`[data-fingerprint-review="${targetDraft === draft ? 'wizard' : 'environment'}"]`)
+  if (review) review.textContent = '配置已修改，请重新检查。'
+}
+
 document.addEventListener('input', event => {
   if (event.target.id === 'env-search') { searchTerm = event.target.value; environmentPageNumber = 1; refreshRows() }
   if (event.target.name === 'name' && event.target.closest('#wizard-form')) document.getElementById('preview-name').textContent = event.target.value
-  if (event.target.dataset.fingerprintPath) {
-    const target = event.target
-    const targetDraft = target.dataset.fingerprintScope === 'environment' ? environmentEditDraft : draft
-    if (!targetDraft?.fingerprint) return
-    let value = target.type === 'checkbox' ? target.checked : target.value
-    if (target.dataset.fingerprintType === 'number') value = target.value === '' ? '' : Number(target.value)
-    if (target.dataset.fingerprintPath === 'browser.userAgent' && value === '') value = null
-    if (target.dataset.fingerprintPath === 'locale.languages') value = String(value).split(/[,，]/).map(item => item.trim()).filter(Boolean)
-    setFingerprintField(target.dataset.fingerprintPath, value, targetDraft)
-    const review = document.querySelector(`[data-fingerprint-review="${targetDraft === draft ? 'wizard' : 'environment'}"]`)
-    if (review) review.textContent = '配置已修改，请重新检查。'
-  }
+  if (event.target.name === 'url' && event.target.closest('#wizard-form')) draft.url = event.target.value
+  handleFingerprintFieldEvent(event)
   const proxyField = { proxyServer: 'server', proxyUsername: 'username', proxyPassword: 'password' }[event.target.name]
   if (proxyField && event.target.closest('#wizard-form')) {
     draft.proxy[proxyField] = event.target.value
@@ -818,6 +1622,53 @@ document.addEventListener('change', event => {
   if (target.id === 'environment-sort') { environmentSort = target.value; environmentPageNumber = 1; refreshRows() }
   if (target.dataset.select) { target.checked ? selected.add(target.dataset.select) : selected.delete(target.dataset.select); refreshRows() }
   if (target.id === 'select-all') { pagedEnvironments().list.forEach(e => target.checked ? selected.add(e.id) : selected.delete(e.id)); refreshRows() }
+
+  const targetDraft = target.dataset.fingerprintScope === 'environment' ? environmentEditDraft : draft
+  if (target.dataset.action === 'fingerprint-preset-change' && target.value) {
+    applyFingerprintPreset(target.value, targetDraft)
+    return
+  }
+  if (target.dataset.action === 'screen-preset-change' && target.value !== '') {
+    applyScreenPreset(Number(target.value), targetDraft)
+    return
+  }
+  if (target.dataset.action === 'webgl-preset-change' && target.value !== '') {
+    applyWebglPreset(Number(target.value), targetDraft)
+    return
+  }
+  if (target.dataset.action === 'fingerprint-language-change' && target.value) {
+    applyLanguagePreset(target.value, targetDraft)
+    return
+  }
+  if (target.dataset.action === 'preset-name' && target.value) {
+    draft.name = target.value
+    const input = document.getElementById('wizard-name-input')
+    if (input) input.value = target.value
+    const previewName = document.getElementById('preview-name')
+    if (previewName) previewName.textContent = target.value
+    return
+  }
+  if (target.dataset.action === 'preset-url' && target.value) {
+    draft.url = target.value
+    const input = document.getElementById('wizard-url-input')
+    if (input) input.value = target.value
+    return
+  }
+  if (target.dataset.action === 'preset-proxy' && target.value) {
+    draft.proxy.server = target.value
+    const input = document.getElementById('wizard-proxy-server-input')
+    if (input) input.value = target.value
+    const previewProxy = document.getElementById('preview-proxy')
+    if (previewProxy) previewProxy.textContent = target.value
+    return
+  }
+  if (target.dataset.action === 'preset-edit-url' && target.value) {
+    const input = document.getElementById('environment-edit-url-input')
+    if (input) input.value = target.value
+    return
+  }
+
+  handleFingerprintFieldEvent(event)
 })
 document.addEventListener('submit', async event => {
   event.preventDefault()
@@ -867,7 +1718,8 @@ document.addEventListener('submit', async event => {
         metadataRevision: Number(data.get('metadataRevision')),
         profileRevision: Number(data.get('profileRevision'))
       }
-      if (environment.raw.status !== 'open') {
+      const isRunning = Boolean(environment.raw.status === 'open' || environment.state === '运行中')
+      if (!isRunning) {
         const mode = data.get('proxyMode')
         update.proxy = {
           mode,
@@ -888,6 +1740,11 @@ document.addEventListener('submit', async event => {
           const fingerprint = await reviewFingerprint(environmentEditDraft, update.proxy, true)
           if (!fingerprint) return
           update.fingerprint = fingerprint
+        }
+      } else {
+        if (JSON.stringify(environmentEditDraft?.fingerprint) !== JSON.stringify(environment.raw.fingerprint)) {
+          toast('请先关闭浏览器环境，再修改代理或指纹参数。')
+          return
         }
       }
       const response = await window.browserApi.updateEnvironment(update)
