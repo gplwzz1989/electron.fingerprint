@@ -32,13 +32,14 @@ const paths = {
   fingerprint: '<path d="M4 11a8 8 0 0 1 16 0M7 13v-2a5 5 0 0 1 10 0v4c0 3-1 5-2 7M10 16v-5a2 2 0 0 1 4 0v5c0 2-.6 4-1.5 5M4 14v2c0 2 .5 4 1.5 5M7 17c0 2 .5 3 1 4M20 14v3"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   chart: '<path d="M4 3v17h17M8 15l4-5 4 3 5-8"/>',
+  sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/>',
   file: '<path d="M5 3h9l5 5v13H5V3ZM14 3v5h5M8 13h8M8 17h6"/>'
 }
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.browser}</svg>`
 const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
 const btn = (label, action, style = '', extra = '', symbol = '') => `<button class="button ${style}" data-action="${action}" ${extra}>${symbol ? icon(symbol) : ''}${label}</button>`
 const badge = (text, color = '') => `<span class="status ${color}"><i class="dot"></i>${text}</span>`
-const navItems = [['overview', '工作台', 'grid'], ['environments', '浏览器环境', 'browser'], ['proxies', '代理资源', 'globe'], ['members', '团队成员', 'users'], ['audit', '操作记录', 'clock'], ['billing', '订阅与用量', 'wallet'], ['settings', '设置', 'settings']]
+const navItems = [['overview', '工作台', 'grid'], ['environments', '浏览器环境', 'browser'], ['creator', 'AI 创作中心', 'sparkles'], ['proxies', '代理资源', 'globe'], ['members', '团队成员', 'users'], ['audit', '操作记录', 'clock'], ['billing', '订阅与用量', 'wallet'], ['settings', '设置', 'settings']]
 let environments = []
 let groups = []
 const members = [
@@ -1422,9 +1423,10 @@ function render() {
   document.getElementById('navigation').innerHTML = navItems.map(([id, title, symbol]) => `<a class="nav-link ${id === parent ? 'active' : ''}" href="#${id}" ${id === parent ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${title}</span>${id === 'proxies' ? '<span class="nav-count">1</span>' : ''}</a>`).join('')
   document.getElementById('breadcrumb').textContent = (navItems.find(n => n[0] === parent) || navItems[0])[1]
   document.getElementById('sidebar-quota').textContent = `${environments.length} / 300`
-  const views = { overview, environments: environmentPage, create: createPage, proxies: proxiesPage, members: membersPage, audit: auditPage, billing: billingPage, settings: settingsPage, browser: browserPage, detail: environmentPage, diagnostic: environmentPage, empty: () => environmentPage(true), onboarding: overview }
+  const views = { overview, environments: environmentPage, creator: (typeof creatorPage === 'function' ? creatorPage : overview), create: createPage, proxies: proxiesPage, members: membersPage, audit: auditPage, billing: billingPage, settings: settingsPage, browser: browserPage, detail: environmentPage, diagnostic: environmentPage, empty: () => environmentPage(true), onboarding: overview }
   document.getElementById('main').innerHTML = (views[route] || overview)()
   window.scrollTo(0, 0)
+  if (route === 'creator' && typeof attachCreatorEvents === 'function') attachCreatorEvents()
   if (route === 'detail') showOverlay(detailDrawer(currentEnvironment))
   if (route === 'diagnostic') showOverlay(detailDrawer(currentEnvironment || environments[0], true))
   if (route === 'onboarding') onboarding()
@@ -1587,6 +1589,11 @@ document.addEventListener('click', event => {
     case 'device-name': dialog('本机设备名称', '<label class="field"><span>设备名称</span><input value="运营工作电脑" maxlength="80"></label><p>这是字段设计预览，不会修改系统设备名称。</p>'); break
     case 'workspace': dialog('切换工作空间', '<p>当前演示工作空间：远航出海团队。</p><div class="info-box">正式版按组织隔离环境、成员、代理与账单，不跨空间自动共享数据。</div>'); break
     case 'help': dialog('帮助与支持', '<p>评审入口：完整开发计划、设计交付规范、关键页面 PNG 和官方竞品资料均保存在本原型所在目录。</p><div class="info-box">本次没有连接客服或发送任何外部消息。</div>'); break
+    default:
+      if (typeof window.handleCreatorAction === 'function') {
+        void window.handleCreatorAction(action, target)
+      }
+      break
   }
 })
 

@@ -52,3 +52,18 @@ contextBridge.exposeInMainWorld('browserApi', {
     return () => ipcRenderer.removeListener('groups:changed', listener)
   }
 })
+
+contextBridge.exposeInMainWorld('creatorApi', {
+  listAssets: filter => ipcRenderer.invoke('creator:list-assets', filter),
+  saveAsset: data => ipcRenderer.invoke('creator:save-asset', data),
+  deleteAsset: id => ipcRenderer.invoke('creator:delete-asset', id),
+  updateStatus: payload => ipcRenderer.invoke('creator:update-status', payload),
+  generateArticle: params => ipcRenderer.invoke('creator:generate-article', params),
+  checkCompliance: text => ipcRenderer.invoke('creator:check-compliance', text),
+  createPostConfig: params => ipcRenderer.invoke('creator:create-post-config', params),
+  savePostImage: payload => ipcRenderer.invoke('creator:save-post-image', payload),
+  generateStoryboard: params => ipcRenderer.invoke('creator:generate-storyboard', params),
+  renderVideo: params => ipcRenderer.invoke('creator:render-video', params),
+  preparePublish: payload => ipcRenderer.invoke('creator:prepare-publish', payload),
+  openFile: filePath => ipcRenderer.invoke('creator:open-file', filePath)
+})

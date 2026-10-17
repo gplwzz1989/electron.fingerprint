@@ -19,6 +19,7 @@ const {
 } = require('./profile-store')
 const { AutomationServer } = require('./automation-server')
 const { MediaHub } = require('./media-hub')
+const { CreatorHub } = require('./creator-hub')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -41,6 +42,7 @@ let groupRepository = null
 let tabBrowser = null
 let automationServer = null
 let mediaHub = null
+let creatorHub = null
 let quitting = false
 let startup = Promise.resolve()
 
@@ -456,6 +458,12 @@ async function createDashboard () {
   } else {
     mediaHub.dashboardWindow = dashboardWindow
     if (mediaHub.popoverWindow) mediaHub.popoverWindow.parentWindow = dashboardWindow
+  }
+  if (!creatorHub) {
+    creatorHub = new CreatorHub()
+    creatorHub.attach({ tabBrowser, dashboardWindow })
+  } else {
+    creatorHub.dashboardWindow = dashboardWindow
   }
   dashboardWindow.show()
   dashboardWindow.focus()
