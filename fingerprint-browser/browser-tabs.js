@@ -8,11 +8,6 @@ const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
 
-function resolveSessionPath (dataDir, revision = 1) {
-  const count = Math.max(0, Number(revision || 1) - 1)
-  if (count === 0) return dataDir
-  return dataDir + path.sep + Array(count).fill('.').join(path.sep)
-}
 
 const HEADER_HEIGHT = 88
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
@@ -319,8 +314,8 @@ class TabBrowser {
     const snapshot = structuredClone(profile)
     if (!this.window || this.window.isDestroyed()) throw new ProfileValidationError('浏览器窗口已关闭，请重新创建标签。')
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
-    // 会话路径附加修订版本别名，确保指纹更新后能创建新上下文，且完全复用原目录数据。
-    const tabSession = session.fromPath(resolveSessionPath(dataDir, snapshot.revision))
+    // 严格使用规范目录路径，确保 LevelDB 与 SQLite WAL 存储引擎正常工作并保持持久化登录态。
+    const tabSession = session.fromPath(dataDir)
     // 外部协议在旧内核中默认放行，统一拒绝网页唤起外部程序，覆盖隐藏子框架。
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => {
       callback(isPermissionAllowed(permission))

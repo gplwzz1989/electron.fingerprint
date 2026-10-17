@@ -32,30 +32,14 @@ async function run () {
     const repo = new EnvironmentRepository(dataRoot)
     await repo.load()
 
-    // 1. 测试 resolveSessionPath 对不同 revision 的路径别名逻辑
+    // 1. 验证环境数据目录保持规范真实路径，避免相对路径别名导致 LevelDB/SQLite 锁冲突
     const baseDir = path.join(dataRoot, 'tabs', 'env-1')
     await fs.mkdir(baseDir, { recursive: true })
     await fs.writeFile(path.join(baseDir, 'test-file.txt'), 'hello')
-
-    const countRev1 = Math.max(0, 1 - 1)
-    const p1 = countRev1 === 0 ? baseDir : baseDir + path.sep + Array(countRev1).fill('.').join(path.sep)
-    assert.equal(p1, baseDir, 'Revision 1 应该返回原始路径')
-
-    const countRev2 = Math.max(0, 2 - 1)
-    const p2 = countRev2 === 0 ? baseDir : baseDir + path.sep + Array(countRev2).fill('.').join(path.sep)
-    assert.equal(p2, baseDir + path.sep + '.', 'Revision 2 应该附加一层 . 别名')
-
-    const countRev3 = Math.max(0, 3 - 1)
-    const p3 = countRev3 === 0 ? baseDir : baseDir + path.sep + Array(countRev3).fill('.').join(path.sep)
-    assert.equal(p3, baseDir + path.sep + '.' + path.sep + '.', 'Revision 3 应该附加两层 . 别名')
-
-    // 验证文件系统层面访问的一致性
-    const content1 = await fs.readFile(path.join(p1, 'test-file.txt'), 'utf8')
-    const content2 = await fs.readFile(path.join(p2, 'test-file.txt'), 'utf8')
-    const content3 = await fs.readFile(path.join(p3, 'test-file.txt'), 'utf8')
-    assert.equal(content1, 'hello')
-    assert.equal(content2, 'hello')
-    assert.equal(content3, 'hello')
+    assert.equal(path.resolve(baseDir), baseDir, '数据目录必须为规范绝对路径')
+    assert.ok(!baseDir.includes(path.sep + '.'), '数据目录不得包含相对路径别名段')
+    const content = await fs.readFile(path.join(baseDir, 'test-file.txt'), 'utf8')
+    assert.equal(content, 'hello')
 
     // 2. 测试环境创建与时区保存
     const initialProfile = {
@@ -105,7 +89,7 @@ async function run () {
     assert.equal(fakeTab.profile.revision, 2)
     assert.equal(fakeTab.profile.fingerprint.locale.timezone, 'America/New_York', 'Tab 中的指纹时区应同步更新')
 
-    console.log('环境编辑时区持久化、修订版本升级、会话路径别名与标签快照同步自检通过。')
+    console.log('环境编辑时区持久化、修订版本升级、会话规范路径绑定与标签快照同步自检通过。')
   } finally {
     await fs.rm(tmpRoot, { recursive: true, force: true }).catch(() => {})
   }

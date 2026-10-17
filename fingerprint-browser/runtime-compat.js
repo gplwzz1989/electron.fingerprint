@@ -15,7 +15,7 @@ function applyFingerprintConfig (profileSession, fingerprint) {
     const existing = profileSession.getFingerprintConfig()
     if (existing && isDeepStrictEqual(comparableFingerprint(existing), comparableFingerprint(fingerprint))) return ''
     if (existing) {
-      throw new ProfileValidationError('该环境会话已经锁定另一份指纹配置，不能更换环境指纹。')
+      throw new ProfileValidationError('该环境会话已经锁定另一份指纹配置，请重启客户端后重新打开以生效。')
     }
   }
   try {
