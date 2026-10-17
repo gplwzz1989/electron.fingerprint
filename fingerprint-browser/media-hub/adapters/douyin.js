@@ -21,144 +21,90 @@ class DouyinAdapter extends BaseAdapter {
         try {
           const currentUrl = location.href;
           const urlObj = new URL(currentUrl);
+          const isUserHome = location.pathname.startsWith('/user/');
           const targetVid = urlObj.searchParams.get('vid') || 
                             urlObj.searchParams.get('modal_id') ||
                             (location.pathname.match(/\\/video\\/(\\d+)/) || [])[1];
 
-          let awemeItem = null;
+          // 辅助解析单个作品的音视频、码率与封面
+          function parseAwemeItem(item, fallbackEl = null) {
+            if (!item && !fallbackEl) return null;
+            const vid = item?.awemeId || item?.aweme_id || (fallbackEl?.getAttribute('href')?.match(/\\/video\\/(\\d+)/) || [])[1];
+            if (!vid) return null;
 
-          // 1. 若 URL 中指定了目标视频 vid，优先从对应作品卡片的 React Fiber 中读取 itemInfo
-          if (targetVid) {
-            const cardLink = document.querySelector(\`a[href*="\${targetVid}"]\`);
-            if (cardLink) {
-              const target = cardLink.closest('li') || cardLink;
-              const fiberKey = Object.keys(target || {}).find(k => k.startsWith('__reactFiber'));
-              let fiber = target ? target[fiberKey] : null;
-              let depth = 0;
-              while (fiber && depth < 8) {
-                if (fiber.memoizedProps?.itemInfo) {
-                  awemeItem = fiber.memoizedProps.itemInfo;
-                  break;
-                }
-                fiber = fiber.return;
-                depth++;
-              }
-            }
-          }
-
-          // 2. 尝试从播放器组件（弹窗播放器或页面主播放器）提取当前播放的作品 slideData
-          if (!awemeItem) {
-            const video = document.querySelector('video');
-            const playerEl = document.querySelector('.xgplayer') || video?.parentElement;
-            const fiberKey = Object.keys(playerEl || {}).find(k => k.startsWith('__reactFiber'));
-            let fiber = playerEl ? playerEl[fiberKey] : null;
-            let depth = 0;
-            while (fiber && depth < 15) {
-              if (fiber.memoizedProps?.slideData) {
-                awemeItem = fiber.memoizedProps.slideData;
-                break;
-              }
-              fiber = fiber.return;
-              depth++;
-            }
-          }
-
-          // 3. 兜底尝试：从列表第一个卡片提取
-          if (!awemeItem) {
-            const firstCard = document.querySelector('a[href*="/video/"]');
-            if (firstCard) {
-              const target = firstCard.closest('li') || firstCard;
-              const fiberKey = Object.keys(target || {}).find(k => k.startsWith('__reactFiber'));
-              let fiber = target ? target[fiberKey] : null;
-              let depth = 0;
-              while (fiber && depth < 8) {
-                if (fiber.memoizedProps?.itemInfo) {
-                  awemeItem = fiber.memoizedProps.itemInfo;
-                  break;
-                }
-                fiber = fiber.return;
-                depth++;
-              }
-            }
-          }
-
-          // 提取文本与元数据（杜绝 Layout Reflow，仅读取文本与属性）
-          const title = (awemeItem?.desc || awemeItem?.itemTitle || '').trim() ||
-                        document.querySelector('[data-e2e="video-desc"]')?.innerText?.trim() ||
-                        document.title.replace(/- 抖音.*/, '').trim() || '抖音作品';
-          const author = (awemeItem?.authorInfo?.nickname || awemeItem?.author?.nickname || '').trim() ||
-                         document.querySelector('[data-e2e="user-info"] a')?.innerText?.trim() ||
-                         document.querySelector('.author-name')?.innerText?.trim() || '抖音创作者';
-          const vid = awemeItem?.awemeId || awemeItem?.aweme_id || targetVid || '';
-
-          const videoStreams = [];
-          const seenUrls = new Set();
-
-          function addVideo(streamUrl, quality, sizeBytes, format = 'mp4') {
-            if (!streamUrl) return;
-            if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
-            streamUrl = streamUrl.replace('/playwm/', '/play/');
-            if (seenUrls.has(streamUrl)) return;
-            seenUrls.add(streamUrl);
-
-            let sizeStr = '高清视频';
-            if (sizeBytes > 0) {
-              sizeStr = (sizeBytes / (1024 * 1024)).toFixed(1) + ' MB';
-            }
-
-            videoStreams.push({
-              url: streamUrl,
-              quality,
-              size: sizeStr,
-              format
-            });
-          }
-
-          let coverUrl = '';
-          let audioUrl = '';
-          let audioTitle = '';
-          const imageList = [];
-
-          if (awemeItem) {
-            const videoObj = awemeItem.video || {};
+            const title = (item?.desc || item?.itemTitle || fallbackEl?.innerText || '').trim() || '抖音作品';
+            const author = (item?.authorInfo?.nickname || item?.author?.nickname || '').trim() || '抖音创作者';
+            const videoObj = item?.video || {};
             const bitRates = videoObj.bitRateList || videoObj.bit_rate || [];
 
-            // 遍历各个清晰度档位
-            for (const b of bitRates) {
-              const qName = b.gear_name || b.gearName || (b.height ? \`\${b.height}p\` : '高清');
-              const label = \`\${qName} (\${b.width || 0}×\${b.height || 0})\`.replace('normal_', '').replace('low_', '流畅_');
-              const size = b.dataSize || b.size || 0;
-              const isDash = b.format === 'dash';
+            let bestStream = null;
+            const allStreams = [];
 
+            for (const b of bitRates) {
               const playList = Array.isArray(b.playAddr) ? b.playAddr : (b.playAddr?.urlList || b.play_addr?.url_list || []);
-              for (const item of playList) {
-                const u = typeof item === 'string' ? item : item?.src || item?.url;
-                if (u) addVideo(u, label, size, isDash ? 'dash' : 'mp4');
+              let streamUrl = typeof playList[0] === 'string' ? playList[0] : playList[0]?.src || playList[0]?.url || b.playApi;
+              if (!streamUrl) continue;
+              if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+              streamUrl = streamUrl.replace('/playwm/', '/play/');
+
+              const isDash = b.format === 'dash' || streamUrl.includes('/media-video-');
+              const width = b.width || 0;
+              const height = b.height || 0;
+              const sizeBytes = b.dataSize || b.size || 0;
+              const qName = b.gear_name || b.gearName || (height ? \`\${height}p\` : '高清');
+              const label = \`\${qName} (\${width}×\${height})\`.replace('normal_', '').replace('low_', '流畅_');
+
+              let sizeStr = '高清视频';
+              if (sizeBytes > 0) {
+                sizeStr = (sizeBytes / (1024 * 1024)).toFixed(1) + ' MB';
               }
 
-              if (b.playApi) {
-                addVideo(b.playApi, \`\${label} (直链接口)\`, size, 'mp4');
+              const streamInfo = { url: streamUrl, label, width, height, sizeBytes, sizeStr, format: isDash ? 'dash' : 'mp4' };
+              allStreams.push(streamInfo);
+
+              if (!bestStream) {
+                bestStream = streamInfo;
+              } else {
+                // 优先非 DASH MP4，再按分辨率择优
+                if (!isDash && bestStream.isDash) {
+                  bestStream = streamInfo;
+                } else if ((!isDash || bestStream.isDash) && (width * height > bestStream.width * bestStream.height)) {
+                  bestStream = streamInfo;
+                }
               }
             }
 
-            // 官方 PlayApi
-            if (videoObj.playApi) {
-              addVideo(videoObj.playApi, '官方原画 (PlayApi)', videoObj.dataSize || 0, 'mp4');
+            // 兜底官方 PlayApi
+            if (!bestStream && videoObj.playApi) {
+              let pUrl = videoObj.playApi;
+              if (pUrl.startsWith('//')) pUrl = 'https:' + pUrl;
+              pUrl = pUrl.replace('/playwm/', '/play/');
+              const sizeBytes = videoObj.dataSize || 0;
+              bestStream = {
+                url: pUrl,
+                label: '官方原画 (PlayApi)',
+                width: videoObj.width || 0,
+                height: videoObj.height || 0,
+                sizeBytes,
+                sizeStr: sizeBytes > 0 ? (sizeBytes / 1024 / 1024).toFixed(1) + ' MB' : '原画质',
+                format: 'mp4'
+              };
+              allStreams.push(bestStream);
             }
 
             // 提取封面
-            coverUrl = (videoObj.originCoverUrlList || videoObj.coverUrlList || [])[0] ||
-                       videoObj.cover?.urlList?.[0] || videoObj.cover?.url_list?.[0] || '';
+            const cover = (videoObj.originCoverUrlList || videoObj.coverUrlList || [])[0] ||
+                          videoObj.cover?.urlList?.[0] || videoObj.cover?.url_list?.[0] ||
+                          fallbackEl?.querySelector('img')?.src || '';
 
-            // 提取背景原声音频
-            const music = awemeItem.music;
-            audioUrl = music?.playUrl?.urlList?.[0] || music?.play_url?.url_list?.[0] || '';
-            if (audioUrl) {
-              audioTitle = music?.title ? \`\${music.title} - \${music.author || author}\` : \`\${title} - 原声\`;
-            }
+            // 提取背景原声
+            const music = item?.music;
+            const audioUrl = music?.playUrl?.urlList?.[0] || music?.play_url?.url_list?.[0] || '';
+            const audioTitle = music?.title ? \`\${music.title} - \${music.author || author}\` : \`\${title} - 原声\`;
 
             // 提取图集作品的超清原图
-            const rawImages = awemeItem.images || awemeItem.imageInfos || [];
+            const imageList = [];
+            const rawImages = item?.images || item?.imageInfos || [];
             for (let i = 0; i < rawImages.length; i++) {
               const img = rawImages[i];
               const u = (img.urlList || img.url_list || [])[0] || img.url;
@@ -170,34 +116,119 @@ class DouyinAdapter extends BaseAdapter {
                 });
               }
             }
+
+            return {
+              vid,
+              title,
+              author,
+              cover,
+              audioUrl,
+              audioTitle,
+              bestStream,
+              allStreams,
+              imageList
+            };
           }
 
-          // 4. 兜底提取：若未找到 React 数据，检查 DOM 中的非 blob video 标签
-          if (videoStreams.length === 0) {
-            document.querySelectorAll('video').forEach(v => {
+          const works = [];
+          const seenVids = new Set();
+
+          // 1. 尝试从当前播放器（弹窗播放器或信息流主播放器）读取 slideData
+          const video = document.querySelector('video');
+          const playerEl = document.querySelector('.xgplayer') || video?.parentElement;
+          const fiberKey = Object.keys(playerEl || {}).find(k => k.startsWith('__reactFiber'));
+          let slideData = null;
+          if (fiberKey) {
+            let f = playerEl[fiberKey];
+            let d = 0;
+            while (f && d < 15) {
+              if (f.memoizedProps?.slideData) {
+                slideData = f.memoizedProps.slideData;
+                break;
+              }
+              f = f.return;
+              d++;
+            }
+          }
+
+          if (slideData) {
+            const currentWork = parseAwemeItem(slideData);
+            if (currentWork) {
+              seenVids.add(currentWork.vid);
+              currentWork.isCurrentPlaying = true;
+              if (currentWork.vid === targetVid) currentWork.isTarget = true;
+              works.push(currentWork);
+            }
+          }
+
+          // 2. 遍历页面中的所有视频卡片
+          const cards = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+          for (const a of cards) {
+            const href = a.getAttribute('href') || '';
+            const vidMatch = href.match(/\\/video\\/(\\d+)/);
+            const vid = vidMatch ? vidMatch[1] : null;
+            if (!vid || seenVids.has(vid)) continue;
+            seenVids.add(vid);
+
+            const target = a.closest('li') || a;
+            const targetFiberKey = Object.keys(target || {}).find(k => k.startsWith('__reactFiber'));
+            let fiber = target ? target[targetFiberKey] : null;
+            let itemInfo = null;
+            let depth = 0;
+            while (fiber && depth < 8) {
+              if (fiber.memoizedProps?.itemInfo) {
+                itemInfo = fiber.memoizedProps.itemInfo;
+                break;
+              }
+              fiber = fiber.return;
+              depth++;
+            }
+
+            const w = parseAwemeItem(itemInfo, a);
+            if (w) {
+              if (w.vid === targetVid) w.isTarget = true;
+              works.push(w);
+            }
+          }
+
+          // 3. 兜底：若未发现卡片且未发现 slideData，检查非 blob 的 video 标签
+          let fallbackStreams = [];
+          if (works.length === 0) {
+            document.querySelectorAll('video').forEach((v, idx) => {
               const src = v.currentSrc || v.src || v.querySelector('source')?.src;
               if (src && !src.startsWith('blob:')) {
-                addVideo(src, '页面视频', 0, 'mp4');
+                fallbackStreams.push({
+                  url: src,
+                  label: '页面视频',
+                  sizeStr: '未知大小',
+                  format: 'mp4'
+                });
               }
             });
           }
 
-          // 封面降级处理（仅读取已定位卡片上的封面图片，杜绝全页面遍历与 Reflow）
-          if (!coverUrl && targetVid) {
-            const cardImg = document.querySelector(\`a[href*="\${targetVid}"] img\`);
-            if (cardImg && cardImg.src) coverUrl = cardImg.src;
-          }
+          // 排序：若指定了 vid 则置顶，其次是当前播放的作品，其余按原序
+          works.sort((a, b) => {
+            if (a.isTarget && !b.isTarget) return -1;
+            if (!a.isTarget && b.isTarget) return 1;
+            if (a.isCurrentPlaying && !b.isCurrentPlaying) return -1;
+            if (!a.isCurrentPlaying && b.isCurrentPlaying) return 1;
+            return 0;
+          });
+
+          const pageTitle = document.title.replace(/- 抖音.*/, '').trim() || '抖音';
+          const authorHeader = document.querySelector('[data-e2e="user-info"] a')?.innerText?.trim() ||
+                               document.querySelector('.author-name')?.innerText?.trim() ||
+                               works[0]?.author || '抖音创作者';
 
           return {
             success: true,
-            vid,
-            title,
-            author,
-            coverUrl,
-            audioUrl,
-            audioTitle,
-            videoStreams,
-            imageList
+            isUserHome,
+            targetVid,
+            pageTitle,
+            authorHeader,
+            works,
+            fallbackStreams
           };
         } catch (e) {
           return { error: e.message };
@@ -216,26 +247,134 @@ class DouyinAdapter extends BaseAdapter {
       'User-Agent': webContents.getUserAgent()
     }
 
-    // 1. 加入解析出的视频流（按清晰度排序，优先高分辨率）
-    for (let i = 0; i < (data.videoStreams || []).length; i++) {
-      const v = data.videoStreams[i]
-      const cleanUrl = (v.url || '').replace('/playwm/', '/play/')
-      if (seenUrls.has(cleanUrl)) continue
-      seenUrls.add(cleanUrl)
+    const works = data.works || []
+    const isSingleVideoPage = !data.isUserHome && works.length <= 1
 
+    // 模式 A：如果是单视频详情页，为该视频展示全部清晰度
+    if (isSingleVideoPage && works.length === 1) {
+      const w = works[0]
+      for (let i = 0; i < (w.allStreams || []).length; i++) {
+        const s = w.allStreams[i]
+        const cleanUrl = (s.url || '').replace('/playwm/', '/play/')
+        if (seenUrls.has(cleanUrl)) continue
+        seenUrls.add(cleanUrl)
+
+        resources.push({
+          id: `dy-v-${i}`,
+          category: 'video',
+          title: `${w.title} - ${s.label}`,
+          quality: s.label,
+          format: s.format || 'mp4',
+          url: cleanUrl,
+          headers,
+          size: s.sizeStr
+        })
+      }
+
+      if (w.audioUrl && !seenUrls.has(w.audioUrl)) {
+        seenUrls.add(w.audioUrl)
+        resources.push({
+          id: 'dy-audio',
+          category: 'audio',
+          title: w.audioTitle,
+          quality: '原声无损音频',
+          format: 'mp3',
+          url: w.audioUrl,
+          headers,
+          size: '音频'
+        })
+      }
+
+      if (w.cover && !seenUrls.has(w.cover)) {
+        seenUrls.add(w.cover)
+        resources.push({
+          id: 'dy-cover',
+          category: 'image',
+          title: `${w.title} - 高清封面`,
+          quality: '超清封面',
+          format: 'jpg',
+          url: w.cover,
+          headers,
+          size: '封面'
+        })
+      }
+    } else {
+      // 模式 B：用户主页（或包含多个作品的列表）——每一个作品对应独立的一条最佳视频资源！
+      for (let i = 0; i < works.length; i++) {
+        const w = works[i]
+        if (!w.bestStream || !w.bestStream.url) continue
+        const cleanUrl = w.bestStream.url.replace('/playwm/', '/play/')
+        if (seenUrls.has(cleanUrl)) continue
+        seenUrls.add(cleanUrl)
+
+        const isTargetPrefix = w.isTarget ? '【当前定位】' : ''
+        resources.push({
+          id: `dy-work-${w.vid}`,
+          category: 'video',
+          title: `${isTargetPrefix}${w.title}`,
+          quality: `${w.bestStream.label} · ${w.author}`,
+          format: w.bestStream.format || 'mp4',
+          url: cleanUrl,
+          headers,
+          size: w.bestStream.sizeStr
+        })
+      }
+
+      // 将每个作品的高清封面作为独立图片条目加入
+      for (let i = 0; i < works.length; i++) {
+        const w = works[i]
+        if (!w.cover || seenUrls.has(w.cover)) continue
+        seenUrls.add(w.cover)
+
+        resources.push({
+          id: `dy-cover-${w.vid}`,
+          category: 'image',
+          title: `${w.title} - 封面`,
+          quality: '超清封面',
+          format: 'jpg',
+          url: w.cover,
+          headers,
+          size: '封面'
+        })
+      }
+
+      // 将有原声背景音乐的作品加入音频列表
+      for (let i = 0; i < works.length; i++) {
+        const w = works[i]
+        if (!w.audioUrl || seenUrls.has(w.audioUrl)) continue
+        seenUrls.add(w.audioUrl)
+
+        resources.push({
+          id: `dy-audio-${w.vid}`,
+          category: 'audio',
+          title: w.audioTitle || `${w.title} - 背景原声`,
+          quality: '原声无损音频',
+          format: 'mp3',
+          url: w.audioUrl,
+          headers,
+          size: '音频'
+        })
+      }
+    }
+
+    // 兜底：处理非 blob 的原生 video 标签
+    for (let i = 0; i < (data.fallbackStreams || []).length; i++) {
+      const s = data.fallbackStreams[i]
+      if (seenUrls.has(s.url)) continue
+      seenUrls.add(s.url)
       resources.push({
-        id: `dy-v-${i}`,
+        id: `dy-fallback-v-${i}`,
         category: 'video',
-        title: `${data.title} - ${v.quality}`,
-        quality: v.quality,
-        format: v.format,
-        url: cleanUrl,
+        title: `${data.pageTitle} - 页面视频 #${i + 1}`,
+        quality: s.label,
+        format: s.format,
+        url: s.url,
         headers,
-        size: v.size
+        size: s.sizeStr
       })
     }
 
-    // 2. 网络层嗅探结果融合兜底（若嗅探到 douyinvod / aweme 视频，补充进候选）
+    // 网络层嗅探结果融合
     for (let i = 0; i < sniffed.length; i++) {
       const item = sniffed[i]
       if (seenUrls.has(item.url)) continue
@@ -245,7 +384,7 @@ class DouyinAdapter extends BaseAdapter {
         resources.push({
           id: `dy-sniff-v-${i}`,
           category: 'video',
-          title: `${data.title} - 播放捕获流 #${i + 1}`,
+          title: `${data.pageTitle} - 播放捕获流 #${i + 1}`,
           quality: '网络捕获 MP4',
           format: item.format || 'mp4',
           url: item.url.replace('/playwm/', '/play/'),
@@ -255,78 +394,13 @@ class DouyinAdapter extends BaseAdapter {
       }
     }
 
-    // 3. 加入背景原声音频
-    if (data.audioUrl && !seenUrls.has(data.audioUrl)) {
-      seenUrls.add(data.audioUrl)
-      resources.push({
-        id: 'dy-audio',
-        category: 'audio',
-        title: data.audioTitle || `${data.title} - 背景音乐`,
-        quality: '原声无损音频',
-        format: 'mp3',
-        url: data.audioUrl,
-        headers,
-        size: '音频'
-      })
-    }
-
-    // 4. 加入嗅探到的音频
-    for (let i = 0; i < sniffed.length; i++) {
-      const item = sniffed[i]
-      if (item.category === 'audio' && !seenUrls.has(item.url)) {
-        seenUrls.add(item.url)
-        resources.push({
-          id: `dy-sniff-a-${i}`,
-          category: 'audio',
-          title: `${data.title} - 嗅探音频`,
-          quality: '网页原声',
-          format: item.format || 'mp3',
-          url: item.url,
-          headers,
-          size: item.contentLength ? `${(item.contentLength / 1024 / 1024).toFixed(1)} MB` : '音频'
-        })
-      }
-    }
-
-    // 5. 加入超清原图/图集图片
-    for (let i = 0; i < (data.imageList || []).length; i++) {
-      const img = data.imageList[i]
-      if (seenUrls.has(img.url)) continue
-      seenUrls.add(img.url)
-
-      resources.push({
-        id: `dy-img-${i}`,
-        category: 'image',
-        title: `${data.title} - 照片 ${i + 1}`,
-        quality: `${img.width}×${img.height}`,
-        format: 'jpg',
-        url: img.url,
-        headers,
-        size: '超清原图'
-      })
-    }
-
-    // 6. 如果是普通视频，加入封面作为单独图片资源
-    if (data.coverUrl && !seenUrls.has(data.coverUrl)) {
-      seenUrls.add(data.coverUrl)
-      resources.push({
-        id: 'dy-cover',
-        category: 'image',
-        title: `${data.title} - 视频高清封面`,
-        quality: '超清封面',
-        format: 'jpg',
-        url: data.coverUrl,
-        headers,
-        size: '封面'
-      })
-    }
-
+    const firstWork = works[0]
     return {
       adapterId: this.id,
       adapterName: this.name,
-      title: data.title,
-      author: data.author,
-      coverUrl: data.coverUrl,
+      title: data.isUserHome ? `${data.authorHeader} 的主页作品 (${works.length} 个作品)` : (firstWork?.title || data.pageTitle),
+      author: data.authorHeader || firstWork?.author,
+      coverUrl: firstWork?.cover || '',
       resources
     }
   }

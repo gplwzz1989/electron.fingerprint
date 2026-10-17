@@ -252,40 +252,68 @@ test('跨平台 FFmpeg 套件提供者 ffmpeg-provider：正确识别多平台�
   assert.ok(typeof localBinary === 'string' || localBinary === null)
 })
 
-test('抖音适配器 DouyinAdapter：正确解析用户主页指定vid视频与高清无水印流', async () => {
+test('抖音适配器 DouyinAdapter：正确解析用户主页多个不同作品（不同标题、封面与视频直链）', async () => {
   const adapter = new DouyinAdapter()
 
   // 1. 验证网址匹配
   assert.ok(adapter.match('https://www.douyin.com/user/MS4wLjABAAAAXSF18NxD-pbJSd3569FiSsYN6VaduMumFLDP4WbX1uw?from_tab_name=main&vid=7692062238979879099'))
   assert.ok(adapter.match('https://www.douyin.com/video/7692062238979879099'))
 
-  // 2. 模拟 executeJavaScript 执行结果（包含无水印替换、各清晰度轨、原声背景音乐与封面）
+  // 2. 模拟主页多作品数据
   const mockWebContents = {
     isDestroyed: () => false,
     getUserAgent: () => 'Mozilla/5.0 Chrome/138.0',
     executeJavaScript: async () => ({
       success: true,
-      vid: '7692062238979879099',
-      title: '票房80亿！欧洲动荡！战争阴影席卷全球！',
-      author: '抖动的蜗牛',
-      coverUrl: 'https://p3-pc-sign.douyinpic.com/tos-cn-p-0015c000-ce/cover.jpeg',
-      audioUrl: 'https://lf26-music-east.douyinstatic.com/obj/ies-music-hj/sample.mp3',
-      audioTitle: '抖动的蜗牛原声',
-      videoStreams: [
+      isUserHome: true,
+      targetVid: '7692062238979879099',
+      pageTitle: '抖动的蜗牛的抖音',
+      authorHeader: '抖动的蜗牛',
+      works: [
         {
-          url: 'https://aweme.snssdk.com/aweme/v1/playwm/?video_id=v1e00fgi0000davqqbvog65tfh2vl3i0',
-          quality: '720p (1280×720)',
-          size: '55.0 MB',
-          format: 'mp4'
+          vid: '7692062238979879099',
+          isTarget: true,
+          title: '票房80亿！欧洲动荡！战争阴影席卷全球！',
+          author: '抖动的蜗牛',
+          cover: 'https://p3.douyinpic.com/cover_target.jpeg',
+          audioUrl: 'https://lf26.douyinstatic.com/audio_target.mp3',
+          audioTitle: '目标作品原声',
+          bestStream: {
+            url: 'https://aweme.snssdk.com/aweme/v1/playwm/?video_id=v1e_target',
+            label: '720p (1280×720)',
+            sizeStr: '190.1 MB',
+            format: 'mp4'
+          }
         },
         {
-          url: 'https://v26-web.douyinvod.com/stream/v1e00fgi0000davqqbvog65tfh2vl3i0.mp4',
-          quality: '540p (1024×576)',
-          size: '50.1 MB',
-          format: 'mp4'
+          vid: '7465339276402625849',
+          isTarget: false,
+          title: '战争系列电影之狂暴巨兽分集一',
+          author: '抖动的蜗牛',
+          cover: 'https://p3.douyinpic.com/cover_second.jpeg',
+          audioUrl: 'https://lf26.douyinstatic.com/audio_second.mp3',
+          audioTitle: '第二作品原声',
+          bestStream: {
+            url: 'https://v11.douyinvod.com/stream_second.mp4',
+            label: '720p (1694×720)',
+            sizeStr: '143.8 MB',
+            format: 'mp4'
+          }
+        },
+        {
+          vid: '7697301408933210873',
+          isTarget: false,
+          title: '2026必看科技电影解说',
+          author: '抖动的蜗牛',
+          cover: 'https://p3.douyinpic.com/cover_third.jpeg',
+          bestStream: {
+            url: 'https://v11.douyinvod.com/stream_third.mp4',
+            label: '1080p (1920×1080)',
+            sizeStr: '84.1 MB',
+            format: 'mp4'
+          }
         }
-      ],
-      imageList: []
+      ]
     })
   }
 
@@ -305,28 +333,33 @@ test('抖音适配器 DouyinAdapter：正确解析用户主页指定vid视频与
   })
 
   assert.equal(result.adapterId, 'douyin')
-  assert.equal(result.title, '票房80亿！欧洲动荡！战争阴影席卷全球！')
+  assert.ok(result.title.includes('3 个作品'))
   assert.equal(result.author, '抖动的蜗牛')
 
-  // 验证视频资源提取
+  // 验证视频资源提取：解析出了主页下的不同作品
   const videos = result.resources.filter(r => r.category === 'video')
-  assert.ok(videos.length >= 2, '应当包含多个清晰度视频')
-  // 验证无水印去除（playwm -> play）
-  assert.ok(!videos[0].url.includes('/playwm/'), '视频应当自动替换为无水印play直链')
-  assert.ok(videos[0].url.includes('/play/'), '视频地址中应当包含无水印/play/标识')
+  assert.ok(videos.length >= 3, '应当解析出主页下的多个作品')
 
-  // 验证网络嗅探流融合
-  const sniffedVideo = videos.find(v => v.id.includes('dy-sniff-v'))
-  assert.ok(sniffedVideo, '应当成功融合底层嗅探到的媒体流')
-  assert.equal(sniffedVideo.size, '55.0 MB')
+  // 验证第 1 个是目标置顶作品，且标题不同
+  assert.ok(videos[0].title.includes('票房80亿！欧洲动荡！'))
+  assert.ok(!videos[0].url.includes('/playwm/'), '水印应当清洗为play')
 
-  // 验证原声背景音乐提取
-  const audio = result.resources.find(r => r.category === 'audio')
-  assert.ok(audio, '应当成功提取独立原声背景音频')
-  assert.equal(audio.format, 'mp3')
+  // 验证第 2 个是不同的作品，且标题不同
+  assert.ok(videos[1].title.includes('战争系列电影之狂暴巨兽'))
+  assert.notEqual(videos[0].url, videos[1].url, '不同作品的视频URL应当不同')
 
-  // 验证独立封面提取
-  const cover = result.resources.find(r => r.category === 'image')
-  assert.ok(cover, '应当成功提取视频高清封面')
+  // 验证第 3 个是不同的作品
+  assert.ok(videos[2].title.includes('2026必看科技电影解说'))
+  assert.notEqual(videos[1].url, videos[2].url, '不同作品的视频URL应当不同')
+
+  // 验证封面资源提取：不同作品有不同封面
+  const images = result.resources.filter(r => r.category === 'image')
+  assert.ok(images.length >= 3, '应当包含多个作品各自的封面')
+  assert.notEqual(images[0].url, images[1].url, '各作品封面应当不同')
+
+  // 验证音频资源提取
+  const audios = result.resources.filter(r => r.category === 'audio')
+  assert.ok(audios.length >= 2, '应当包含多个作品各自的原声背景音')
 })
+
 
