@@ -67,8 +67,15 @@ try {
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'package.json') -Destination $application -Force
-  foreach ($directory in @('assets', 'profiles', 'renderer')) {
+  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
+  }
+  # 确保当前打包平台所需的 FFmpeg 二进制（若缺失则自动按平台下载包含）
+  & node (Join-Path $PSScriptRoot 'ensure-ffmpeg.js') "--dest=$(Join-Path $payload 'bin')" --platform=win32 --arch=x64
+  if (Test-Path -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe')) {
+    Copy-Item -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe') -Destination (Join-Path $payload 'ffmpeg.exe') -Force
+    New-Item -ItemType Directory -Path (Join-Path $application 'bin') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe') -Destination (Join-Path $application 'bin/ffmpeg.exe') -Force
   }
   $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $version = $metadata.version

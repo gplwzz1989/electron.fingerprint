@@ -5,21 +5,7 @@ const { EventEmitter } = require('node:events')
 const { app, shell } = require('electron')
 
 const { spawn } = require('node:child_process')
-
-function findFfmpegPath () {
-  const candidates = [
-    path.join(app.getAppPath(), '../ffmpeg.exe'),
-    path.join(app.getAppPath(), 'bin/ffmpeg.exe'),
-    path.join(__dirname, '../bin/ffmpeg.exe'),
-    path.join(process.cwd(), 'ffmpeg.exe'),
-    path.join(process.cwd(), 'bin/ffmpeg.exe'),
-    'C:\\Users\\Administrator\\.workbuddy\\binaries\\python\\envs\\default\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg.exe'
-  ]
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c
-  }
-  return 'ffmpeg'
-}
+const { findExistingFfmpeg, ensureFfmpegBinary } = require('./ffmpeg-provider')
 
 async function streamFetchToFile ({ url, destPath, headers, session, signal, onChunk, onLength }) {
   const reqHeaders = {
@@ -94,6 +80,40 @@ class DownloadManager extends EventEmitter {
       .replace(/[\\/:*?"<>|]/g, '_')
       .trim()
       .slice(0, 100)
+  }
+
+  /**
+   * 探测并确保可用 FFmpeg 路径（优先复用本地已有或打包版本，缺失时自动静默自愈下载适配当前系统架构的版本）
+   */
+  async resolveFfmpegPath (task) {
+    const existing = findExistingFfmpeg({
+      appRoot: app.getAppPath(),
+      userDataDir: app.getPath('userData')
+    })
+    if (existing) return existing
+
+    try {
+      if (task) {
+        task.speed = '首次运行正在下载跨平台解码套件...'
+        this.emitChange()
+      }
+      return await ensureFfmpegBinary({
+        appRoot: app.getAppPath(),
+        userDataDir: app.getPath('userData'),
+        onProgress: (p) => {
+          if (task && p.status === 'downloading') {
+            task.speed = `准备解码组件 ${p.percent}%`
+            this.emitChange()
+          } else if (task && p.status === 'extracting') {
+            task.speed = '正在解压套件...'
+            this.emitChange()
+          }
+        }
+      })
+    } catch (err) {
+      console.warn('[FFmpeg 运行时自愈下载失败]', err.message)
+      return null
+    }
   }
 
   /**
@@ -228,7 +248,10 @@ class DownloadManager extends EventEmitter {
         task.progress = 98
         this.emitChange()
 
-        const ffmpegPath = findFfmpegPath()
+        const ffmpegPath = await this.resolveFfmpegPath(task)
+        if (!ffmpegPath) {
+          throw new Error('未检测到可用 FFmpeg 且自动下载失败，已自动回退保留原始视频轨')
+        }
         try {
           await new Promise((resolve, reject) => {
             const proc = spawn(ffmpegPath, [
@@ -291,8 +314,9 @@ class DownloadManager extends EventEmitter {
         task.progress = 98
         this.emitChange()
 
-        const ffmpegPath = findFfmpegPath()
-        try {
+        const ffmpegPath = await this.resolveFfmpegPath(task)
+        if (ffmpegPath) {
+          try {
           await new Promise((resolve, reject) => {
             const proc = spawn(ffmpegPath, [
               '-y',
@@ -319,6 +343,14 @@ class DownloadManager extends EventEmitter {
             } catch (_) {}
           }
         }
+      } else {
+        if (fs.existsSync(audioTemp)) {
+          try {
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+            fs.renameSync(audioTemp, filePath)
+          } catch (_) {}
+        }
+      }
       } else {
         // 3. 普通单流资源（图片、直链 MP4、通用视频）
         await streamFetchToFile({

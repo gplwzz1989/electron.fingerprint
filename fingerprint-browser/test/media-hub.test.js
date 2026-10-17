@@ -215,3 +215,40 @@ test('B站适配器 BilibiliAdapter：DASH流优先选取 H.264 编码并规避 
   const imageResource = result.resources.find(r => r.category === 'image')
   assert.ok(imageResource, '应当提取到官方封面')
 })
+
+test('跨平台 FFmpeg 套件提供者 ffmpeg-provider：正确识别多平台架构与资源清单', () => {
+  const { getPlatformInfo, findExistingFfmpeg } = require('../media-hub/ffmpeg-provider')
+
+  // 1. Windows x64
+  const win = getPlatformInfo('win32', 'x64')
+  assert.equal(win.platformKey, 'win32-x64')
+  assert.equal(win.binaryName, 'ffmpeg.exe')
+  assert.equal(win.isWindows, true)
+  assert.ok(win.urls.length > 0)
+
+  // 2. macOS Apple Silicon (arm64)
+  const macArm = getPlatformInfo('darwin', 'arm64')
+  assert.equal(macArm.platformKey, 'darwin-arm64')
+  assert.equal(macArm.binaryName, 'ffmpeg')
+  assert.equal(macArm.isMac, true)
+  assert.ok(macArm.urls.some(u => u.includes('darwin-arm64')))
+
+  // 3. macOS Intel (x64)
+  const macIntel = getPlatformInfo('darwin', 'x64')
+  assert.equal(macIntel.platformKey, 'darwin-x64')
+  assert.equal(macIntel.binaryName, 'ffmpeg')
+  assert.equal(macIntel.isMac, true)
+  assert.ok(macIntel.urls.some(u => u.includes('darwin-x64')))
+
+  // 4. Linux x64
+  const linux = getPlatformInfo('linux', 'x64')
+  assert.equal(linux.platformKey, 'linux-x64')
+  assert.equal(linux.binaryName, 'ffmpeg')
+  assert.equal(linux.isLinux, true)
+  assert.ok(linux.urls.some(u => u.includes('linux-x64')))
+
+  // 5. 本地环境探测
+  const localBinary = findExistingFfmpeg()
+  assert.ok(typeof localBinary === 'string' || localBinary === null)
+})
+
