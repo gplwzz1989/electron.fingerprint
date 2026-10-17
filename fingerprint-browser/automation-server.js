@@ -263,6 +263,18 @@ class AutomationServer {
       return { ok: true, ...this.tabBrowser.snapshot() }
     }
 
+    // 执行脚本调试
+    if (method === 'POST' && pathname === '/api/v1/tabs/execute') {
+      const tab = this.tabBrowser?.getTab(this.tabBrowser?.activeId)
+      if (!tab) return { ok: false, error: 'No active tab' }
+      try {
+        const result = await tab.view.webContents.executeJavaScript(body.script)
+        return { ok: true, result }
+      } catch (err) {
+        return { ok: false, error: err.message }
+      }
+    }
+
     // 媒体解析提取与下载测试
     if (method === 'GET' && pathname === '/api/v1/media/debug') {
       const mediaHub = this.tabBrowser?.mediaHub
@@ -270,7 +282,8 @@ class AutomationServer {
         ok: true,
         tasks: mediaHub?.downloadManager ? Array.from(mediaHub.downloadManager.tasks.values()) : [],
         activeTab: mediaHub ? mediaHub.getActiveTab()?.url : null,
-        extractions: mediaHub?.cachedExtractions ? Array.from(mediaHub.cachedExtractions.entries()) : []
+        extractions: mediaHub?.cachedExtractions ? Array.from(mediaHub.cachedExtractions.entries()) : [],
+        sniffed: mediaHub?.sniffer ? Array.from(mediaHub.sniffer.tabRecords.entries()) : []
       }
     }
 
