@@ -35,7 +35,8 @@ const creatorState = {
   assets: {
     filterType: 'all',
     list: [],
-    loading: false
+    loading: false,
+    hasLoaded: false
   }
 }
 
@@ -312,6 +313,7 @@ function renderPostStudio () {
 /* ===================== 4. 作品与待发库模块 ===================== */
 function renderAssetsStudio () {
   const list = creatorState.assets.list || []
+  const loading = creatorState.assets.loading
 
   return `
     <div class="assets-studio-container">
@@ -322,10 +324,17 @@ function renderAssetsStudio () {
           <button class="pill ${creatorState.assets.filterType === 'article' ? 'active' : ''}" data-asset-filter="article">📝 文章 (${list.filter(i => i.type === 'article').length})</button>
           <button class="pill ${creatorState.assets.filterType === 'post' ? 'active' : ''}" data-asset-filter="post">🎨 动态/贴图 (${list.filter(i => i.type === 'post').length})</button>
         </div>
-        <button class="button primary small" id="btn-refresh-assets">🔄 刷新作品列表</button>
+        <button class="button primary small" id="btn-refresh-assets" ${loading ? 'disabled' : ''}>
+          ${loading ? '⏳ 正在加载...' : '🔄 刷新作品列表'}
+        </button>
       </div>
 
-      ${list.length === 0 ? `
+      ${loading ? `
+        <div class="creator-empty-box">
+          <span class="empty-icon">⏳</span>
+          <p>正在读取作品库，请稍候...</p>
+        </div>
+      ` : list.length === 0 ? `
         <div class="creator-empty-box">
           <span class="empty-icon">📦</span>
           <p>暂无已保存的作品，快通过上方标签页创作第一个视频、文章或动态吧！</p>
@@ -338,9 +347,9 @@ function renderAssetsStudio () {
                 <span class="badge ${item.type === 'video' ? 'blue' : item.type === 'article' ? 'green' : 'purple'}">
                   ${item.type === 'video' ? '🎬 视频' : item.type === 'article' ? '📝 文章' : '🎨 贴图'}
                 </span>
-                <span class="asset-time">${new Date(item.createdAt).toLocaleDateString()}</span>
+                <span class="asset-time">${item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '刚刚'}</span>
               </div>
-              <h4 class="asset-title" title="${escapeHTML(item.title)}">${escapeHTML(item.title)}</h4>
+              <h4 class="asset-title" title="${escapeHTML(item.title || '无标题草稿')}">${escapeHTML(item.title || '无标题草稿')}</h4>
               <p class="asset-content-preview">${escapeHTML((item.content || '').slice(0, 90))}...</p>
               
               <div class="asset-meta-tags">
@@ -483,20 +492,24 @@ function wrapText (ctx, text, x, y, maxWidth, lineHeight) {
   ctx.fillText(line, x, currentY)
 }
 
+let loadingAssets = false
+
 /* ===================== 全局事件与 API 联动 ===================== */
 function attachCreatorEvents () {
   if (creatorState.currentTab === 'post') {
     setTimeout(drawCreatorCanvas, 50)
   }
-  if (creatorState.currentTab === 'assets' && (!creatorState.assets.list || creatorState.assets.list.length === 0)) {
+  if (creatorState.currentTab === 'assets' && !creatorState.assets.hasLoaded && !loadingAssets) {
     void loadAssetsList()
   }
 
   // 1. 选项卡切换
   document.querySelectorAll('[data-creator-tab]').forEach(btn => {
     btn.onclick = () => {
-      creatorState.currentTab = btn.dataset.creatorTab
-      if (creatorState.currentTab === 'assets') {
+      const nextTab = btn.dataset.creatorTab
+      if (creatorState.currentTab === nextTab) return
+      creatorState.currentTab = nextTab
+      if (creatorState.currentTab === 'assets' && !creatorState.assets.hasLoaded) {
         void loadAssetsList()
       }
       render()
@@ -567,6 +580,7 @@ function attachCreatorEvents () {
           tags: ['#短视频创作', '#AI合成'],
           targetPlatform: 'douyin'
         })
+        creatorState.assets.hasLoaded = false
         toast('视频已存入待发布作品库！')
       } catch (err) {
         toast(`存入资产库失败: ${err.message}`)
@@ -641,6 +655,7 @@ function attachCreatorEvents () {
           tags: creatorState.article.tags,
           targetPlatform: creatorState.article.platform
         })
+        creatorState.assets.hasLoaded = false
         toast('文章已存入待发布作品库！')
       } catch (err) {
         toast(`存入资产失败: ${err.message}`)
@@ -677,6 +692,7 @@ function attachCreatorEvents () {
           tags: ['#每日金句', '#小红书卡片'],
           targetPlatform: 'xiaohongshu'
         })
+        creatorState.assets.hasLoaded = false
         toast(`贴图已成功导出并存入作品库: ${filePath}`)
       } catch (err) {
         toast(`导出贴图失败: ${err.message}`)
@@ -701,26 +717,42 @@ function attachCreatorEvents () {
   // 6. 作品库相关操作
   const btnRefreshAssets = document.getElementById('btn-refresh-assets')
   if (btnRefreshAssets) {
-    btnRefreshAssets.onclick = () => void loadAssetsList()
+    btnRefreshAssets.onclick = () => void loadAssetsList(true)
   }
 
   document.querySelectorAll('[data-asset-filter]').forEach(b => {
     b.onclick = () => {
-      creatorState.assets.filterType = b.dataset.assetFilter
-      void loadAssetsList()
+      const f = b.dataset.assetFilter
+      if (creatorState.assets.filterType === f) return
+      creatorState.assets.filterType = f
+      void loadAssetsList(true)
     }
   })
 }
 
-async function loadAssetsList () {
+async function loadAssetsList (force = false) {
+  if (loadingAssets) return
+  if (!force && creatorState.assets.hasLoaded) return
+  loadingAssets = true
+  creatorState.assets.loading = true
+  if (creatorState.currentTab === 'assets') {
+    render()
+  }
+
   try {
     const list = await window.creatorApi.listAssets({
       type: creatorState.assets.filterType
     })
-    creatorState.assets.list = list
-    render()
+    creatorState.assets.list = Array.isArray(list) ? list : []
+    creatorState.assets.hasLoaded = true
   } catch (err) {
     toast(`加载作品库失败: ${err.message}`)
+  } finally {
+    loadingAssets = false
+    creatorState.assets.loading = false
+    if (creatorState.currentTab === 'assets') {
+      render()
+    }
   }
 }
 
@@ -733,7 +765,7 @@ window.handleCreatorAction = async function (action, target) {
     const id = target.dataset.id
     if (id && confirm('确定要删除该作品吗？')) {
       await window.creatorApi.deleteAsset(id)
-      await loadAssetsList()
+      await loadAssetsList(true)
       toast('作品已删除')
     }
   } else if (action === 'publish-asset') {
