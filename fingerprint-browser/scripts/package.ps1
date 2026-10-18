@@ -67,7 +67,7 @@ try {
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'package.json') -Destination $application -Force
-  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub')) {
+  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub', 'creator-hub')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
   # 确保当前打包平台所需的 FFmpeg 二进制（若缺失则自动按平台下载包含）
