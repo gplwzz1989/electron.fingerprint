@@ -88,14 +88,14 @@ function creatorPage () {
     <div class="creator-hub-container">
       <div class="creator-header">
         <div class="creator-header-left">
-          <h2>🎨 商业级 AI 内容创作中心</h2>
-          <p class="section-desc">围绕 FFmpeg 视频剪辑、微信公众号图文环绕排版与矩阵多图笔记，一键赋能自媒体生产。</p>
+          <h2><span>🎨</span> AI 创作中心</h2>
+          <p class="section-desc">FFmpeg 智能混剪 · Doocs/md 微信公众号排版 · 矩阵多图笔记</p>
         </div>
         <div class="creator-tabs-nav" role="tablist">
-          <button class="creator-tab-btn ${creatorState.currentTab === 'video' ? 'active' : ''}" data-creator-tab="video">🎬 视频创作 (FFmpeg+素材)</button>
-          <button class="creator-tab-btn ${creatorState.currentTab === 'article' ? 'active' : ''}" data-creator-tab="article">📝 文章创作 (公众号图文环绕)</button>
-          <button class="creator-tab-btn ${creatorState.currentTab === 'post' ? 'active' : ''}" data-creator-tab="post">📱 图文创作 (标题+多图+富文本)</button>
-          <button class="creator-tab-btn ${creatorState.currentTab === 'assets' ? 'active' : ''}" data-creator-tab="assets">📦 作品与待发库</button>
+          <button class="creator-tab-btn ${creatorState.currentTab === 'video' ? 'active' : ''}" data-creator-tab="video">🎬 视频创作 (FFmpeg)</button>
+          <button class="creator-tab-btn ${creatorState.currentTab === 'article' ? 'active' : ''}" data-creator-tab="article">📝 公众号排版 (微信图文)</button>
+          <button class="creator-tab-btn ${creatorState.currentTab === 'post' ? 'active' : ''}" data-creator-tab="post">📱 矩阵图文 (标题+多图)</button>
+          <button class="creator-tab-btn ${creatorState.currentTab === 'assets' ? 'active' : ''}" data-creator-tab="assets">📦 作品资产库</button>
         </div>
       </div>
 
@@ -117,7 +117,7 @@ function renderCurrentCreatorTab () {
 }
 
 /* ====================================================================
- * 1. 视频创作模块 (围绕 FFmpeg + 下载视频素材展开)
+ * 1. 视频创作模块 (围绕 FFmpeg + 下载视频素材展开，全视口双栏无上下翻滚)
  * ==================================================================== */
 function renderVideoStudio () {
   const v = creatorState.video
@@ -126,159 +126,179 @@ function renderVideoStudio () {
 
   return `
     <div class="creator-studio-grid">
+      <!-- 左栏：视频素材池与参数配置 -->
       <div class="card creator-form-card">
         <div class="card-header">
-          <h3>1. 视频素材库与主题配置</h3>
+          <h3>1. 视频素材池与参数</h3>
           <span class="badge blue">FFmpeg 真实渲染</span>
         </div>
 
-        <!-- 素材库选择区 -->
-        <div class="material-selector-card">
-          <div class="material-selector-header">
-            <h4>📦 下载素材与可用视频池 (${mediaList.length} 个)</h4>
-            <div style="display:flex;gap:6px;">
-              <button class="button small" id="btn-refresh-media" title="扫描 Media Hub 下载库与素材">🔄 刷新下载</button>
-              <button class="button small primary" id="btn-add-local-video" title="从电脑选择已有视频素材">📂 添加本地视频</button>
+        <div class="creator-form-scrollable">
+          <!-- 素材库选择区 -->
+          <div class="material-selector-card">
+            <div class="material-selector-header">
+              <h4>📦 素材视频池 (${mediaList.length} 个)</h4>
+              <div style="display:flex;gap:4px;">
+                <button class="button small" id="btn-refresh-media" title="扫描下载素材">🔄 刷新</button>
+                <button class="button small primary" id="btn-add-local-video" title="从电脑选择本地视频">📂 添加本地</button>
+              </div>
             </div>
-          </div>
 
-          ${mediaList.length === 0 ? `
-            <div style="padding:16px 10px;text-align:center;font-size:11px;color:var(--muted);background:#fff;border-radius:6px;border:1px dashed #cbd5e1;">
-              暂未检测到已下载视频素材，你可以从标签页使用媒体嗅探下载，或点击“添加本地视频”导入
-            </div>
-          ` : `
-            <div class="material-items-grid">
-              ${mediaList.map(m => {
-                const isSelected = v.selectedMaterials.includes(m.filePath)
-                return `
-                  <div class="material-thumb-card ${isSelected ? 'selected' : ''}" data-action="toggle-material" data-path="${escapeHTML(m.filePath)}">
-                    <span class="material-check-badge">${isSelected ? '✅' : '⚪'}</span>
-                    <div class="material-thumb-icon">🎬</div>
-                    <div class="material-thumb-name" title="${escapeHTML(m.fileName)}">${escapeHTML(m.fileName)}</div>
-                    <div class="material-thumb-meta">
-                      <span>${(m.fileSize / 1024 / 1024).toFixed(1)}MB</span>
-                      <span>${m.ext}</span>
+            ${mediaList.length === 0 ? `
+              <div style="padding:10px 8px;text-align:center;font-size:11px;color:var(--muted);background:#fff;border-radius:6px;border:1px dashed #cbd5e1;">
+                暂无视频素材，可从网页标签嗅探下载或添加本地视频
+              </div>
+            ` : `
+              <div class="material-items-grid">
+                ${mediaList.map(m => {
+                  const isSelected = v.selectedMaterials.includes(m.filePath)
+                  return `
+                    <div class="material-thumb-card ${isSelected ? 'selected' : ''}" data-action="toggle-material" data-path="${escapeHTML(m.filePath)}">
+                      <span class="material-check-badge">${isSelected ? '✅' : '⚪'}</span>
+                      <div class="material-thumb-icon">🎬</div>
+                      <div class="material-thumb-name" title="${escapeHTML(m.fileName)}">${escapeHTML(m.fileName)}</div>
+                      <div class="material-thumb-meta">
+                        <span>${(m.fileSize / 1024 / 1024).toFixed(1)}MB</span>
+                        <span>${m.ext}</span>
+                      </div>
                     </div>
-                  </div>
-                `
-              }).join('')}
+                  `
+                }).join('')}
+              </div>
+            `}
+          </div>
+
+          <div class="form-group">
+            <label>短视频核心主题 / 关键词</label>
+            <input id="creator-video-topic" class="input" value="${escapeHTML(v.topic)}" placeholder="输入想做的短视频核心主题...">
+          </div>
+
+          <div class="form-group">
+            <label>期望总时长</label>
+            <div class="radio-pills-row">
+              <label><input type="radio" name="video-duration" value="15" ${v.duration === 15 ? 'checked' : ''}> 15秒 (黄金爆款)</label>
+              <label><input type="radio" name="video-duration" value="30" ${v.duration === 30 ? 'checked' : ''}> 30秒 (干货总结)</label>
+              <label><input type="radio" name="video-duration" value="60" ${v.duration === 60 ? 'checked' : ''}> 60秒 (深度知识)</label>
             </div>
-          `}
-        </div>
+          </div>
 
-        <div class="form-group">
-          <label>短视频主题 / 关键词</label>
-          <input id="creator-video-topic" class="input" value="${escapeHTML(v.topic)}" placeholder="输入想做的短视频核心主题...">
-        </div>
-
-        <div class="form-group">
-          <label>期望总时长</label>
-          <div class="radio-pills">
-            <label><input type="radio" name="video-duration" value="15" ${v.duration === 15 ? 'checked' : ''}> 15秒 (黄金爆款短视频)</label>
-            <label><input type="radio" name="video-duration" value="30" ${v.duration === 30 ? 'checked' : ''}> 30秒 (干货小贴士)</label>
-            <label><input type="radio" name="video-duration" value="60" ${v.duration === 60 ? 'checked' : ''}> 60秒 (深度知识)</label>
+          <div class="form-group">
+            <label>画幅规格与渲染效果</label>
+            <div style="display:flex;gap:12px;margin-bottom:4px;">
+              <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="video-aspect" value="9:16" ${v.aspectRatio === '9:16' ? 'checked' : ''}> 9:16 (抖音/小红书 1080x1920)
+              </label>
+              <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="video-aspect" value="16:9" ${v.aspectRatio === '16:9' ? 'checked' : ''}> 16:9 (B站/横屏 1920x1080)
+              </label>
+            </div>
+            <div class="compact-switches-box">
+              <label>
+                <input type="checkbox" id="video-blur-bg" ${v.enableBlurBg ? 'checked' : ''}> 🌟 智能高斯模糊背景填充 (横屏转竖屏不畸变)
+              </label>
+              <label>
+                <input type="checkbox" id="video-subtitles" ${v.enableSubtitles ? 'checked' : ''}> 💬 自动烙印自媒体大字字幕 (居中安全防出界)
+              </label>
+              <label>
+                <input type="checkbox" id="video-antidup" ${v.antiDuplication ? 'checked' : ''}> 🛡️ 原创去重调色与画质增强微调
+              </label>
+            </div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label>画幅规格与渲染效果</label>
-          <div style="display:flex;gap:12px;margin-bottom:6px;">
-            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
-              <input type="radio" name="video-aspect" value="9:16" ${v.aspectRatio === '9:16' ? 'checked' : ''}> 9:16 (抖音/小红书竖屏 1080x1920)
-            </label>
-            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
-              <input type="radio" name="video-aspect" value="16:9" ${v.aspectRatio === '16:9' ? 'checked' : ''}> 16:9 (B站/横屏 1920x1080)
-            </label>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;background:#f8fafc;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="video-blur-bg" ${v.enableBlurBg ? 'checked' : ''}> 🌟 智能高斯模糊背景填充 (横屏视频变竖屏不拉伸变形)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="video-subtitles" ${v.enableSubtitles ? 'checked' : ''}> 💬 自动烙印自媒体醒目大字字幕 (基于分镜旁白)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="video-antidup" ${v.antiDuplication ? 'checked' : ''}> 🛡️ 原创去重调色与画质增强微调
-            </label>
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button class="button primary" id="btn-generate-storyboard" ${v.generating ? 'disabled' : ''}>
+        <!-- 固定吸底操作栏 (无需滚动，永远在手边) -->
+        <div class="creator-card-footer">
+          <button class="button primary" id="btn-generate-storyboard" style="width:100%;" ${v.generating ? 'disabled' : ''}>
             ${v.generating ? '正在智能拆解分镜...' : '✨ 一键生成分镜脚本与素材映射'}
           </button>
         </div>
       </div>
 
+      <!-- 右栏：分镜时间线与成片视窗 -->
       <div class="card creator-preview-card">
         <div class="card-header">
-          <h3>2. 分镜剪辑时间线与成片视窗</h3>
-          ${sb ? `<span class="badge green">已规划 ${sb.scenes.length} 个镜头分段</span>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3>2. 分镜时间线与成片视窗</h3>
+            ${sb ? `<span class="badge green">${sb.scenes.length} 个分镜</span>` : ''}
+          </div>
+          ${sb ? `
+            <button class="button small primary" id="btn-render-video-head" ${v.rendering ? 'disabled' : ''} title="调度 FFmpeg 开始高清短视频合成">
+              ${v.rendering ? '正在渲染成片...' : '🚀 开始 FFmpeg 剪辑渲染'}
+            </button>
+          ` : ''}
         </div>
 
-        ${!sb ? `
-          <div class="creator-empty-box">
-            <span class="empty-icon">🎬</span>
-            <p>在左侧选择视频素材并输入主题，点击“一键生成分镜脚本与素材映射”开始剪辑</p>
-          </div>
-        ` : `
-          <div class="storyboard-list">
-            ${sb.scenes.map((s, idx) => `
-              <div class="storyboard-item">
-                <div class="storyboard-item-header">
-                  <span class="scene-badge">镜头 ${s.index}</span>
-                  <span class="scene-title">${escapeHTML(s.title)}</span>
-                  <span class="scene-dur">${s.durationSec}s</span>
-                </div>
-
-                <div class="scene-material-bar">
-                  <label>绑定素材：</label>
-                  <select class="scene-mat-select" data-scene-idx="${idx}">
-                    <option value="">-- 自动分配勾选的素材 --</option>
-                    ${mediaList.map(m => `
-                      <option value="${escapeHTML(m.filePath)}" ${s.materialPath === m.filePath ? 'selected' : ''}>
-                        ${escapeHTML(m.fileName)} (${(m.fileSize / 1024 / 1024).toFixed(1)}MB)
-                      </option>
-                    `).join('')}
-                  </select>
-                  <label style="margin-left:6px;">截取起始点：</label>
-                  <input type="number" class="input scene-start-time" data-scene-idx="${idx}" value="${s.startTime || 0}" style="width:60px;padding:3px 6px;font-size:11px;" min="0" step="1"> 秒
-                </div>
-
-                <div class="storyboard-voiceover">
-                  <label>旁白 / 画面字幕文案：</label>
-                  <textarea class="input scene-text-input" data-scene-idx="${idx}">${escapeHTML(s.voiceover)}</textarea>
-                </div>
-                <div class="storyboard-prompt">💡 镜头视觉指导：${escapeHTML(s.visualPrompt)}</div>
-              </div>
-            `).join('')}
-          </div>
-
-          <div class="render-bar">
-            <button class="button primary" id="btn-render-video" ${v.rendering ? 'disabled' : ''} style="width:100%;padding:12px;font-size:13px;">
-              ${v.rendering ? '正在调度 FFmpeg 裁剪、画幅填充与渲染成片中...' : '🚀 调度 FFmpeg 剪辑渲染高清短视频 MP4'}
-            </button>
-          </div>
-
+        <div class="creator-preview-scrollable">
           ${v.renderedResult ? `
             <div class="rendered-video-wrap">
               <div class="rendered-success-box">
                 <div class="rendered-info">
                   <h4>✅ 短视频已成功渲染导出！</h4>
-                  <p>文件大小：${(v.renderedResult.fileSize / 1024 / 1024).toFixed(2)} MB · 时长：${v.renderedResult.duration}秒 · 分辨率：${v.renderedResult.width}×${v.renderedResult.height}</p>
-                  <p>存储路径：<code>${escapeHTML(v.renderedResult.outputPath)}</code></p>
-                </div>
-                <div class="rendered-actions">
-                  <button class="button small" data-action="open-video-file" data-path="${escapeHTML(v.renderedResult.outputPath)}">📂 打开所在文件夹</button>
-                  <button class="button small primary" id="btn-save-video-asset">💾 存入待发布作品库</button>
+                  <p>大小：${(v.renderedResult.fileSize / 1024 / 1024).toFixed(2)} MB · 时长：${v.renderedResult.duration}秒 · 分辨率：${v.renderedResult.width}×${v.renderedResult.height}</p>
+                  <p>路径：<code>${escapeHTML(v.renderedResult.outputPath)}</code></p>
                 </div>
               </div>
-
-              <!-- 商业级成片原生播放器 -->
+              <!-- 成片原生播放器 -->
               <video class="rendered-video-player" src="file://${v.renderedResult.outputPath.replace(/\\/g, '/')}" controls autoplay></video>
             </div>
           ` : ''}
-        `}
+
+          ${!sb ? `
+            <div class="creator-empty-box">
+              <span class="empty-icon">🎬</span>
+              <p>在左侧选择视频素材并点击“一键生成分镜脚本”，右侧将自动展开时间线并可一键渲染</p>
+            </div>
+          ` : `
+            <div class="storyboard-list">
+              ${sb.scenes.map((s, idx) => `
+                <div class="storyboard-item">
+                  <div class="storyboard-item-header">
+                    <span class="scene-badge">镜头 ${s.index}</span>
+                    <span class="scene-title">${escapeHTML(s.title)}</span>
+                    <span class="scene-dur">${s.durationSec}s</span>
+                  </div>
+
+                  <div class="scene-material-bar">
+                    <label>素材：</label>
+                    <select class="scene-mat-select" data-scene-idx="${idx}">
+                      <option value="">-- 自动分配勾选的素材 --</option>
+                      ${mediaList.map(m => `
+                        <option value="${escapeHTML(m.filePath)}" ${s.materialPath === m.filePath ? 'selected' : ''}>
+                          ${escapeHTML(m.fileName)} (${(m.fileSize / 1024 / 1024).toFixed(1)}MB)
+                        </option>
+                      `).join('')}
+                    </select>
+                    <label style="margin-left:4px;">起始点：</label>
+                    <input type="number" class="input scene-start-time" data-scene-idx="${idx}" value="${s.startTime || 0}" style="width:55px;padding:2px 4px;font-size:11px;" min="0" step="1"> s
+                  </div>
+
+                  <div class="storyboard-voiceover">
+                    <textarea class="input scene-text-input" data-scene-idx="${idx}" placeholder="旁白字幕文案...">${escapeHTML(s.voiceover)}</textarea>
+                  </div>
+                  <div class="storyboard-prompt">💡 视觉提示：${escapeHTML(s.visualPrompt)}</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+
+        <!-- 固定吸底操作栏 (成片保存与推送发布随时可点) -->
+        ${sb || v.renderedResult ? `
+          <div class="creator-card-footer">
+            ${v.renderedResult ? `
+              <div style="display:flex;gap:8px;">
+                <button class="button small" data-action="open-video-file" data-path="${escapeHTML(v.renderedResult.outputPath)}">📂 打开文件夹</button>
+                <button class="button small primary" id="btn-save-video-asset">💾 存入作品库</button>
+              </div>
+              <button class="button small primary" id="btn-publish-rendered-direct" title="推送到环境创作者后台一键发布">🚀 推送环境发布</button>
+            ` : `
+              <div style="font-size:11px;color:var(--muted);">调整完分镜旁白后，点击右上角或右下角按钮直接渲染 ➔</div>
+              <button class="button primary" id="btn-render-video" ${v.rendering ? 'disabled' : ''}>
+                ${v.rendering ? '正在渲染中...' : '🚀 调度 FFmpeg 渲染成片'}
+              </button>
+            `}
+          </div>
+        ` : ''}
       </div>
     </div>
   `
@@ -480,83 +500,89 @@ function renderPostStudio () {
 
   return `
     <div class="post-studio-grid">
-      <!-- 左侧：图文创作表单 -->
+      <!-- 左侧：图文创作表单 (带吸底固定操作栏) -->
       <div class="card creator-form-card">
         <div class="card-header">
-          <h3>1. 商业级图文笔记配置 (小红书/抖音图文标准)</h3>
+          <h3>1. 图文笔记配置 (小红书/抖音图文标准)</h3>
           <span class="badge blue">标题 + 富文本 + 多张图片</span>
         </div>
 
-        <!-- 1. 吸睛大标题 -->
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <label>笔记标题 (字数推荐 15~20 字)</label>
-            <span class="char-counter" style="font-size:11px;color:${titleLen > 20 ? '#ef4444' : 'var(--muted)'};font-weight:600;">
-              ${titleLen}/20 字
-            </span>
-          </div>
-          <input id="creator-post-title" class="input" style="font-size:14px;font-weight:600;" value="${escapeHTML(p.title)}" placeholder="输入能够抓住眼球的爆款标题...">
-          
-          <!-- 快捷 Emoji 表情条 -->
-          <div class="emoji-quick-bar">
-            ${['🔥', '✨', '📌', '🥑', '💡', '⚠️', '💯', '🍵', '🚀', '💰', '🎁', '👇', '🎯'].map(e => `
-              <button class="emoji-btn" data-action="insert-post-emoji" data-emoji="${e}">${e}</button>
-            `).join('')}
-          </div>
-        </div>
-
-        <!-- 2. 多张图片管理 (支持 1~18 张图片) -->
-        <div class="form-group multi-image-uploader">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <label>图片素材列表 (${p.images.length}/18 张 · 首张为封面)</label>
-            <div style="display:flex;gap:6px;">
-              <button class="button small" id="btn-import-media-images">📥 从下载素材库导入图片</button>
-              <button class="button small primary" id="btn-add-local-images">📂 本地多选图片</button>
+        <div class="creator-form-scrollable">
+          <!-- 1. 吸睛大标题 -->
+          <div class="form-group">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label>笔记标题 (字数推荐 15~20 字)</label>
+              <span class="char-counter" style="font-size:11px;color:${titleLen > 20 ? '#ef4444' : 'var(--muted)'};font-weight:600;">
+                ${titleLen}/20 字
+              </span>
+            </div>
+            <input id="creator-post-title" class="input" style="font-size:13px;font-weight:600;" value="${escapeHTML(p.title)}" placeholder="输入能够抓住眼球的爆款标题...">
+            
+            <!-- 快捷 Emoji 表情条 -->
+            <div class="emoji-quick-bar">
+              ${['🔥', '✨', '📌', '🥑', '💡', '⚠️', '💯', '🍵', '🚀', '💰', '🎁', '👇', '🎯'].map(e => `
+                <button class="emoji-btn" data-action="insert-post-emoji" data-emoji="${e}">${e}</button>
+              `).join('')}
             </div>
           </div>
 
-          <div class="multi-image-grid">
-            ${p.images.map((img, idx) => `
-              <div class="image-slot-card">
-                <img src="${img.startsWith('data:') || img.startsWith('http') ? img : `file://${img.replace(/\\/g, '/')}`}" alt="图 ${idx + 1}" />
-                ${idx === 0 ? `<span class="image-cover-badge">封面</span>` : ''}
-                <div class="image-slot-actions">
-                  ${idx > 0 ? `<button class="image-slot-btn" data-action="move-image-left" data-idx="${idx}" title="前移">◀</button>` : ''}
-                  ${idx < p.images.length - 1 ? `<button class="image-slot-btn" data-action="move-image-right" data-idx="${idx}" title="后移">▶</button>` : ''}
-                  <button class="image-slot-btn" data-action="remove-post-image" data-idx="${idx}" title="删除">❌</button>
+          <!-- 2. 多张图片管理 (横向滑动轨道，紧凑不占垂直空间) -->
+          <div class="form-group multi-image-uploader">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label>图片素材列表 (${p.images.length}/18 张 · 首张为封面)</label>
+              <div style="display:flex;gap:4px;">
+                <button class="button small" id="btn-import-media-images">📥 从素材库导入</button>
+                <button class="button small primary" id="btn-add-local-images">📂 本地多选</button>
+              </div>
+            </div>
+
+            <div class="multi-image-scroll-track">
+              ${p.images.map((img, idx) => `
+                <div class="image-slot-card">
+                  <img src="${img.startsWith('data:') || img.startsWith('http') ? img : `file://${img.replace(/\\/g, '/')}`}" alt="图 ${idx + 1}" />
+                  ${idx === 0 ? `<span class="image-cover-badge">封面</span>` : ''}
+                  <div class="image-slot-actions">
+                    ${idx > 0 ? `<button class="image-slot-btn" data-action="move-image-left" data-idx="${idx}" title="前移">◀</button>` : ''}
+                    ${idx < p.images.length - 1 ? `<button class="image-slot-btn" data-action="move-image-right" data-idx="${idx}" title="后移">▶</button>` : ''}
+                    <button class="image-slot-btn" data-action="remove-post-image" data-idx="${idx}" title="删除">❌</button>
+                  </div>
                 </div>
-              </div>
-            `).join('')}
+              `).join('')}
 
-            ${p.images.length < 18 ? `
-              <div class="image-add-btn" id="btn-add-img-slot">
-                <span style="font-size:20px;">➕</span>
-                <span>添加图片</span>
-              </div>
-            ` : ''}
+              ${p.images.length < 18 ? `
+                <div class="image-add-btn" id="btn-add-img-slot" title="添加新图片">
+                  <span style="font-size:16px;">➕</span>
+                  <span style="font-size:9px;">加图</span>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- 3. 正文富文本说明 -->
+          <div class="form-group" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label>正文说明文案</label>
+              <span class="char-counter" style="font-size:11px;color:var(--muted);">${contentLen}/1000 字</span>
+            </div>
+            <textarea id="creator-post-content" class="input" style="flex:1;min-height:100px;line-height:1.6;font-size:12px;resize:none;" placeholder="在此输入详细笔记内容...">${escapeHTML(p.content)}</textarea>
+            
+            <!-- 热门话题快捷栏 -->
+            <div class="tag-quick-bar">
+              ${['#自媒体干货', '#搞钱思路', '#个人成长', '#爆款笔记', '#效率工具', '#新手自媒体'].map(tag => `
+                <button class="topic-tag-btn" data-action="insert-post-tag" data-tag="${tag}">${tag}</button>
+              `).join('')}
+            </div>
           </div>
         </div>
 
-        <!-- 3. 正文富文本说明 -->
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <label>正文说明文案</label>
-            <span class="char-counter" style="font-size:11px;color:var(--muted);">${contentLen}/1000 字</span>
+        <!-- 固定吸底操作栏 (永远在手边) -->
+        <div class="creator-card-footer">
+          <div style="font-size:11px;color:var(--muted);">右侧模拟器实时同步呈现 ➔</div>
+          <div style="display:flex;gap:8px;">
+            <button class="button primary" id="btn-save-post-asset" ${p.saving ? 'disabled' : ''}>
+              ${p.saving ? '正在保存...' : '💾 保存至作品库'}
+            </button>
           </div>
-          <textarea id="creator-post-content" class="input" style="height:140px;line-height:1.6;font-size:12px;" placeholder="在此输入详细笔记内容...">${escapeHTML(p.content)}</textarea>
-          
-          <!-- 热门话题快捷栏 -->
-          <div class="tag-quick-bar">
-            ${['#自媒体干货', '#搞钱思路', '#个人成长', '#爆款笔记', '#效率工具', '#新手自媒体'].map(tag => `
-              <button class="topic-tag-btn" data-action="insert-post-tag" data-tag="${tag}">${tag}</button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-actions" style="margin-top:8px;">
-          <button class="button primary" id="btn-save-post-asset" ${p.saving ? 'disabled' : ''}>
-            ${p.saving ? '正在保存...' : '💾 保存图文笔记至作品库'}
-          </button>
         </div>
       </div>
 
@@ -698,6 +724,8 @@ function renderAssetsStudio () {
 function switchCreatorTab (tab) {
   if (!tab) return
   creatorState.currentTab = tab
+
+  if (typeof document === 'undefined') return
 
   // 1. 同步更新所有 Tab 按钮的激活状态
   document.querySelectorAll('[data-creator-tab]').forEach(btn => {
@@ -917,61 +945,63 @@ function bindVideoEvents () {
     inp.onchange = updateTime
   })
 
-  // 渲染短视频
-  const btnRenderVideo = document.getElementById('btn-render-video')
-  if (btnRenderVideo) {
-    btnRenderVideo.onclick = async () => {
-      creatorState.video.rendering = true
-      switchCreatorTab('video')
-      toast('🚀 正在启动 FFmpeg 引擎执行精准切片、画幅高斯模糊与多镜头合成...')
+  // 渲染短视频（头部快捷按钮与底部吸底按钮统一处理）
+  const handleRenderVideo = async () => {
+    creatorState.video.rendering = true
+    switchCreatorTab('video')
+    toast('🚀 正在启动 FFmpeg 引擎执行精准切片、画幅高斯模糊与多镜头合成...')
 
-      const isVertical = creatorState.video.aspectRatio === '9:16'
-      const width = isVertical ? 1080 : 1920
-      const height = isVertical ? 1920 : 1080
+    const isVertical = creatorState.video.aspectRatio === '9:16'
+    const width = isVertical ? 1080 : 1920
+    const height = isVertical ? 1920 : 1080
 
-      try {
-        // 若未提前生成分镜，自动生成并根据素材智能顺延分段
-        let scenes = creatorState.video.storyboard?.scenes
-        if (!scenes || scenes.length === 0) {
-          const generated = await window.creatorApi.generateStoryboard({
-            topic: creatorState.video.topic,
-            targetDuration: creatorState.video.duration
-          })
-          creatorState.video.storyboard = generated
-          scenes = generated.scenes
-          const sel = creatorState.video.selectedMaterials
-          if (sel.length > 0) {
-            const matTimeMap = new Map()
-            scenes.forEach((s, idx) => {
-              const mat = sel[idx % sel.length]
-              s.materialPath = mat
-              const currentT = matTimeMap.get(mat) || 0
-              s.startTime = currentT
-              matTimeMap.set(mat, currentT + (Number(s.durationSec) || 3))
-            })
-          }
-        }
-
-        const res = await window.creatorApi.renderVideo({
-          title: creatorState.video.topic,
-          scenes,
-          materials: creatorState.video.selectedMaterials,
-          width,
-          height,
-          enableBlurBg: creatorState.video.enableBlurBg,
-          enableSubtitles: creatorState.video.enableSubtitles,
-          antiDuplication: creatorState.video.antiDuplication
+    try {
+      // 若未提前生成分镜，自动生成并根据素材智能顺延分段
+      let scenes = creatorState.video.storyboard?.scenes
+      if (!scenes || scenes.length === 0) {
+        const generated = await window.creatorApi.generateStoryboard({
+          topic: creatorState.video.topic,
+          targetDuration: creatorState.video.duration
         })
-        creatorState.video.renderedResult = res
-        toast('🎉 高清短视频渲染完成！可在页面中直接播放预览')
-      } catch (err) {
-        toast(`渲染失败: ${err.message}`)
-      } finally {
-        creatorState.video.rendering = false
-        switchCreatorTab('video')
+        creatorState.video.storyboard = generated
+        scenes = generated.scenes
+        const sel = creatorState.video.selectedMaterials
+        if (sel.length > 0) {
+          const matTimeMap = new Map()
+          scenes.forEach((s, idx) => {
+            const mat = sel[idx % sel.length]
+            s.materialPath = mat
+            const currentT = matTimeMap.get(mat) || 0
+            s.startTime = currentT
+            matTimeMap.set(mat, currentT + (Number(s.durationSec) || 3))
+          })
+        }
       }
+
+      const res = await window.creatorApi.renderVideo({
+        title: creatorState.video.topic,
+        scenes,
+        materials: creatorState.video.selectedMaterials,
+        width,
+        height,
+        enableBlurBg: creatorState.video.enableBlurBg,
+        enableSubtitles: creatorState.video.enableSubtitles,
+        antiDuplication: creatorState.video.antiDuplication
+      })
+      creatorState.video.renderedResult = res
+      toast('🎉 高清短视频渲染完成！可在页面中直接播放预览')
+    } catch (err) {
+      toast(`渲染失败: ${err.message}`)
+    } finally {
+      creatorState.video.rendering = false
+      switchCreatorTab('video')
     }
   }
+
+  const btnRenderVideo = document.getElementById('btn-render-video')
+  if (btnRenderVideo) btnRenderVideo.onclick = handleRenderVideo
+  const btnRenderVideoHead = document.getElementById('btn-render-video-head')
+  if (btnRenderVideoHead) btnRenderVideoHead.onclick = handleRenderVideo
 
   // 存入作品库
   const btnSaveVideo = document.getElementById('btn-save-video-asset')
@@ -992,6 +1022,24 @@ function bindVideoEvents () {
       } catch (err) {
         toast(`保存失败: ${err.message}`)
       }
+    }
+  }
+
+  // 直接推送到环境发布
+  const btnPublishRenderedDirect = document.getElementById('btn-publish-rendered-direct')
+  if (btnPublishRenderedDirect) {
+    btnPublishRenderedDirect.onclick = () => {
+      const res = creatorState.video.renderedResult
+      if (!res) return
+      showPublishDialog({
+        id: `temp-video-${Date.now()}`,
+        type: 'video',
+        title: creatorState.video.topic || 'AI 生成短视频',
+        content: `规格：${res.width}x${res.height} · 时长：${res.duration}s`,
+        mediaFiles: [res.outputPath],
+        targetPlatform: 'douyin',
+        tags: ['#短视频', '#AI创作', '#剪辑']
+      })
     }
   }
 }
@@ -1414,7 +1462,7 @@ async function loadAssetsList (force = false) {
 }
 
 // 供页面全局点击代理
-window.handleCreatorAction = async function (action, target) {
+root.handleCreatorAction = async function (action, target) {
   if (action === 'open-video-file' || action === 'open-asset-media') {
     const p = target.dataset.path
     if (p) await window.creatorApi.openFile(p)

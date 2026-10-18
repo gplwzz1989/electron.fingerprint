@@ -381,4 +381,33 @@ test('视频创作引擎 VideoCreator：字幕断句折行与切片时间顺延�
   assert.ok(sb.scenes[3].startTime > sb.scenes[2].startTime, '镜头4起始时间必须顺延')
 })
 
+test('AI 创作中心 UI 视窗零滚动结构自检：确保头部常驻与操作按钮吸底', () => {
+  const { creatorPage, switchCreatorTab } = require('../renderer/creator-view')
+
+  // 1. 验证默认视频创作页面包含全视口网格、内滚容器与吸底操作区
+  const videoHtml = creatorPage()
+  assert.ok(videoHtml.includes('class="creator-hub-container"'), '必须包含全视口工作台容器')
+  assert.ok(videoHtml.includes('class="creator-studio-grid"'), '必须使用双栏独立布局')
+  assert.ok(videoHtml.includes('class="creator-form-scrollable"'), '表单区域必须支持内部独立滚动')
+  assert.ok(videoHtml.includes('class="creator-card-footer"'), '操作按钮必须常驻吸底卡片底部')
+  assert.ok(videoHtml.includes('id="btn-generate-storyboard"'), '一键生成分镜按钮必须常驻吸底')
+
+  // 2. 验证文章创作页面双栏独立排版结构
+  switchCreatorTab('article')
+  const articleHtml = creatorPage()
+  assert.ok(articleHtml.includes('class="doocs-studio-container"'), '公众号排版必须包含全高容器')
+  assert.ok(articleHtml.includes('class="doocs-dual-workspace"'), '公众号排版必须包含左右双栏')
+  assert.ok(articleHtml.includes('id="btn-copy-wechat-html"'), '一键复制微信排版按钮必须在头部常驻')
+
+  // 3. 验证图文笔记页面横向图片滑动轨道与吸底保存按钮
+  switchCreatorTab('post')
+  const postHtml = creatorPage()
+  assert.ok(postHtml.includes('class="multi-image-scroll-track"'), '图片画廊必须为横向紧凑滑动轨道')
+  assert.ok(postHtml.includes('id="btn-save-post-asset"'), '图文保存按钮必须常驻吸底')
+  assert.ok(postHtml.includes('class="mobile-simulator-wrapper"'), '手机外观模拟器必须独立常驻展示')
+
+  // 恢复状态
+  switchCreatorTab('video')
+})
+
 
