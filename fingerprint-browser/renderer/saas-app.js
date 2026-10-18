@@ -1400,13 +1400,15 @@ function detailDrawer (e, diagnostic = false) {
 }
 function showOverlay(html) {
   lastFocus = document.activeElement
-  document.getElementById('overlay-root').innerHTML = html
+  const root = document.getElementById('overlay-root')
+  if (root) root.innerHTML = html
   document.body.style.overflow = 'hidden'
   const focus = document.querySelector('#overlay-root input, #overlay-root button, #overlay-root select')
   if (focus) focus.focus()
 }
 function closeOverlay() {
-  document.getElementById('overlay-root').innerHTML = ''
+  const root = document.getElementById('overlay-root')
+  if (root) root.innerHTML = ''
   document.body.style.overflow = ''
   if (lastFocus && lastFocus.isConnected) lastFocus.focus()
 }
