@@ -1422,13 +1422,17 @@ function render() {
   closeOverlay()
   route = location.hash.slice(1) || 'overview'
   const parent = ['create', 'detail', 'diagnostic', 'empty', 'browser'].includes(route) ? 'environments' : route === 'onboarding' ? 'overview' : route
-  document.getElementById('navigation').innerHTML = navItems.map(([id, title, symbol]) => `<a class="nav-link ${id === parent ? 'active' : ''}" href="#${id}" ${id === parent ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${title}</span>${id === 'proxies' ? '<span class="nav-count">1</span>' : ''}</a>`).join('')
+  document.getElementById('navigation').innerHTML = navItems.map(([id, title, symbol]) => `<a class="nav-link ${id === parent ? 'active' : ''}" href="#${id}" data-route="${id}" ${id === parent ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${title}</span>${id === 'proxies' ? '<span class="nav-count">1</span>' : ''}</a>`).join('')
   document.getElementById('breadcrumb').textContent = (navItems.find(n => n[0] === parent) || navItems[0])[1]
   document.getElementById('sidebar-quota').textContent = `${environments.length} / 300`
-  const views = { overview, environments: environmentPage, creator: (typeof creatorPage === 'function' ? creatorPage : overview), create: createPage, proxies: proxiesPage, members: membersPage, audit: auditPage, billing: billingPage, settings: settingsPage, browser: browserPage, detail: environmentPage, diagnostic: environmentPage, empty: () => environmentPage(true), onboarding: overview }
+  const creatorViewFn = typeof window !== 'undefined' && typeof window.creatorPage === 'function' ? window.creatorPage : (typeof creatorPage === 'function' ? creatorPage : overview)
+  const views = { overview, environments: environmentPage, creator: creatorViewFn, create: createPage, proxies: proxiesPage, members: membersPage, audit: auditPage, billing: billingPage, settings: settingsPage, browser: browserPage, detail: environmentPage, diagnostic: environmentPage, empty: () => environmentPage(true), onboarding: overview }
   document.getElementById('main').innerHTML = (views[route] || overview)()
   window.scrollTo(0, 0)
-  if (route === 'creator' && typeof attachCreatorEvents === 'function') attachCreatorEvents()
+  if (route === 'creator') {
+    if (typeof window !== 'undefined' && typeof window.attachCreatorEvents === 'function') window.attachCreatorEvents()
+    else if (typeof attachCreatorEvents === 'function') attachCreatorEvents()
+  }
   if (route === 'detail') showOverlay(detailDrawer(currentEnvironment))
   if (route === 'diagnostic') showOverlay(detailDrawer(currentEnvironment || environments[0], true))
   if (route === 'onboarding') onboarding()
@@ -1462,7 +1466,10 @@ document.addEventListener('click', event => {
   const target = event.target.closest('[data-action], [data-route], [data-filter], [data-dismiss]')
   if (!target) return
   if (target.dataset.dismiss && event.target === target) return closeOverlay()
-  if (target.dataset.route) return navigate(target.dataset.route)
+  if (target.dataset.route) {
+    event.preventDefault()
+    return navigate(target.dataset.route)
+  }
   if (target.dataset.filter) { filter = target.dataset.filter; environmentPageNumber = 1; return render() }
   const action = target.dataset.action
   const e = environments.find(item => item.id === target.dataset.id) || currentEnvironment

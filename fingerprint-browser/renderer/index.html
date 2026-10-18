@@ -33,7 +33,16 @@
     <a class="brand" href="#overview"><span class="brand-mark"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M6 12 16 6l10 6v12l-10 6-10-6V12Z" stroke="currentColor" stroke-width="2"/><path d="m6 12 10 6 10-6M16 18v12M11 9l10 6v8" stroke="currentColor" stroke-width="2"/></svg></span><span><b>栖界<span class="brand-beta">设计稿</span></b><small>指纹浏览器 · 团队工作空间</small></span></a>
     <button class="workspace-switch" data-action="workspace"><span class="square-avatar">远</span><span><b>远航出海团队</b><small>团队版工作空间</small></span><span class="chevron">⌄</span></button>
     <div class="nav-caption">工作空间</div>
-    <nav id="navigation" aria-label="主导航"></nav>
+    <nav id="navigation" aria-label="主导航">
+      <a class="nav-link active" href="#overview" data-route="overview" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>工作台</span></a>
+      <a class="nav-link" href="#environments" data-route="environments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span>环境列表</span></a>
+      <a class="nav-link" href="#creator" data-route="creator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg><span>AI 创作</span></a>
+      <a class="nav-link" href="#proxies" data-route="proxies"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>代理资源</span><span class="nav-count">1</span></a>
+      <a class="nav-link" href="#members" data-route="members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>团队成员</span></a>
+      <a class="nav-link" href="#audit" data-route="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>操作记录</span></a>
+      <a class="nav-link" href="#billing" data-route="billing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg><span>订阅计费</span></a>
+      <a class="nav-link" href="#settings" data-route="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="3" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>系统设置</span></a>
+    </nav>
     <div class="sidebar-bottom">
       <div class="quota"><div><span>环境配额</span><b id="sidebar-quota">8 / 300</b></div><div class="progress"><i style="width:8%"></i></div><p>还有充足空间，开始新的业务。</p><a href="#billing">查看订阅与用量 <span>→</span></a></div>
       <button class="support" data-action="help"><span id="support-icon"></span>帮助与支持<span class="help-key">?</span></button>
@@ -47,6 +56,10 @@
   </div>
   <div id="overlay-root"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="doocs-md/themes.js"></script>
+  <script src="doocs-md/parser.js"></script>
+  <script src="doocs-md/inliner.js"></script>
+  <script src="doocs-md/clipboard.js"></script>
   <script src="creator-view.js"></script>
   <script src="saas-app.js"></script>
 </body>

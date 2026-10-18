@@ -65,5 +65,10 @@ contextBridge.exposeInMainWorld('creatorApi', {
   generateStoryboard: params => ipcRenderer.invoke('creator:generate-storyboard', params),
   renderVideo: params => ipcRenderer.invoke('creator:render-video', params),
   preparePublish: payload => ipcRenderer.invoke('creator:prepare-publish', payload),
-  openFile: filePath => ipcRenderer.invoke('creator:open-file', filePath)
+  openFile: filePath => ipcRenderer.invoke('creator:open-file', filePath),
+  listDownloadedMedia: options => ipcRenderer.invoke('creator:list-downloaded-media', options),
+  selectLocalFiles: options => ipcRenderer.invoke('creator:select-local-files', options),
+  getWechatTemplates: () => ipcRenderer.invoke('creator:get-wechat-templates'),
+  validatePost: payload => ipcRenderer.invoke('creator:validate-post', payload),
+  persistPostImages: payload => ipcRenderer.invoke('creator:persist-post-images', payload)
 })
