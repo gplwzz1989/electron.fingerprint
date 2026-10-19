@@ -1,0 +1,67 @@
+{
+  "loginSessionId": "9807e5d1-b6df-40d3-8fe6-5b4e2cb065fa",
+  "status": "success",
+  "qrStatus": 3,
+  "message": "授权成功",
+  "xiaodianCredential": {
+    "loginType": "talent",
+    "bizId": "",
+    "nickname": "",
+    "kfOpenId": "",
+    "pcappUuid": "2257bcd9-b898-4fdf-84b2-e3625fd65a7c",
+    "isTalent": true,
+    "cookie": "talent_token=b_0000019f_a800ae92_b83d2a73_d39c14f4_88fc9949; talent_rand=CAESIAXiB2flBvZd1LmS5iXcSfxWNNvojCGgDzb5MmL95bVN; talent_magic=4486deaa4de09c6a9f9d919d14a072ce5cb2d9e13a07e332c1bb8f6193922e53; talent_ticket=; sessionid=BgAAdDktMEQGCgw7jYALF4vNWRpDV6%2F%2BzBdN1pcURCUC6NleRkaORnOjjPRG%2FqIhhBR2MHzYtSEt%2F%2F%2Bj0d7ItDrwJj2VelVjGPnb1xOnpMJ9; wxuin=3913396111",
+    "cookieNames": [
+      "talent_token",
+      "talent_rand",
+      "talent_magic",
+      "talent_ticket",
+      "sessionid",
+      "wxuin"
+    ],
+    "cookies": {
+      "talent_token": "b_0000019f_a800ae92_b83d2a73_d39c14f4_88fc9949",
+      "talent_rand": "CAESIAXiB2flBvZd1LmS5iXcSfxWNNvojCGgDzb5MmL95bVN",
+      "talent_magic": "4486deaa4de09c6a9f9d919d14a072ce5cb2d9e13a07e332c1bb8f6193922e53",
+      "talent_ticket": "",
+      "sessionid": "BgAAdDktMEQGCgw7jYALF4vNWRpDV6%2F%2BzBdN1pcURCUC6NleRkaORnOjjPRG%2FqIhhBR2MHzYtSEt%2F%2F%2Bj0d7ItDrwJj2VelVjGPnb1xOnpMJ9",
+      "wxuin": "3913396111"
+    },
+    "headimg": ""
+  },
+  "channelsSession": {
+    "externalCode": "KaE9hAgBEAEaIAgEEhwxNzg1MzI4MTUxMjY1NzY1ODIwMUdLN3FsdEphIhgIAxIUCAMSECnDASIN0PWwfWpgdUNYT0k=",
+    "sessionid": "BgAAL7Ffrf8sdaK3qYwsAxdGwswwkC0yFxBwJj7xVj%2FABKvBZStbGnSkwtRKkB1Qha%2B1I7xoKibDWRyUrA6JOO8z9lUe%2F9aR4EAixGtcgFPW",
+    "cookieNames": [
+      "sessionid",
+      "wxuin"
+    ],
+    "cookies": {
+      "sessionid": "BgAAL7Ffrf8sdaK3qYwsAxdGwswwkC0yFxBwJj7xVj%2FABKvBZStbGnSkwtRKkB1Qha%2B1I7xoKibDWRyUrA6JOO8z9lUe%2F9aR4EAixGtcgFPW",
+      "wxuin": "2470682811"
+    },
+    "cookie": "sessionid=BgAAL7Ffrf8sdaK3qYwsAxdGwswwkC0yFxBwJj7xVj%2FABKvBZStbGnSkwtRKkB1Qha%2B1I7xoKibDWRyUrA6JOO8z9lUe%2F9aR4EAixGtcgFPW; wxuin=2470682811"
+  },
+  "mergedCookie": "talent_token=b_0000019f_a800ae92_b83d2a73_d39c14f4_88fc9949; talent_rand=CAESIAXiB2flBvZd1LmS5iXcSfxWNNvojCGgDzb5MmL95bVN; talent_magic=4486deaa4de09c6a9f9d919d14a072ce5cb2d9e13a07e332c1bb8f6193922e53; talent_ticket=; sessionid=BgAAdDktMEQGCgw7jYALF4vNWRpDV6%2F%2BzBdN1pcURCUC6NleRkaORnOjjPRG%2FqIhhBR2MHzYtSEt%2F%2F%2Bj0d7ItDrwJj2VelVjGPnb1xOnpMJ9; wxuin=3913396111; sessionid=BgAAL7Ffrf8sdaK3qYwsAxdGwswwkC0yFxBwJj7xVj%2FABKvBZStbGnSkwtRKkB1Qha%2B1I7xoKibDWRyUrA6JOO8z9lUe%2F9aR4EAixGtcgFPW; wxuin=2470682811",
+  "mergedCookieJson": "[{\"name\":\"talent_token\",\"value\":\"b_0000019f_a161c91b_4a26c21d_a785d9ac_16fa67fc\",\"domain\":\"store.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"},{\"name\":\"talent_rand\",\"value\":\"CAESIIIsCzqzvgxqGrjDoe+TimcLf3wNcJ1rGOBKbkTUv+6+\",\"domain\":\"store.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"},{\"name\":\"talent_magic\",\"value\":\"cd3a66bbe9554876becc5718e287d1860869a536ca4864ce6f527b8b54295cfe\",\"domain\":\"store.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"},{\"name\":\"talent_ticket\",\"value\":\"\",\"domain\":\"store.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"},{\"name\":\"sessionid\",\"value\":\"BgAADIAyyeBgjclaDc%2F94WsvUa0zo1yDfDVPRLsWzdzoZjS8%2F5ijbmdhpf8TZG3Elzf60ibbJYs%2BsnKjoaEDadgPeU2IYElG5dY%2BI24ZBHCT\",\"domain\":\"channels.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"},{\"name\":\"wxuin\",\"value\":\"1725612404\",\"domain\":\"channels.weixin.qq.com\",\"path\":\"/\",\"hostOnly\":true,\"secure\":true,\"httpOnly\":false,\"session\":true,\"sameSite\":\"unspecified\"}]",
+  "mergedCookieHeader": "talent_token=b_0000019f_a161c91b_4a26c21d_a785d9ac_16fa67fc; talent_rand=CAESIIIsCzqzvgxqGrjDoe+TimcLf3wNcJ1rGOBKbkTUv+6+; talent_magic=cd3a66bbe9554876becc5718e287d1860869a536ca4864ce6f527b8b54295cfe; talent_ticket=; sessionid=BgAADIAyyeBgjclaDc%2F94WsvUa0zo1yDfDVPRLsWzdzoZjS8%2F5ijbmdhpf8TZG3Elzf60ibbJYs%2BsnKjoaEDadgPeU2IYElG5dY%2BI24ZBHCT; wxuin=1725612404",
+  "authorInfo": {
+    "finderUsername": "v2_060000231003b20faec8c7eb8b1dc1dcc806e434b077d3f17ed834afe86214e89cc81c9be075@finder",
+    "uniqId": "sphbQseyKfHXoSC",
+    "nickname": "黑客瓜子",
+    "headImgUrl": "https://wx.qlogo.cn/finderhead/00iaTO9JUBgxCmjzY31ica6o31iauzRRSbWSfiajsdGhicaX9KWApT4s346icLs0KOiak7OUOuW9VV3EQs/0"
+  },
+  "keepalive": {
+    "status": 200,
+    "expireTime": 1785206113,
+    "maxExpireTime": 1785810607,
+    "savedAt": "2026-07-27T02:35:39.522Z",
+    "raw": {
+      "base_resp": {
+        "ret": 0
+      },
+      "expire_time": 1785206113,
+      "max_expire_time": 1785810607
+    }
+  }
+}

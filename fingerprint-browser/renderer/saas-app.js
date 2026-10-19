@@ -331,7 +331,7 @@ const FINGERPRINT_PRESETS = [
   },
   {
     id: 'macos-us-m2',
-    name: 'macOS Sonoma · 英语美国 · Apple M2 · 1440×900 (Mac 平台)',
+    name: 'macOS Sonoma · 英语美国 · Apple M2 · 1440×900 · 纽约时区 (跨境出海推荐)',
     data: {
       platform: 'MacIntel',
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
@@ -339,6 +339,69 @@ const FINGERPRINT_PRESETS = [
       languages: ['en-US', 'en'],
       acceptLanguage: 'en-US,en;q=0.9',
       timezone: 'America/New_York',
+      cpu: 8,
+      memory: 8,
+      width: 1440,
+      height: 900,
+      availWidth: 1440,
+      availHeight: 860,
+      scale: 2,
+      webglVendor: 'Google Inc. (Apple)',
+      webglRenderer: 'ANGLE (Apple, Apple M2, OpenGL 4.1)'
+    }
+  },
+  {
+    id: 'macos-cn-m1',
+    name: 'macOS Ventura · 简体中文 · Apple M1 · 1440×900 · 上海时区 (国内 Mac 办公)',
+    data: {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'zh-CN',
+      languages: ['zh-CN', 'zh'],
+      acceptLanguage: 'zh-CN,zh;q=0.9',
+      timezone: 'Asia/Shanghai',
+      cpu: 8,
+      memory: 8,
+      width: 1440,
+      height: 900,
+      availWidth: 1440,
+      availHeight: 860,
+      scale: 2,
+      webglVendor: 'Google Inc. (Apple)',
+      webglRenderer: 'ANGLE (Apple, Apple M1, OpenGL 4.1)'
+    }
+  },
+  {
+    id: 'macos-us-m3',
+    name: 'macOS Sonoma · 英语美国 · Apple M3 · 1440×900 · 洛杉矶时区 (旗舰高配)',
+    data: {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/Los_Angeles',
+      cpu: 8,
+      memory: 8,
+      width: 1440,
+      height: 900,
+      availWidth: 1440,
+      availHeight: 860,
+      scale: 2,
+      webglVendor: 'Google Inc. (Apple)',
+      webglRenderer: 'ANGLE (Apple, Apple M3, OpenGL 4.1)'
+    }
+  },
+  {
+    id: 'macos-ja-m2',
+    name: 'macOS Sonoma · 日语日本 · Apple M2 · 1440×900 · 东京时区 (日本站点)',
+    data: {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      language: 'ja-JP',
+      languages: ['ja-JP', 'ja'],
+      acceptLanguage: 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+      timezone: 'Asia/Tokyo',
       cpu: 8,
       memory: 8,
       width: 1440,
@@ -832,11 +895,108 @@ function applyLanguagePreset (langVal, targetDraft) {
   }
 }
 
+function getHostPlatform () {
+  const p = window.browserApi?.hostPlatform || (typeof process !== 'undefined' ? process.platform : '')
+  if (p === 'darwin') return 'darwin'
+  if (p === 'linux') return 'linux'
+  return 'win32'
+}
+
+function getHostPlatformLabel (host = getHostPlatform()) {
+  if (host === 'darwin') return 'macOS'
+  if (host === 'linux') return 'Linux'
+  return 'Windows'
+}
+
+function getPlatformOptions (host = getHostPlatform()) {
+  if (host === 'darwin') {
+    return [{ value: 'MacIntel', label: 'MacIntel (macOS 桌面平台 · 本机相容推荐)' }]
+  }
+  if (host === 'linux') {
+    return [{ value: 'Linux x86_64', label: 'Linux x86_64 (Linux 桌面平台 · 本机相容推荐)' }]
+  }
+  return [{ value: 'Win32', label: 'Win32 (Windows 桌面平台 · 本机相容推荐)' }]
+}
+
+function getFilteredFingerprintPresets (host = getHostPlatform()) {
+  const targetPlatform = { win32: 'Win32', darwin: 'MacIntel', linux: 'Linux x86_64' }[host] || 'Win32'
+  return FINGERPRINT_PRESETS.filter(p => p.data?.platform === targetPlatform)
+}
+
+function getFilteredUserAgentOptions (host = getHostPlatform()) {
+  return USER_AGENT_OPTIONS.filter(opt => {
+    if (!opt.value) return true
+    if (host === 'win32') return /Windows NT/.test(opt.value)
+    if (host === 'darwin') return /Macintosh/.test(opt.value)
+    if (host === 'linux') return /Linux/.test(opt.value) && !/Android/.test(opt.value)
+    return true
+  })
+}
+
+function getFilteredWebglPresets (host = getHostPlatform()) {
+  const list = []
+  WEBGL_PRESETS.forEach((gpu, idx) => {
+    const isD3D = /D3D|Direct3D/i.test(gpu.renderer)
+    const isApple = /Apple/i.test(gpu.vendor) || /Apple/i.test(gpu.renderer)
+    const isLinuxMesa = /Mesa/i.test(gpu.renderer) || /Linux/i.test(gpu.name)
+    let match = false
+    if (host === 'win32') match = isD3D && !isApple && !isLinuxMesa
+    else if (host === 'darwin') match = isApple && !isD3D && !isLinuxMesa
+    else if (host === 'linux') match = (isLinuxMesa || !isD3D) && !isApple
+    else match = true
+    if (match) list.push({ item: gpu, originalIndex: idx })
+  })
+  return list
+}
+
+function getFilteredWebglVendors (host = getHostPlatform()) {
+  return WEBGL_VENDOR_OPTIONS.filter(v => {
+    if (host === 'win32') return v.value !== 'Google Inc. (Apple)'
+    if (host === 'darwin') return v.value !== 'Google Inc. (NVIDIA)'
+    return true
+  })
+}
+
+function getFilteredWebglRenderers (host = getHostPlatform()) {
+  return WEBGL_RENDERER_OPTIONS.filter(r => {
+    const isD3D = /D3D|Direct3D/i.test(r)
+    const isApple = /Apple/i.test(r)
+    const isLinuxMesa = /Mesa/i.test(r)
+    if (host === 'win32') return isD3D && !isApple && !isLinuxMesa
+    if (host === 'darwin') return isApple && !isD3D && !isLinuxMesa
+    if (host === 'linux') return (isLinuxMesa || !isD3D) && !isApple
+    return true
+  })
+}
+
+function getFilteredScreenPresets (host = getHostPlatform()) {
+  const list = []
+  SCREEN_PRESETS.forEach((sp, idx) => {
+    const isMacRetina = (sp.width === 1440 && sp.height === 900) ||
+                        (sp.width === 2560 && sp.height === 1600) ||
+                        (sp.width === 1280 && sp.height === 800)
+    const isWinStandard = (sp.width === 1920 && sp.height === 1080) ||
+                          (sp.width === 1366 && sp.height === 768) ||
+                          (sp.width === 1536 && sp.height === 864) ||
+                          (sp.width === 2560 && sp.height === 1440) ||
+                          (sp.width === 3840 && sp.height === 2160)
+    list.push({ item: sp, originalIndex: idx, isMacRetina, isWinStandard })
+  })
+  if (host === 'darwin') {
+    list.sort((a, b) => (b.isMacRetina ? 1 : 0) - (a.isMacRetina ? 1 : 0))
+  } else if (host === 'win32') {
+    list.sort((a, b) => (b.isWinStandard ? 1 : 0) - (a.isWinStandard ? 1 : 0))
+  }
+  return list
+}
+
 function renderFingerprintFields (targetDraft = draft, options = {}) {
   const fingerprint = targetDraft.fingerprint
   if (!fingerprint) return `<div class="notice warning">${icon('sync')}正在生成本机推荐指纹，请稍候。</div>`
   const scope = options.scope ? ` data-fingerprint-scope="${options.scope}"` : ''
   const disabled = options.disabled ? ' disabled' : ''
+  const host = getHostPlatform()
+  const hostLabel = getHostPlatformLabel(host)
   const select = (path, label, value, optionsList, extraAttr = '') => {
     let hasCurrent = false
     const renderedOptions = optionsList.map(item => {
@@ -857,12 +1017,18 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
 
   const presetSelector = `<div class="template-option" style="flex-direction:column;align-items:stretch;gap:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <div><b>指纹方案快速预设 · 一键套用</b><p>选择下方推荐组合可一键配置系统、UA、语言、屏幕及显卡，支持在此基础上按项自选微调。</p></div>
+      <div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <b>指纹方案快速预设 · 一键套用</b>
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:11px;background:#eef4ff;color:#2c5cc5;border:1px solid #c8d9fb">${icon('shield')} 本机宿主已锁定：${hostLabel}</span>
+        </div>
+        <p>已自动过滤异构系统高危指纹参数，仅展示与当前 ${hostLabel} 物理宿主相容的安全推荐组合方案。</p>
+      </div>
       ${options.hideTemplateActions ? '' : `<div>${btn('重新生成', 'regenerate-fingerprint', 'small', 'type="button"')} ${btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}</div>`}
     </div>
     <select${scope}${disabled} data-action="fingerprint-preset-change" style="width:100%;height:38px;padding:0 10px;border-radius:6px;border:1px solid #c9d5fa;background:#fff;color:#2c3e50;font-size:12px">
-      <option value="">-- 选择推荐指纹组合方案（一键应用） --</option>
-      ${FINGERPRINT_PRESETS.map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('')}
+      <option value="">-- 选择推荐指纹组合方案（一键应用 · 仅限 ${hostLabel}） --</option>
+      ${getFilteredFingerprintPresets(host).map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('')}
     </select>
   </div>`
 
@@ -871,7 +1037,7 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
   return `${presetSelector}
     <section><h3>浏览器与语言</h3>
       <div class="form-row">
-        ${select('browser.userAgent', '用户代理（User-Agent）', fingerprint.browser.userAgent ?? '', USER_AGENT_OPTIONS)}
+        ${select('browser.userAgent', '用户代理（User-Agent）', fingerprint.browser.userAgent ?? '', getFilteredUserAgentOptions(host))}
         ${select('locale.language', '主要语言（Language）', fingerprint.locale.language, LANGUAGE_OPTIONS, ' data-action="fingerprint-language-change"')}
       </div>
       <div class="form-row">
@@ -885,7 +1051,7 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
     <div class="form-divider"></div>
     <section><h3>设备与屏幕</h3>
       <div class="form-row">
-        ${select('hardware.platform', '操作系统平台（Platform）', fingerprint.hardware.platform, PLATFORM_OPTIONS)}
+        ${select('hardware.platform', '操作系统平台（Platform）', fingerprint.hardware.platform, getPlatformOptions(host))}
         ${select('hardware.hardwareConcurrency', 'CPU 线程数', fingerprint.hardware.hardwareConcurrency, CPU_OPTIONS)}
       </div>
       <div class="form-row">
@@ -894,10 +1060,10 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
       </div>
       <div class="form-row">
         <label class="field" style="grid-column: span 2">
-          <span>常用屏幕分辨率预设（一键切换宽、高与可用工作区）</span>
+          <span>常用屏幕分辨率预设（一键切换宽、高与可用工作区 · 匹配 ${hostLabel} 比例）</span>
           <select${scope}${disabled} data-action="screen-preset-change">
             <option value="">-- 选择常用分辨率预设组合 --</option>
-            ${SCREEN_PRESETS.map((p, idx) => `<option value="${idx}">${escapeHTML(p.label)}</option>`).join('')}
+            ${getFilteredScreenPresets(host).map(({ item, originalIndex }) => `<option value="${originalIndex}">${escapeHTML(item.label)}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -914,16 +1080,16 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
     <section><h3>图形与噪声</h3>
       <div class="form-row">
         <label class="field" style="grid-column: span 2">
-          <span>常用 WebGL 显卡预设（一键同步厂商与渲染引擎）</span>
+          <span>常用 WebGL 显卡预设（一键同步厂商与渲染引擎 · 仅限 ${hostLabel} 显卡架构）</span>
           <select${scope}${disabled} data-action="webgl-preset-change">
             <option value="">-- 选择常见独立显卡 / 核显预设 --</option>
-            ${WEBGL_PRESETS.map((p, idx) => `<option value="${idx}">${escapeHTML(p.name)}</option>`).join('')}
+            ${getFilteredWebglPresets(host).map(({ item, originalIndex }) => `<option value="${originalIndex}">${escapeHTML(item.name)}</option>`).join('')}
           </select>
         </label>
       </div>
       <div class="form-row">
-        ${select('graphics.webglVendor', 'WebGL 厂商（Vendor）', fingerprint.graphics.webglVendor, WEBGL_VENDOR_OPTIONS)}
-        ${select('graphics.webglRenderer', 'WebGL 渲染器（Renderer）', fingerprint.graphics.webglRenderer, WEBGL_RENDERER_OPTIONS)}
+        ${select('graphics.webglVendor', 'WebGL 厂商（Vendor）', fingerprint.graphics.webglVendor, getFilteredWebglVendors(host))}
+        ${select('graphics.webglRenderer', 'WebGL 渲染器（Renderer）', fingerprint.graphics.webglRenderer, getFilteredWebglRenderers(host))}
       </div>
       ${seed}
       <div class="radio-cards">
@@ -1898,3 +2064,10 @@ async function initUnifiedTabs () {
 }
 void initUnifiedTabs()
 void loadRealData()
+
+if (typeof window !== 'undefined') {
+  window.dialog = dialog
+  window.showOverlay = showOverlay
+  window.closeOverlay = closeOverlay
+  window.toast = toast
+}

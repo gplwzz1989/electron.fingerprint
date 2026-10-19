@@ -1,0 +1,128 @@
+import { Toutiaohao } from '@/media-platform/toutiaohao';
+import { initMock } from '@@/mock/mock';
+import fs from 'fs';
+import { rest } from 'msw';
+import { setupServer } from 'msw/node';
+import path from 'path';
+import { describe, expect, it, test } from 'vitest';
+
+/**
+ * 获取测试cookie
+ * @param {string} fileName
+ * @return {string}
+ */
+export const getCookie = (fileName: string = 'toutiao.cookie.txt'): string => {
+  return fs.readFileSync(path.resolve(__dirname, fileName), { encoding: 'utf8' }).trim();
+};
+
+if (false) {
+  describe('【今日头条】媒体账号授权 - mock', () => {
+    const server = setupServer(
+      // 获取用户信息
+      rest.get('https://mp.toutiao.com*/mp/agw/creator_center/user_info', (req, res, context) => {
+        const cookie = req.headers.get('cookie');
+
+        // 未登录
+        if (cookie === 'not_login') {
+          return res(
+            context.status(200),
+            context.json({
+              code: 100004,
+              data: null,
+              err_no: 100004,
+              message: 'user not login',
+              now: 0,
+              reason: '',
+            }),
+          );
+        }
+
+        // 已登录
+        if (cookie === 'login') {
+          return res(
+            context.status(200),
+            context.json({
+              auth_type: -1,
+              avatar_url:
+                'https://sf6-cdn-tos.toutiaostatic.com/img/user-avatar/cf0148cb45c48f7199b778c3a2933a32~300x300.image',
+              code: 0,
+              extra: {
+                claim_origin_permission: '1',
+                impr_boost_pkg_permission: '0',
+                medium_video_cnt: '0',
+                show_authentication_entrance: '1',
+              },
+              is_creator: false,
+              media_id: 1600088830985223,
+              message: 'success',
+              name: '洲谋天下',
+              show_data_assistant: false,
+              show_impression: false,
+              tie_fans: {
+                banner_image_url:
+                  'https://p9.toutiaoimg.com/obj/toutiao-activity-bucket/activity/pgc_media/task4/f8722a4963abfc81ebc014b84bae74af',
+                banner_schema:
+                  'sslocal://webview?hide_search=1&status_bar_color=white&bounce_disable=1&hide_more=1&hide_back_close=1&hide_bar=1&hide_status_bar=1&should_append_common_param=1&url=https%3A%2F%2Fi.snssdk.com%2Ffeoffline%2Ftt_data_assistant%2Fincrease-fans.html',
+                tie_fan_authority: false,
+              },
+              total_fans_count: 20,
+              user_id: 1173207739,
+              welcome_msg: '在头条创作的第 2426 天',
+            }),
+          );
+        }
+
+        // 默认跳过
+        return req.passthrough();
+      }),
+    );
+
+    initMock(server);
+
+    // 当前媒体平台实例
+    const instance = new Toutiaohao();
+
+    // Mock
+    it('mock_授权失败', async () => {
+      const result = await instance.VerifyAuthorization('not_login');
+
+      // 断言登录正常
+      expect(result.status).toBe(0);
+      expect(result.message).toBe('未登录');
+    });
+
+    // Mock
+    test('mock_授权成功', async () => {
+      const result = await instance.VerifyAuthorization('login');
+
+      // 断言登录正常
+      expect(result.status).toEqual(1);
+
+      // 断言账号信息
+      expect(result?.data?.id).toBe(1173207739); // 用户ID
+      expect(result?.data?.name).toBe('洲谋天下'); // 用户昵称
+      expect(result?.data?.avatar).not.toBe(null); // 头像不为空
+    });
+  });
+}
+
+// 用于调试真实请求
+if (false) {
+  describe('【今日头条】媒体账号授权', () => {
+    const instance = new Toutiaohao();
+
+    test('授权成功', async () => {
+      const cookie = getCookie('toutiao.cookie.txt'); // fs.readFileSync(path.resolve(__dirname, './toutiaohao.cookie.txt'), { encoding: 'utf8' });
+
+      const result = await instance.VerifyAuthorization(cookie);
+
+      // 断言登录正常
+      expect(result.status).toEqual(1);
+
+      // 断言账号信息
+      expect(result?.data?.id).toBe(1173207739); // 用户ID
+      expect(result?.data?.name).toBe('洲谋天下'); // 用户昵称
+      expect(result?.data?.avatar).not.toBe(null); // 头像不为空
+    });
+  });
+}

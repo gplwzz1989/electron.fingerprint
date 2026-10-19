@@ -1,0 +1,4 @@
+include:
+  - project: Infrastructure/DevOps/Gitlab-Template
+    ref: master
+    file: vite-node-ci.yml

@@ -461,9 +461,10 @@ async function createDashboard () {
   }
   if (!creatorHub) {
     creatorHub = new CreatorHub()
-    creatorHub.attach({ tabBrowser, dashboardWindow })
+    creatorHub.attach({ tabBrowser, dashboardWindow, environmentRepository })
   } else {
     creatorHub.dashboardWindow = dashboardWindow
+    creatorHub.environmentRepository = environmentRepository
   }
   dashboardWindow.show()
   dashboardWindow.focus()

@@ -7,18 +7,22 @@ const { ArticleCreator } = require('./article-creator')
 const { PostCreator } = require('./post-creator')
 const { VideoCreator } = require('./video-creator')
 const { PublisherAdapter } = require('./publisher-adapter')
+const { NodeServicePublisher, PUBLISH_TYPES, PLATFORM_LOGIN_URLS } = require('./nodeservice-adapter')
 
 class CreatorHub {
   constructor () {
     const userData = app.getPath('userData')
     this.assetStore = new AssetStore(userData)
+    this.nodePublisher = new NodeServicePublisher()
     this.tabBrowser = null
     this.dashboardWindow = null
+    this.environmentRepository = null
   }
 
-  attach ({ tabBrowser, dashboardWindow }) {
+  attach ({ tabBrowser, dashboardWindow, environmentRepository }) {
     this.tabBrowser = tabBrowser
     this.dashboardWindow = dashboardWindow
+    this.environmentRepository = environmentRepository || tabBrowser?.environmentRepository || null
     this.registerIpc()
   }
 
@@ -136,7 +140,56 @@ class CreatorHub {
       })
     })
 
-    // 7. 文件操作
+    // 7. 多账号矩阵一键发布与平台 Worker 调度 (nodeservice 模块)
+    ipcMain.handle('creator:get-publish-types', async () => {
+      return NodeServicePublisher.getPublishTypes()
+    })
+
+    ipcMain.handle('creator:list-platform-accounts', async (_event, options = {}) => {
+      const repo = this.environmentRepository || this.tabBrowser?.environmentRepository
+      return await this.nodePublisher.listEnvironmentAccounts({
+        environmentRepository: repo,
+        forceRefresh: Boolean(options.forceRefresh)
+      })
+    })
+
+    ipcMain.handle('creator:check-account-status', async (_event, { platform, cookieStr }) => {
+      return await this.nodePublisher.checkAccountStatus(platform, cookieStr)
+    })
+
+    ipcMain.handle('creator:set-custom-cookie', async (_event, { environmentId, platform, cookieStr }) => {
+      this.nodePublisher.setCustomCookie(environmentId, platform, cookieStr)
+      return { ok: true }
+    })
+
+    ipcMain.handle('creator:open-platform-login', async (_event, { environmentId, platform }) => {
+      const targetUrl = PLATFORM_LOGIN_URLS[platform] || 'https://www.baidu.com'
+      if (!this.tabBrowser) throw new Error('浏览器未初始化')
+      if (this.tabBrowser.isOpen(environmentId)) {
+        await this.tabBrowser.openPageTab(environmentId, targetUrl)
+      } else {
+        const repo = this.environmentRepository || this.tabBrowser.environmentRepository
+        const env = repo?.get(environmentId)
+        if (!env) throw new Error('找不到指定的指纹环境')
+        const tab = await this.tabBrowser.openPage(env, environmentId)
+        await this.tabBrowser.navigate({ id: tab.id, action: 'load', url: targetUrl })
+      }
+      return { ok: true, targetUrl }
+    })
+
+    ipcMain.handle('creator:publish-multi-account', async (event, payload) => {
+      const senderWebContents = event.sender
+      return await this.nodePublisher.publishMultiAccounts({
+        ...payload,
+        onProgress: (progressInfo) => {
+          if (!senderWebContents.isDestroyed()) {
+            senderWebContents.send('creator:publish-progress', progressInfo)
+          }
+        }
+      })
+    })
+
+    // 8. 文件操作
     ipcMain.handle('creator:open-file', async (_event, filePath) => {
       if (typeof filePath === 'string') {
         shell.showItemInFolder(filePath)
@@ -153,5 +206,8 @@ module.exports = {
   ArticleCreator,
   PostCreator,
   VideoCreator,
-  PublisherAdapter
+  PublisherAdapter,
+  NodeServicePublisher,
+  PUBLISH_TYPES,
+  PLATFORM_LOGIN_URLS
 }

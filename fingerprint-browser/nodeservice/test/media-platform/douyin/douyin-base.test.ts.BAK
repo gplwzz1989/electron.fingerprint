@@ -1,0 +1,121 @@
+import { getAuthKey, getSdkToken, uploadCover } from '@/media-platform/douyin/douyin-base.service';
+import { DouyinAuthSign } from '@/media-platform/douyin/douyin-signature';
+import { initMock } from '@@/mock/mock';
+import { AxiosError } from 'axios';
+import fs from 'fs';
+import { rest } from 'msw';
+import { setupServer } from 'msw/node';
+import path from 'path';
+import { describe, expect, it, test } from 'vitest';
+
+import { getMediaUserInfo } from '../../../src/media-platform/douyin/douyin-user.service';
+
+/**
+ * 获取测试cookie
+ * @param {string} fileName
+ * @return {string}
+ */
+export const getCookie = (fileName: string = 'cookie.txt'): string => {
+  return fs.readFileSync(path.resolve(__dirname, fileName), { encoding: 'utf8' }).trim();
+};
+
+if (false) {
+  test('获取抖音上传参数签名', async () => {
+    // 准备测试数据
+    const cookie = getCookie();
+    const tokenData = await getAuthKey(cookie);
+    const requestData = {
+      Action: 'ApplyUploadInner',
+      Version: '2020-11-19',
+      SpaceName: 'aweme',
+      FileType: 'video',
+      IsInner: 1,
+      FileSize: 9987757,
+      app_id: 2906,
+      user_id: '77354322772',
+      s: Math.random().toString(36).substring(2),
+    };
+
+    // 执行
+    const result = new DouyinAuthSign().GetSign(
+      tokenData,
+      requestData,
+      undefined,
+      new Date(),
+      'https://vod.bytedanceapi.com',
+      '',
+      'cn-north-1',
+      'GET',
+      'vod',
+    );
+
+    // 断言
+    expect(result).not.toBeUndefined();
+    expect(result?.headers['x-amz-security-token']).toBeDefined();
+  });
+
+  describe('【抖音】getSdkToken', () => {
+    const server = setupServer(
+      //
+      rest.head('https://creator.douyin.com*/web/api/media/anchor/search?_signature=', (_, res) => {
+        return res((x) => {
+          x.status = 200;
+          x.headers.set(
+            'x-ware-csrf-token',
+            '0,00010000000162e3cbe5865b9b71691c4b0573c59074a53212c47af2c8499f1876e2eab62bf31783b500057d5225,86370000,success',
+          );
+
+          return x;
+        });
+      }),
+    );
+
+    initMock(server);
+
+    it('获取 SDK Token', async () => {
+      const cookie = getCookie();
+      const result = await getSdkToken(cookie);
+
+      expect(result).toBe(
+        '00010000000162e3cbe5865b9b71691c4b0573c59074a53212c47af2c8499f1876e2eab62bf31783b500057d5225',
+      );
+    });
+  });
+
+  describe('【抖音】getSdkToken', () => {
+    // const server = setupServer(
+    //   rest.head('https://creator.douyin.com*/web/api/media/anchor/search?_signature=', (_, res) => {
+    //     return res((x) => {
+    //       return x;
+    //     });
+    //   }),
+    // );
+    //
+    // initMock(server);
+
+    it('正确处理请求超时', async () => {
+      const cookie = getCookie();
+
+      try {
+        await getSdkToken(cookie);
+      } catch (error: AxiosError) {
+        expect(error.code).toBe(AxiosError.ERR_NETWORK);
+      }
+    });
+  });
+
+  describe.runIf(false)('【真实测试】', () => {
+    it('抖音封面上传，应该上传成功', async () => {
+      const cookie = getCookie();
+      const authData = await getAuthKey(cookie);
+      const userInfo = await getMediaUserInfo(cookie);
+      const result = await uploadCover(
+        userInfo.user.uid,
+        'https://yixiaoer-img.oss-cn-shanghai.aliyuncs.com/images/2023-06/09/e16f16e0-5801-4471-bd7d-41b0401e65c9.jpg',
+        authData,
+      );
+
+      console.log('抖音封面图上传结果：', result);
+    }, 10000000);
+  });
+}

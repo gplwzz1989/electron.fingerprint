@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('browserApi', {
+  hostPlatform: process.platform,
   listPresets: () => ipcRenderer.invoke('presets:list'),
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
   getDraft: payload => ipcRenderer.invoke('profiles:draft', payload),
@@ -70,5 +71,16 @@ contextBridge.exposeInMainWorld('creatorApi', {
   selectLocalFiles: options => ipcRenderer.invoke('creator:select-local-files', options),
   getWechatTemplates: () => ipcRenderer.invoke('creator:get-wechat-templates'),
   validatePost: payload => ipcRenderer.invoke('creator:validate-post', payload),
-  persistPostImages: payload => ipcRenderer.invoke('creator:persist-post-images', payload)
+  persistPostImages: payload => ipcRenderer.invoke('creator:persist-post-images', payload),
+  getPublishTypes: () => ipcRenderer.invoke('creator:get-publish-types'),
+  listPlatformAccounts: options => ipcRenderer.invoke('creator:list-platform-accounts', options),
+  checkAccountStatus: payload => ipcRenderer.invoke('creator:check-account-status', payload),
+  setCustomCookie: payload => ipcRenderer.invoke('creator:set-custom-cookie', payload),
+  openPlatformLogin: payload => ipcRenderer.invoke('creator:open-platform-login', payload),
+  publishMultiAccount: payload => ipcRenderer.invoke('creator:publish-multi-account', payload),
+  onPublishProgress: callback => {
+    const listener = (_event, data) => callback(data)
+    ipcRenderer.on('creator:publish-progress', listener)
+    return () => ipcRenderer.removeListener('creator:publish-progress', listener)
+  }
 })

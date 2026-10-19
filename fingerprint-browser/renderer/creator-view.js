@@ -13,6 +13,34 @@
   }
   const escapeHTML = safeEscapeHTML
 
+  const toast = (msg) => {
+    if (typeof window !== 'undefined' && typeof window.toast === 'function') {
+      window.toast(msg)
+    } else {
+      console.log('[Toast]', msg)
+    }
+  }
+
+  const closeOverlay = () => {
+    if (typeof window !== 'undefined' && typeof window.closeOverlay === 'function') {
+      window.closeOverlay()
+    } else {
+      const root = document.getElementById('overlay-root')
+      if (root) root.innerHTML = ''
+    }
+  }
+
+  const dialog = (title, body, footer, className) => {
+    if (typeof window !== 'undefined' && typeof window.dialog === 'function') {
+      window.dialog(title, body, footer, className)
+    } else {
+      const root = document.getElementById('overlay-root')
+      if (root) {
+        root.innerHTML = `<div class="dialog-backdrop" data-dismiss="dialog"><section class="dialog ${className || ''}" role="dialog" aria-modal="true" style="max-width:960px;width:90vw;"><div class="card-head"><h2 id="dialog-title">${title}</h2><button class="icon-button" aria-label="关闭对话框" data-action="close-overlay">×</button></div><div class="card-body">${body}</div><div class="form-footer"><span></span><div class="actions">${footer || ''}</div></div></section></div>`
+      }
+    }
+  }
+
 // ===================== 创作者中心商业级状态机 =====================
 const creatorState = {
   currentTab: 'video', // 'video' | 'article' | 'post' | 'assets'
@@ -75,6 +103,19 @@ const creatorState = {
     list: [],
     loading: false,
     hasLoaded: false
+  },
+  // 5. 矩阵多账号发布状态 (独立平铺页面，避免全屏/大幅滚动)
+  publish: {
+    currentType: 'wechat-article',
+    selectedAccountIds: new Set(),
+    activeCustomAccountId: null,
+    accountConfigs: {},
+    commonConfig: null,
+    envAccountsList: [],
+    loadingAccounts: false,
+    publishing: false,
+    publishProgress: null,
+    publishSummary: null
   }
 }
 
@@ -89,13 +130,17 @@ function creatorPage () {
       <div class="creator-header">
         <div class="creator-header-left">
           <h2><span>🎨</span> AI 创作中心</h2>
-          <p class="section-desc">FFmpeg 智能混剪 · Doocs/md 微信公众号排版 · 矩阵多图笔记</p>
+          <p class="section-desc">FFmpeg 智能混剪 · Doocs/md 微信公众号排版 · 矩阵多图笔记 · 全网多账号平铺发布</p>
         </div>
         <div class="creator-tabs-nav" role="tablist">
           <button class="creator-tab-btn ${creatorState.currentTab === 'video' ? 'active' : ''}" data-creator-tab="video">🎬 视频创作 (FFmpeg)</button>
           <button class="creator-tab-btn ${creatorState.currentTab === 'article' ? 'active' : ''}" data-creator-tab="article">📝 公众号排版 (微信图文)</button>
           <button class="creator-tab-btn ${creatorState.currentTab === 'post' ? 'active' : ''}" data-creator-tab="post">📱 矩阵图文 (标题+多图)</button>
           <button class="creator-tab-btn ${creatorState.currentTab === 'assets' ? 'active' : ''}" data-creator-tab="assets">📦 作品资产库</button>
+          <button class="creator-tab-btn ${creatorState.currentTab === 'publish' ? 'active' : ''}" data-creator-tab="publish">🚀 矩阵发布配置</button>
+        </div>
+        <div class="creator-header-actions" style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+          <button class="button small primary" id="btn-open-matrix-publisher" style="font-weight:700;">🚀 矩阵多账号一键发布</button>
         </div>
       </div>
 
@@ -112,6 +157,7 @@ function renderCurrentCreatorTab () {
     case 'article': return renderArticleStudio()
     case 'post': return renderPostStudio()
     case 'assets': return renderAssetsStudio()
+    case 'publish': return renderPublishStudio()
     default: return renderVideoStudio()
   }
 }
@@ -352,6 +398,7 @@ function renderArticleStudio () {
             📋 一键复制微信排版
           </button>
           <button class="button small" id="btn-save-article-asset">💾 存入作品库</button>
+          <button class="button small primary" id="btn-publish-article-direct" style="background:#16a34a;border-color:#16a34a;font-weight:700;">🚀 一键矩阵发布</button>
         </div>
       </div>
 
@@ -579,8 +626,11 @@ function renderPostStudio () {
         <div class="creator-card-footer">
           <div style="font-size:11px;color:var(--muted);">右侧模拟器实时同步呈现 ➔</div>
           <div style="display:flex;gap:8px;">
-            <button class="button primary" id="btn-save-post-asset" ${p.saving ? 'disabled' : ''}>
+            <button class="button" id="btn-save-post-asset" ${p.saving ? 'disabled' : ''}>
               ${p.saving ? '正在保存...' : '💾 保存至作品库'}
+            </button>
+            <button class="button primary" id="btn-publish-post-direct" style="background:#16a34a;border-color:#16a34a;font-weight:700;">
+              🚀 一键矩阵发布
             </button>
           </div>
         </div>
@@ -749,6 +799,9 @@ function switchCreatorTab (tab) {
   } else if (tab === 'assets') {
     bindAssetsEvents()
     void loadAssetsList(true)
+  } else if (tab === 'publish') {
+    bindPublishStudioEvents()
+    void loadPublishEnvironmentAccounts(false)
   }
 }
 
@@ -766,7 +819,44 @@ function attachCreatorEvents () {
     }
   })
 
-  // 2. 根据当前激活 Tab 初始化
+  // 2. 矩阵多账号一键发布常驻入口 (切换到平铺页面)
+  const btnOpenMatrix = document.getElementById('btn-open-matrix-publisher')
+  if (btnOpenMatrix) {
+    btnOpenMatrix.onclick = (e) => {
+      e.preventDefault()
+      openMatrixPublishStudio()
+    }
+  }
+
+  const btnPublishArticleDirect = document.getElementById('btn-publish-article-direct')
+  if (btnPublishArticleDirect) {
+    btnPublishArticleDirect.onclick = (e) => {
+      e.preventDefault()
+      openMatrixPublishStudio({
+        title: creatorState.article.topic,
+        renderedHtml: creatorState.article.renderedHtml,
+        targetPlatform: 'wechat',
+        type: 'article'
+      }, 'wechat-article')
+    }
+  }
+
+  const btnPublishPostDirect = document.getElementById('btn-publish-post-direct')
+  if (btnPublishPostDirect) {
+    btnPublishPostDirect.onclick = (e) => {
+      e.preventDefault()
+      openMatrixPublishStudio({
+        title: creatorState.post.title,
+        content: creatorState.post.content,
+        images: creatorState.post.images,
+        tags: creatorState.post.tags,
+        targetPlatform: creatorState.post.platform,
+        type: 'post'
+      })
+    }
+  }
+
+  // 3. 根据当前激活 Tab 初始化
   if (creatorState.currentTab === 'video') {
     bindVideoEvents()
     if (creatorState.video.downloadedMedia.length === 0) void loadDownloadedMedia()
@@ -777,6 +867,9 @@ function attachCreatorEvents () {
   } else if (creatorState.currentTab === 'assets') {
     bindAssetsEvents()
     void loadAssetsList(false)
+  } else if (creatorState.currentTab === 'publish') {
+    bindPublishStudioEvents()
+    void loadPublishEnvironmentAccounts(false)
   }
 }
 
@@ -1528,64 +1621,1307 @@ root.handleCreatorAction = async function (action, target) {
   }
 }
 
-function showPublishDialog (asset) {
-  const envList = typeof environments !== 'undefined' ? environments : []
-  const dialogHtml = `
-    <div class="publish-dialog-content">
-      <p style="margin-bottom:12px; color:var(--muted);">即将把作品 <b>【${escapeHTML(asset.title)}】</b> 推送到指纹浏览器的独立隔离环境中发布：</p>
-      
-      <div class="form-group">
-        <label>选择绑定的指纹浏览器环境：</label>
-        <select id="publish-env-select" class="input">
-          ${envList.map(e => `
-            <option value="${e.id}">${escapeHTML(e.name)} (${e.state || '已保存'})</option>
-          `).join('')}
-        </select>
+/**
+ * ====================================================================
+ * 全网矩阵多账号一键发布中心 (NodeService Publisher)
+ * 8大类型支持：公众号文章/动态、抖音视频/图文/文字、微博视频/图文/头条文章
+ * 支持环境账号选择、类型专属独立配置面板、每个账号独立差异化配置面板
+ * ====================================================================
+ */
+
+const MATRIX_TYPE_CONFIGS = {
+  'wechat-article': {
+    id: 'wechat-article',
+    platform: 'wechat',
+    platformName: '微信公众号',
+    name: '公众号文章',
+    badge: '深度长文',
+    icon: '📄',
+    desc: '富文本/HTML排版、原创保护、留言管理、图文封面，可直接群发或存为公众号草稿箱'
+  },
+  'wechat-dynamic': {
+    id: 'wechat-dynamic',
+    platform: 'wechat',
+    platformName: '微信公众号',
+    name: '公众号图文/贴图动态',
+    badge: '贴图图集',
+    icon: '🖼️',
+    desc: '支持多图画廊海报、精彩贴图动态、随想互动，适合快节奏日常灵感'
+  },
+  'douyin-video': {
+    id: 'douyin-video',
+    platform: 'douyin',
+    platformName: '抖音',
+    name: '抖音视频',
+    badge: '短视频',
+    icon: '🎬',
+    desc: '高清短视频上传、横竖版封面选择、热门话题标签、同步西瓜视频与AI声明'
+  },
+  'douyin-dynamic': {
+    id: 'douyin-dynamic',
+    platform: 'douyin',
+    platformName: '抖音',
+    name: '抖音图文动态',
+    badge: '热门图集',
+    icon: '📸',
+    desc: '高品质多图轮播、配乐封面、话题互动，享受抖音图文专属流量扶持'
+  },
+  'douyin-text': {
+    id: 'douyin-text',
+    platform: 'douyin',
+    platformName: '抖音',
+    name: '抖音文字',
+    badge: '文字微评',
+    icon: '📝',
+    desc: '精炼文字、长文随笔、热门心得分享与话题挂载，轻量高效'
+  },
+  'weibo-video': {
+    id: 'weibo-video',
+    platform: 'weibo',
+    platformName: '新浪微博',
+    name: '微博视频',
+    badge: '微博视界',
+    icon: '🎥',
+    desc: '高清视频上传、专属视频封面、超话话题挂载、原创声明与互动转发'
+  },
+  'weibo-dynamic': {
+    id: 'weibo-dynamic',
+    platform: 'weibo',
+    platformName: '新浪微博',
+    name: '微博图文动态',
+    badge: '九宫格图文',
+    icon: '🖼️',
+    desc: '九宫格多图、微博长文案、超话社区、AI内容声明与公开/粉丝范围设置'
+  },
+  'weibo-article': {
+    id: 'weibo-article',
+    platform: 'weibo',
+    platformName: '新浪微博',
+    name: '微博头条文章',
+    badge: '头条专栏',
+    icon: '📰',
+    desc: '深度富文本文章、导语摘要、头条大图封面、粉丝专属阅读权限与同步微博动态'
+  }
+}
+
+/**
+ * 初始化发布状态与默认公共配置
+ */
+function initPublishConfig (initialAsset = null, preferredType = null) {
+  const p = creatorState.publish
+  let currentType = preferredType || p.currentType || 'wechat-article'
+  if (!preferredType && initialAsset) {
+    if (initialAsset.type === 'video' || initialAsset.videoPath) {
+      currentType = initialAsset.targetPlatform === 'weibo' ? 'weibo-video' : 'douyin-video'
+    } else if (initialAsset.type === 'article' || initialAsset.renderedHtml) {
+      currentType = initialAsset.targetPlatform === 'weibo' ? 'weibo-article' : 'wechat-article'
+    } else if (initialAsset.type === 'post' || (initialAsset.images && initialAsset.images.length > 0)) {
+      currentType = initialAsset.targetPlatform === 'wechat' ? 'wechat-dynamic' : initialAsset.targetPlatform === 'weibo' ? 'weibo-dynamic' : 'douyin-dynamic'
+    }
+  }
+  p.currentType = currentType
+
+  p.commonConfig = {
+    title: initialAsset?.title || (currentType.includes('wechat') ? creatorState.article.topic : currentType.includes('video') ? creatorState.video.topic : creatorState.post.title) || '矩阵精选分享',
+    desc: initialAsset?.desc || initialAsset?.content || creatorState.post.content || '',
+    content: initialAsset?.renderedHtml || initialAsset?.content || (currentType.includes('article') ? creatorState.article.renderedHtml : '') || '',
+    author: initialAsset?.author || '栖界创作者',
+    summary: initialAsset?.summary || initialAsset?.desc || '分享干货与心得体验',
+    coverPath: initialAsset?.coverPath || (Array.isArray(initialAsset?.covers) ? initialAsset.covers[0] : '') || '',
+    horizontalCover: initialAsset?.horizontalCover || '',
+    covers: Array.isArray(initialAsset?.covers) ? [...initialAsset.covers] : (initialAsset?.coverPath ? [initialAsset.coverPath] : []),
+    images: Array.isArray(initialAsset?.images) && initialAsset.images.length > 0 ? [...initialAsset.images] : (Array.isArray(creatorState.post.images) ? [...creatorState.post.images] : []),
+    videoPath: initialAsset?.videoPath || (creatorState.video.renderedResult?.outputPath || '') || '',
+    tags: Array.isArray(initialAsset?.tags) ? [...initialAsset.tags] : ['#自媒体干货', '#爆款技巧', '#日常分享'],
+    topics: Array.isArray(initialAsset?.topics) ? [...initialAsset.topics] : ['AI副业', '自媒体运营', '干货分享'],
+    visibilityType: 0,
+    visible: 0,
+    pubType: 1, // 1直接发布, 0存草稿
+    createType: 1, // 1原创
+    isOriginal: 1,
+    needOpenComment: 1,
+    onlyFansComment: 0,
+    onlyFansRead: 0,
+    allowSave: true,
+    syncXigua: false,
+    aigcDeclared: true,
+    notifySubscribers: 1,
+    prePubTime: null
+  }
+}
+
+/**
+ * 渲染全屏平铺矩阵发布工作台 (独立平铺页面，避免全屏或多层滚动)
+ */
+function renderPublishStudio () {
+  const p = creatorState.publish
+  if (!p.commonConfig) {
+    initPublishConfig()
+  }
+  const currentType = p.currentType || 'wechat-article'
+  const meta = MATRIX_TYPE_CONFIGS[currentType] || MATRIX_TYPE_CONFIGS['wechat-article']
+
+  return `
+    <div class="matrix-publish-container matrix-page-fullscreen" id="matrix-publish-root">
+      <!-- 顶部：8大类型选项卡 (按平台分组单行排列) -->
+      <div class="matrix-type-bar" role="tablist">
+        <div class="matrix-type-group">
+          <span class="matrix-group-label">微信公众号</span>
+          <button class="matrix-type-pill ${currentType === 'wechat-article' ? 'active' : ''}" data-type="wechat-article">
+            <span class="icon">📄</span> 公众号文章
+          </button>
+          <button class="matrix-type-pill ${currentType === 'wechat-dynamic' ? 'active' : ''}" data-type="wechat-dynamic">
+            <span class="icon">🖼️</span> 图文/贴图动态
+          </button>
+        </div>
+        <div class="matrix-type-group">
+          <span class="matrix-group-label">抖音短视频</span>
+          <button class="matrix-type-pill ${currentType === 'douyin-video' ? 'active' : ''}" data-type="douyin-video">
+            <span class="icon">🎬</span> 抖音视频
+          </button>
+          <button class="matrix-type-pill ${currentType === 'douyin-dynamic' ? 'active' : ''}" data-type="douyin-dynamic">
+            <span class="icon">📸</span> 抖音图文动态
+          </button>
+          <button class="matrix-type-pill ${currentType === 'douyin-text' ? 'active' : ''}" data-type="douyin-text">
+            <span class="icon">📝</span> 抖音文字
+          </button>
+        </div>
+        <div class="matrix-type-group">
+          <span class="matrix-group-label">新浪微博</span>
+          <button class="matrix-type-pill ${currentType === 'weibo-video' ? 'active' : ''}" data-type="weibo-video">
+            <span class="icon">🎥</span> 微博视频
+          </button>
+          <button class="matrix-type-pill ${currentType === 'weibo-dynamic' ? 'active' : ''}" data-type="weibo-dynamic">
+            <span class="icon">🖼️</span> 微博图文动态
+          </button>
+          <button class="matrix-type-pill ${currentType === 'weibo-article' ? 'active' : ''}" data-type="weibo-article">
+            <span class="icon">📰</span> 微博头条文章
+          </button>
+        </div>
       </div>
 
-      <div class="publish-summary-card">
-        <div><b>目标平台：</b> ${asset.targetPlatform || '小红书'}</div>
-        <div><b>作品类型：</b> ${asset.type === 'video' ? '视频成片' : asset.type === 'article' ? '公众号文章' : '图文笔记'}</div>
-        <div><b>附件文件数：</b> ${asset.mediaFiles?.length || 0} 个媒体文件</div>
+      <!-- 主工作区：左栏账号列表 + 右栏独立配置面板 -->
+      <div class="matrix-main-workspace">
+        <!-- 左栏：环境账号列表 -->
+        <div class="matrix-accounts-column">
+          <div class="matrix-accounts-header">
+            <div class="matrix-accounts-title">
+              <span>👥 发布目标账号</span>
+              <span class="badge blue" id="matrix-selected-count">已选 ${p.selectedAccountIds.size} 个</span>
+            </div>
+            <div class="matrix-accounts-actions">
+              <button class="button micro" id="matrix-btn-select-matched">全选匹配</button>
+              <button class="button micro" id="matrix-btn-refresh-accounts" title="重新扫描环境 Cookie 状态">🔄 刷新</button>
+            </div>
+          </div>
+          <div class="matrix-accounts-list" id="matrix-accounts-list">
+            <div style="padding:20px;text-align:center;color:var(--muted);font-size:11px;">
+              ⏳ 正在扫描指纹环境与平台账号登录状态...
+            </div>
+          </div>
+        </div>
+
+        <!-- 右栏：配置面板 -->
+        <div class="matrix-config-column">
+          <div class="matrix-config-header">
+            <div id="matrix-config-mode-badge" class="matrix-mode-badge ${p.activeCustomAccountId ? 'custom' : 'common'}">
+              <span id="matrix-mode-icon">${p.activeCustomAccountId ? '🟠' : '⚙️'}</span>
+              <span id="matrix-mode-title">${p.activeCustomAccountId ? '账号独立定制配置' : `${meta.name} · 类型全局配置`}</span>
+              <small id="matrix-mode-sub">${p.activeCustomAccountId ? '当前仅对此账号生效，不影响其他账号' : '修改将作为所有未单独配置账号的基础参数'}</small>
+            </div>
+            <div id="matrix-custom-account-actions" style="display:${p.activeCustomAccountId ? 'flex' : 'none'};align-items:center;gap:6px;">
+              <span class="badge orange" id="matrix-current-custom-name">已进入专属配置</span>
+              <button class="button micro" id="matrix-btn-reset-custom" title="清除此账号差异，完全跟随全局配置">恢复继承全局</button>
+            </div>
+          </div>
+          <div class="matrix-config-scrollable" id="matrix-config-fields">
+            <!-- 动态渲染字段 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部条 -->
+      <div class="matrix-publish-footer">
+        <div class="matrix-footer-info">
+          <strong id="matrix-footer-type-name">${meta.name}</strong>
+          <span class="matrix-footer-dot">·</span>
+          <span id="matrix-footer-summary">已勾选 ${p.selectedAccountIds.size} 个账号，包含 ${Object.keys(p.accountConfigs).length} 个个性化定制</span>
+        </div>
+        <div class="matrix-footer-buttons">
+          <button class="button small" id="matrix-btn-reset-form">重置参数</button>
+          <button class="button primary" id="matrix-btn-submit-publish" ${p.selectedAccountIds.size === 0 ? 'disabled' : ''} style="min-width:180px;font-weight:700;">
+            🚀 一键发布到已选账号 (${p.selectedAccountIds.size})
+          </button>
+        </div>
+      </div>
+
+      <!-- 实时发布任务进度监视浮层 -->
+      <div class="matrix-progress-overlay" id="matrix-progress-overlay" style="display:none;">
+        <div class="matrix-progress-header">
+          <div>
+            <h3 style="margin:0 0 4px 0;">🚀 多账号批量发布实时进度监视</h3>
+            <div style="font-size:11px;color:var(--muted);" id="matrix-progress-subtitle">任务已提交，正在调度各平台 Worker 发送接口...</div>
+          </div>
+          <button class="button small" id="matrix-btn-close-progress" style="display:none;">完成并返回</button>
+        </div>
+        <div class="matrix-progress-bar-wrap">
+          <div class="matrix-progress-bar-fill" id="matrix-progress-bar-fill" style="width:0%;"></div>
+        </div>
+        <div class="matrix-task-table" id="matrix-task-table">
+          <!-- 实时进度项 -->
+        </div>
       </div>
     </div>
   `
+}
 
-  dialog(
-    '一键推送到环境发布',
-    dialogHtml,
-    `
-      <button class="button" data-action="close-overlay">取消</button>
-      <button class="button primary" id="btn-confirm-publish">🚀 打开环境创作者后台</button>
-    `
-  )
+/**
+ * 切换进入平铺矩阵发布工作台
+ */
+function openMatrixPublishStudio (initialAsset = null, preferredType = null) {
+  initPublishConfig(initialAsset, preferredType)
 
+  if (typeof location !== 'undefined' && location.hash !== '#creator') {
+    if (typeof navigate === 'function') navigate('creator')
+    else location.hash = '#creator'
+  }
+
+  // 延迟微任务，确保导航切到 creator 后激活 publish tab
   setTimeout(() => {
-    const confirmBtn = document.getElementById('btn-confirm-publish')
-    if (confirmBtn) {
-      confirmBtn.onclick = async () => {
-        const envId = document.getElementById('publish-env-select')?.value
-        if (!envId) return toast('请先选择一个环境')
-        closeOverlay()
-        toast('正在独立环境中调起创作者中心...')
+    switchCreatorTab('publish')
+  }, 20)
+}
+
+/**
+ * 绑定平铺发布工作台事件
+ */
+function bindPublishStudioEvents () {
+  const p = creatorState.publish
+  if (!p.commonConfig) initPublishConfig()
+
+  const typeMeta = () => MATRIX_TYPE_CONFIGS[p.currentType] || MATRIX_TYPE_CONFIGS['wechat-article']
+
+  const getEditingConfig = () => {
+    if (p.activeCustomAccountId) {
+      if (!p.accountConfigs[p.activeCustomAccountId]) {
+        p.accountConfigs[p.activeCustomAccountId] = JSON.parse(JSON.stringify(p.commonConfig))
+      }
+      return p.accountConfigs[p.activeCustomAccountId]
+    }
+    return p.commonConfig
+  }
+
+  const findAccountById = (id) => p.envAccountsList.find(a => a.accountId === id)
+
+  // 渲染配置表单 (双列防滚动紧凑排版)
+  function renderConfigForm () {
+    const meta = typeMeta()
+    const cfg = getEditingConfig()
+    const isCustom = Boolean(p.activeCustomAccountId)
+
+    const modeBadge = document.getElementById('matrix-config-mode-badge')
+    const modeTitle = document.getElementById('matrix-mode-title')
+    const modeSub = document.getElementById('matrix-mode-sub')
+    const customActions = document.getElementById('matrix-custom-account-actions')
+    const customName = document.getElementById('matrix-current-custom-name')
+
+    if (modeBadge && modeTitle && modeSub) {
+      if (isCustom) {
+        modeBadge.className = 'matrix-mode-badge custom'
+        modeTitle.innerText = `账号独立定制配置`
+        modeSub.innerText = `当前仅对选中的独立账号生效，不影响其他账号`
+        if (customActions) customActions.style.display = 'flex'
+        if (customName) {
+          const acc = findAccountById(p.activeCustomAccountId)
+          customName.innerText = `正在配置: ${acc ? acc.nickname : '专属账号'}`
+        }
+      } else {
+        modeBadge.className = 'matrix-mode-badge common'
+        modeTitle.innerText = `${meta.name} · 类型全局配置`
+        modeSub.innerText = `修改将作为所有未单独配置账号的基础参数`
+        if (customActions) customActions.style.display = 'none'
+      }
+    }
+
+    const container = document.getElementById('matrix-config-fields')
+    if (!container) return
+
+    let leftCol = ''
+    let rightCol = ''
+
+    // 公共标题
+    leftCol += `
+      <div class="form-group">
+        <label style="display:flex;justify-content:space-between;">
+          <span>${isCustom ? '【专属】' : ''}内容标题：</span>
+          <span style="color:var(--muted);font-weight:normal;">必填</span>
+        </label>
+        <input class="input" id="cfg-field-title" value="${escapeHTML(cfg.title || '')}" placeholder="输入引人注目的标题...">
+      </div>
+    `
+
+    // 1. 公众号文章
+    if (p.currentType === 'wechat-article') {
+      leftCol += `
+        <div class="form-group">
+          <label>作者署名：</label>
+          <input class="input" id="cfg-field-author" value="${escapeHTML(cfg.author || '')}" placeholder="文章署名作者...">
+        </div>
+        <div class="form-group">
+          <label>文章摘要导语：</label>
+          <textarea class="input" id="cfg-field-summary" rows="2" placeholder="输入文章摘要导语，不填将自动提取前54字...">${escapeHTML(cfg.summary || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>文章富文本 / HTML 正文：</span>
+            <span style="color:var(--primary);font-size:11px;">已集成 Doocs/md 专业排版样式</span>
+          </label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-content" rows="4" placeholder="输入正文 HTML 代码或富文本内容...">${escapeHTML(cfg.content || '')}</textarea>
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>封面图片大图：</span>
+            <button class="button micro" id="btn-select-cover">📂 选择本地图片</button>
+          </label>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+            ${cfg.coverPath ? `
+              <img src="file:///${cfg.coverPath.replace(/\\/g, '/')}" style="width:72px;height:48px;border-radius:4px;object-fit:cover;border:1px solid var(--line);">
+              <span style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;flex:1;">${escapeHTML(cfg.coverPath.split(/[\\/]/).pop())}</span>
+              <button class="button micro" id="btn-clear-cover">✕</button>
+            ` : `
+              <div style="padding:8px 12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:4px;font-size:11px;color:var(--muted);width:100%;">
+                暂未设置独立封面，将默认使用文章第一张配图
+              </div>
+            `}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>发布模式：</label>
+          <select class="input" id="cfg-field-pubType">
+            <option value="1" ${cfg.pubType === 1 ? 'selected' : ''}>直接群发给关注粉丝</option>
+            <option value="0" ${cfg.pubType === 0 ? 'selected' : ''}>存为公众号后台草稿箱</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-isOriginal" ${cfg.isOriginal ? 'checked' : ''}> 声明原创保护
+          </label>
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-needComment" ${cfg.needOpenComment ? 'checked' : ''}> 开启读者留言区
+          </label>
+        </div>
+      `
+    }
+
+    // 2. 公众号动态
+    else if (p.currentType === 'wechat-dynamic') {
+      leftCol += `
+        <div class="form-group">
+          <label>贴图动态描述文案：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-desc" rows="4" placeholder="写下今日动态与读者互动心得...">${escapeHTML(cfg.desc || '')}</textarea>
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>贴图图片集 (${(cfg.images || []).length} 张)：</span>
+            <button class="button micro primary" id="btn-select-more-images">➕ 添加本地图片</button>
+          </label>
+          <div class="matrix-image-gallery">
+            ${(cfg.images || []).map((img, idx) => {
+              const pth = typeof img === 'string' ? img : img.pathOrUrl
+              return `
+                <div class="matrix-img-box">
+                  <img src="file:///${pth.replace(/\\/g, '/')}">
+                  <button class="matrix-img-box-remove" data-action="remove-img" data-idx="${idx}">✕</button>
+                </div>
+              `
+            }).join('')}
+            <div class="matrix-img-add-box" id="btn-select-more-images-box">
+              <span style="font-size:16px;">+</span>
+              <span>添加图片</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-needComment" ${cfg.needOpenComment ? 'checked' : ''}> 开启动态留言
+          </label>
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-notifySubs" ${cfg.notifySubscribers ? 'checked' : ''}> 推送通知给关注者
+          </label>
+        </div>
+      `
+    }
+
+    // 3. 抖音短视频
+    else if (p.currentType === 'douyin-video') {
+      leftCol += `
+        <div class="form-group">
+          <label>视频文案与话题标签：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-desc" rows="3" placeholder="输入吸睛文案并挂载 #话题...">${escapeHTML(cfg.desc || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>快捷话题标签（点击追加）：</label>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+            ${['#自媒体运营', '#AI副业', '#干货分享', '#技术宅', '#抖音小助手'].map(t => `
+              <span class="badge" style="cursor:pointer;" data-action="append-tag" data-tag="${t}">${t}</span>
+            `).join('')}
+          </div>
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>短视频成片文件 (*.mp4, *.mov)：</span>
+            <button class="button micro primary" id="btn-select-video-file">📂 选择本地视频</button>
+          </label>
+          ${cfg.videoPath ? `
+            <div class="matrix-video-box">
+              <div class="matrix-video-icon">🎬</div>
+              <div class="matrix-video-details">
+                <div class="matrix-video-name">${escapeHTML(cfg.videoPath.split(/[\\/]/).pop())}</div>
+                <div class="matrix-video-path">${escapeHTML(cfg.videoPath)}</div>
+              </div>
+            </div>
+          ` : `
+            <div style="padding:8px 10px;background:#fef2f2;border:1px dashed #f87171;border-radius:6px;font-size:11px;color:#dc2626;">
+              ⚠️ 尚未选定视频成片，请点击上方按钮选取
+            </div>
+          `}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label style="display:flex;justify-content:space-between;">
+              <span>竖版主封面图：</span>
+              <button class="button micro" id="btn-select-cover">选择</button>
+            </label>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+              ${cfg.coverPath ? `
+                <img src="file:///${cfg.coverPath.replace(/\\/g, '/')}" style="width:36px;height:52px;object-fit:cover;border-radius:4px;border:1px solid var(--line);">
+                <span style="font-size:10px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(cfg.coverPath.split(/[\\/]/).pop())}</span>
+              ` : `
+                <span style="font-size:11px;color:var(--muted);">默认自动截取</span>
+              `}
+            </div>
+          </div>
+          <div class="form-group">
+            <label>发布可见范围：</label>
+            <select class="input" id="cfg-field-visibility">
+              <option value="0" ${cfg.visibilityType === 0 ? 'selected' : ''}>公开</option>
+              <option value="2" ${cfg.visibilityType === 2 ? 'selected' : ''}>好友可见</option>
+              <option value="1" ${cfg.visibilityType === 1 ? 'selected' : ''}>私密</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-syncXigua" ${cfg.syncXigua ? 'checked' : ''}> 同步发布到西瓜视频
+          </label>
+          <label class="checkbox-label" style="font-size:11px;">
+            <input type="checkbox" id="cfg-field-aigc" ${cfg.aigcDeclared ? 'checked' : ''}> 声明由 AI 辅助创作
+          </label>
+        </div>
+      `
+    }
+
+    // 4. 抖音图文动态
+    else if (p.currentType === 'douyin-dynamic') {
+      leftCol += `
+        <div class="form-group">
+          <label>图文正文与描述：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-desc" rows="4" placeholder="输入图文笔记文案并挂载 #话题...">${escapeHTML(cfg.desc || cfg.content || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>挂载话题：</label>
+          <input class="input" id="cfg-field-tags" value="${escapeHTML((cfg.tags || []).join(' '))}" placeholder="#话题1 #话题2">
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>轮播图片 (${(cfg.images || []).length} 张)：</span>
+            <button class="button micro primary" id="btn-select-more-images">➕ 添加图片</button>
+          </label>
+          <div class="matrix-image-gallery">
+            ${(cfg.images || []).map((img, idx) => {
+              const pth = typeof img === 'string' ? img : img.pathOrUrl
+              return `
+                <div class="matrix-img-box">
+                  <img src="file:///${pth.replace(/\\/g, '/')}">
+                  <button class="matrix-img-box-remove" data-action="remove-img" data-idx="${idx}">✕</button>
+                </div>
+              `
+            }).join('')}
+            <div class="matrix-img-add-box" id="btn-select-more-images-box">
+              <span style="font-size:16px;">+</span>
+              <span>添加图片</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <div class="form-group">
+            <label>可见范围：</label>
+            <select class="input" id="cfg-field-visibility">
+              <option value="0" ${cfg.visibilityType === 0 ? 'selected' : ''}>公开</option>
+              <option value="2" ${cfg.visibilityType === 2 ? 'selected' : ''}>好友可见</option>
+              <option value="1" ${cfg.visibilityType === 1 ? 'selected' : ''}>私密</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <label class="checkbox-label" style="font-size:11px;padding-bottom:6px;">
+              <input type="checkbox" id="cfg-field-aigc" ${cfg.aigcDeclared ? 'checked' : ''}> 声明 AI 内容生成
+            </label>
+          </div>
+        </div>
+      `
+    }
+
+    // 5. 抖音文字
+    else if (p.currentType === 'douyin-text') {
+      leftCol += `
+        <div class="form-group">
+          <label>长文 / 文字正文内容：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-content" rows="6" placeholder="输入你想抒发的心情、见解、心得或知识干货...">${escapeHTML(cfg.content || cfg.desc || '')}</textarea>
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label>背景 / 封面图：</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button class="button micro" id="btn-select-cover">选择封面</button>
+            ${cfg.coverPath ? `<span style="font-size:11px;color:var(--muted);">${escapeHTML(cfg.coverPath.split(/[\\/]/).pop())}</span>` : '<span style="font-size:11px;color:var(--muted);">默认背景</span>'}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>可见范围：</label>
+          <select class="input" id="cfg-field-visibility">
+            <option value="0" ${cfg.visibilityType === 0 ? 'selected' : ''}>公开</option>
+            <option value="2" ${cfg.visibilityType === 2 ? 'selected' : ''}>好友</option>
+            <option value="1" ${cfg.visibilityType === 1 ? 'selected' : ''}>私密</option>
+          </select>
+        </div>
+        <label class="checkbox-label" style="font-size:11px;margin-top:6px;">
+          <input type="checkbox" id="cfg-field-aigc" ${cfg.aigcDeclared ? 'checked' : ''}> 声明由 AI 辅助生成
+        </label>
+      `
+    }
+
+    // 6. 微博视频
+    else if (p.currentType === 'weibo-video') {
+      leftCol += `
+        <div class="form-group">
+          <label>微博配文与文案：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-desc" rows="3" placeholder="写下微博视频文案，支持挂载 #超话#...">${escapeHTML(cfg.desc || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>超话社区与话题标签：</label>
+          <input class="input" id="cfg-field-topics" value="${escapeHTML((cfg.topics || []).join(' '))}" placeholder="#自媒体运营# #AI短视频#">
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>视频文件：</span>
+            <button class="button micro primary" id="btn-select-video-file">📂 选择视频</button>
+          </label>
+          ${cfg.videoPath ? `
+            <div class="matrix-video-box">
+              <div class="matrix-video-icon">🎥</div>
+              <div class="matrix-video-details">
+                <div class="matrix-video-name">${escapeHTML(cfg.videoPath.split(/[\\/]/).pop())}</div>
+                <div class="matrix-video-path">${escapeHTML(cfg.videoPath)}</div>
+              </div>
+            </div>
+          ` : `
+            <div style="padding:8px 10px;background:#fef2f2;border:1px dashed #f87171;border-radius:6px;font-size:11px;color:#dc2626;">
+              ⚠️ 请选择视频成片
+            </div>
+          `}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label style="display:flex;justify-content:space-between;">
+              <span>视频封面图：</span>
+              <button class="button micro" id="btn-select-cover">选择</button>
+            </label>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+              ${cfg.coverPath ? `
+                <img src="file:///${cfg.coverPath.replace(/\\/g, '/')}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--line);">
+                <span style="font-size:10px;color:var(--muted);">${escapeHTML(cfg.coverPath.split(/[\\/]/).pop())}</span>
+              ` : `
+                <span style="font-size:11px;color:var(--muted);">自动截取</span>
+              `}
+            </div>
+          </div>
+          <div class="form-group">
+            <label>发布范围：</label>
+            <select class="input" id="cfg-field-visible">
+              <option value="0" ${cfg.visible === 0 ? 'selected' : ''}>公开</option>
+              <option value="1" ${cfg.visible === 1 ? 'selected' : ''}>仅粉丝可见</option>
+              <option value="2" ${cfg.visible === 2 ? 'selected' : ''}>好友圈可见</option>
+            </select>
+          </div>
+        </div>
+        <label class="checkbox-label" style="font-size:11px;margin-top:6px;">
+          <input type="checkbox" id="cfg-field-syncWeibo" checked disabled> 同步发布一条普通微博动态
+        </label>
+      `
+    }
+
+    // 7. 微博图文动态
+    else if (p.currentType === 'weibo-dynamic') {
+      leftCol += `
+        <div class="form-group">
+          <label>微博动态文案：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-content" rows="4" placeholder="分享今日新鲜事、干货与互动，可挂载 #超话#...">${escapeHTML(cfg.content || cfg.desc || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>超话社区与标签：</label>
+          <input class="input" id="cfg-field-topics" value="${escapeHTML((cfg.topics || []).join(' '))}" placeholder="#超话社区# #热门微博#">
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>九宫格配图 (${(cfg.images || []).length} / 9 张)：</span>
+            <button class="button micro primary" id="btn-select-more-images">➕ 添加图片</button>
+          </label>
+          <div class="matrix-image-gallery">
+            ${(cfg.images || []).map((img, idx) => {
+              const pth = typeof img === 'string' ? img : img.pathOrUrl
+              return `
+                <div class="matrix-img-box">
+                  <img src="file:///${pth.replace(/\\/g, '/')}">
+                  <button class="matrix-img-box-remove" data-action="remove-img" data-idx="${idx}">✕</button>
+                </div>
+              `
+            }).join('')}
+            <div class="matrix-img-add-box" id="btn-select-more-images-box">
+              <span style="font-size:16px;">+</span>
+              <span>添加图片</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <div class="form-group">
+            <label>可见范围：</label>
+            <select class="input" id="cfg-field-visible">
+              <option value="0" ${cfg.visible === 0 ? 'selected' : ''}>公开</option>
+              <option value="1" ${cfg.visible === 1 ? 'selected' : ''}>仅粉丝可见</option>
+              <option value="2" ${cfg.visible === 2 ? 'selected' : ''}>好友圈</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <label class="checkbox-label" style="font-size:11px;padding-bottom:6px;">
+              <input type="checkbox" id="cfg-field-aigc" ${cfg.aigcDeclared ? 'checked' : ''}> 声明 AI 内容生成
+            </label>
+          </div>
+        </div>
+      `
+    }
+
+    // 8. 微博头条文章
+    else if (p.currentType === 'weibo-article') {
+      leftCol += `
+        <div class="form-group">
+          <label>文章导语与摘要：</label>
+          <textarea class="input" id="cfg-field-summary" rows="2" placeholder="输入头条文章导语...">${escapeHTML(cfg.summary || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>文章正文内容 (支持 HTML / 富文本)：</label>
+          <textarea class="input matrix-textarea-compact" id="cfg-field-content" rows="4" placeholder="输入深度长文内容...">${escapeHTML(cfg.content || '')}</textarea>
+        </div>
+      `
+      rightCol += `
+        <div class="form-group">
+          <label style="display:flex;justify-content:space-between;">
+            <span>头条大图封面 (横版)：</span>
+            <button class="button micro" id="btn-select-cover">📂 选择图片</button>
+          </label>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+            ${cfg.coverPath ? `
+              <img src="file:///${cfg.coverPath.replace(/\\/g, '/')}" style="width:72px;height:42px;border-radius:4px;object-fit:cover;border:1px solid var(--line);">
+              <span style="font-size:10px;color:var(--muted);">${escapeHTML(cfg.coverPath.split(/[\\/]/).pop())}</span>
+              <button class="button micro" id="btn-clear-cover">✕</button>
+            ` : `
+              <div style="padding:8px 10px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:4px;font-size:11px;color:var(--muted);width:100%;">
+                设置头条横版推荐封面大图
+              </div>
+            `}
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label>阅读权限设置：</label>
+            <select class="input" id="cfg-field-onlyFansRead">
+              <option value="0" ${cfg.onlyFansRead === 0 ? 'selected' : ''}>所有人免费阅读</option>
+              <option value="1" ${cfg.onlyFansRead === 1 ? 'selected' : ''}>仅关注粉丝可读全文</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <label class="checkbox-label" style="font-size:11px;padding-bottom:6px;">
+              <input type="checkbox" id="cfg-field-syncWeibo" checked disabled> 同步发一条导读微博
+            </label>
+          </div>
+        </div>
+        <label class="checkbox-label" style="font-size:11px;margin-top:4px;">
+          <input type="checkbox" id="cfg-field-isOriginal" ${cfg.isOriginal ? 'checked' : ''}> 声明原创专栏文章
+        </label>
+      `
+    }
+
+    container.innerHTML = `
+      <div class="matrix-form-two-col">
+        <div class="matrix-form-col-left">${leftCol}</div>
+        <div class="matrix-form-col-right">${rightCol}</div>
+      </div>
+    `
+
+    bindConfigFieldListeners(cfg)
+  }
+
+  // 绑定表单字段修改同步
+  function bindConfigFieldListeners (cfg) {
+    const bindVal = (id, prop, isNum = false) => {
+      const el = document.getElementById(id)
+      if (!el) return
+      el.oninput = (e) => {
+        cfg[prop] = isNum ? Number(e.target.value) : e.target.value
+        updateFooterSummary()
+      }
+    }
+    const bindCheck = (id, prop) => {
+      const el = document.getElementById(id)
+      if (!el) return
+      el.onchange = (e) => {
+        cfg[prop] = e.target.checked
+      }
+    }
+
+    bindVal('cfg-field-title', 'title')
+    bindVal('cfg-field-author', 'author')
+    bindVal('cfg-field-summary', 'summary')
+    bindVal('cfg-field-content', 'content')
+    bindVal('cfg-field-desc', 'desc')
+    bindVal('cfg-field-pubType', 'pubType', true)
+    bindVal('cfg-field-visibility', 'visibilityType', true)
+    bindVal('cfg-field-visible', 'visible', true)
+    bindVal('cfg-field-onlyFansRead', 'onlyFansRead', true)
+
+    bindCheck('cfg-field-isOriginal', 'isOriginal')
+    bindCheck('cfg-field-needComment', 'needOpenComment')
+    bindCheck('cfg-field-notifySubs', 'notifySubscribers')
+    bindCheck('cfg-field-syncXigua', 'syncXigua')
+    bindCheck('cfg-field-aigc', 'aigcDeclared')
+
+    const tagsEl = document.getElementById('cfg-field-tags')
+    if (tagsEl) {
+      tagsEl.oninput = (e) => {
+        cfg.tags = e.target.value.split(/\s+/).filter(Boolean)
+      }
+    }
+    const topicsEl = document.getElementById('cfg-field-topics')
+    if (topicsEl) {
+      topicsEl.oninput = (e) => {
+        cfg.topics = e.target.value.split(/\s+/).filter(Boolean)
+      }
+    }
+
+    // 封面选择
+    const btnCover = document.getElementById('btn-select-cover')
+    if (btnCover) {
+      btnCover.onclick = async (e) => {
+        e.preventDefault()
         try {
-          const res = await window.creatorApi.preparePublish({ environmentId: envId, asset })
-          toast(`已在环境标签中打开创作者后台: ${res.creatorUrl}`)
-          navigate('environments')
+          if (!window.creatorApi?.selectLocalMedia) return
+          const res = await window.creatorApi.selectLocalMedia({ type: 'image' })
+          if (res && res.filePaths && res.filePaths.length > 0) {
+            cfg.coverPath = res.filePaths[0]
+            renderConfigForm()
+            toast('已选择封面大图')
+          }
         } catch (err) {
-          toast(`调起发布失败: ${err.message}`)
+          toast(`选择图片失败: ${err.message}`)
         }
       }
     }
-  }, 50)
+
+    const btnClearCover = document.getElementById('btn-clear-cover')
+    if (btnClearCover) {
+      btnClearCover.onclick = (e) => {
+        e.preventDefault()
+        cfg.coverPath = ''
+        renderConfigForm()
+      }
+    }
+
+    // 视频文件选择
+    const btnSelectVideo = document.getElementById('btn-select-video-file')
+    if (btnSelectVideo) {
+      btnSelectVideo.onclick = async (e) => {
+        e.preventDefault()
+        try {
+          if (!window.creatorApi?.selectLocalMedia) return
+          const res = await window.creatorApi.selectLocalMedia({ type: 'video' })
+          if (res && res.filePaths && res.filePaths.length > 0) {
+            cfg.videoPath = res.filePaths[0]
+            renderConfigForm()
+            toast('已选定视频成片')
+          }
+        } catch (err) {
+          toast(`选择视频失败: ${err.message}`)
+        }
+      }
+    }
+
+    // 多图增删
+    const addImagesAction = async () => {
+      try {
+        if (!window.creatorApi?.selectLocalMedia) return
+        const res = await window.creatorApi.selectLocalMedia({ type: 'image', multi: true })
+        if (res && res.filePaths && res.filePaths.length > 0) {
+          cfg.images = [...(cfg.images || []), ...res.filePaths]
+          renderConfigForm()
+          toast(`已添加 ${res.filePaths.length} 张图片`)
+        }
+      } catch (err) {
+        toast(`添加图片失败: ${err.message}`)
+      }
+    }
+
+    const btnAddImg = document.getElementById('btn-select-more-images')
+    if (btnAddImg) btnAddImg.onclick = (e) => { e.preventDefault(); void addImagesAction() }
+    const btnAddImgBox = document.getElementById('btn-select-more-images-box')
+    if (btnAddImgBox) btnAddImgBox.onclick = (e) => { e.preventDefault(); void addImagesAction() }
+
+    document.querySelectorAll('[data-action="remove-img"]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.preventDefault()
+        const idx = Number(btn.dataset.idx)
+        if (Array.isArray(cfg.images)) {
+          cfg.images.splice(idx, 1)
+          renderConfigForm()
+        }
+      }
+    })
+
+    document.querySelectorAll('[data-action="append-tag"]').forEach(tagEl => {
+      tagEl.onclick = (e) => {
+        const tag = tagEl.dataset.tag
+        const descEl = document.getElementById('cfg-field-desc')
+        if (descEl && tag) {
+          descEl.value = (descEl.value + ' ' + tag).trim()
+          cfg.desc = descEl.value
+        }
+      }
+    })
+  }
+
+  // 更新底部栏统计
+  function updateFooterSummary () {
+    const meta = typeMeta()
+    const nameEl = document.getElementById('matrix-footer-type-name')
+    const summaryEl = document.getElementById('matrix-footer-summary')
+    const submitBtn = document.getElementById('matrix-btn-submit-publish')
+    const selectedCountEl = document.getElementById('matrix-selected-count')
+
+    if (nameEl) nameEl.innerText = meta.name
+    const customCount = Object.keys(p.accountConfigs).length
+    if (summaryEl) {
+      summaryEl.innerText = `已勾选 ${p.selectedAccountIds.size} 个账号，包含 ${customCount} 个个性化独立定制`
+    }
+    if (selectedCountEl) {
+      selectedCountEl.innerText = `已选 ${p.selectedAccountIds.size} 个`
+    }
+    if (submitBtn) {
+      submitBtn.disabled = p.selectedAccountIds.size === 0
+      submitBtn.innerText = `🚀 一键发布到已选账号 (${p.selectedAccountIds.size})`
+    }
+  }
+
+  // 渲染账号列表
+  function renderAccountsList () {
+    const listContainer = document.getElementById('matrix-accounts-list')
+    if (!listContainer) return
+
+    if (p.loadingAccounts) {
+      listContainer.innerHTML = `
+        <div style="padding:20px;text-align:center;color:var(--muted);font-size:11px;">
+          ⏳ 正在扫描指纹环境与平台账号登录状态...
+        </div>
+      `
+      return
+    }
+
+    if (!p.envAccountsList || p.envAccountsList.length === 0) {
+      listContainer.innerHTML = `
+        <div style="padding:24px 14px;text-align:center;color:var(--muted);font-size:11px;background:#f8fafc;border-radius:6px;border:1px dashed #cbd5e1;">
+          <div style="font-size:20px;margin-bottom:6px;">📭</div>
+          未扫描到已登录 ${typeMeta().platformName} 的环境账号。<br>请先在左侧环境列表中启动环境并登录该平台。
+        </div>
+      `
+      return
+    }
+
+    // 按环境分组
+    const grouped = {}
+    p.envAccountsList.forEach(acc => {
+      const envId = acc.environmentId || 'default'
+      if (!grouped[envId]) {
+        grouped[envId] = {
+          envName: acc.environmentName || '未知环境',
+          items: []
+        }
+      }
+      grouped[envId].items.push(acc)
+    })
+
+    let html = ''
+    for (const envId of Object.keys(grouped)) {
+      const g = grouped[envId]
+      html += `
+        <div class="matrix-env-group-card">
+          <div class="matrix-env-group-header">
+            <span>🖥️ ${escapeHTML(g.envName)}</span>
+            <span style="font-weight:normal;color:var(--muted);">${g.items.length} 个账号</span>
+          </div>
+          ${g.items.map(acc => {
+            const isChecked = p.selectedAccountIds.has(acc.accountId)
+            const hasCustom = Boolean(p.accountConfigs[acc.accountId])
+            const isEditing = p.activeCustomAccountId === acc.accountId
+
+            return `
+              <div class="matrix-account-item ${isChecked ? 'selected' : ''}" data-acc-id="${escapeHTML(acc.accountId)}">
+                <input type="checkbox" data-action="toggle-acc-select" data-acc-id="${escapeHTML(acc.accountId)}" ${isChecked ? 'checked' : ''} style="cursor:pointer;">
+                <div class="matrix-account-avatar">${escapeHTML((acc.nickname || '号')[0])}</div>
+                <div class="matrix-account-info">
+                  <div class="matrix-account-name" title="${escapeHTML(acc.nickname)}">${escapeHTML(acc.nickname)}</div>
+                  <div class="matrix-account-sub">
+                    <span class="matrix-status-dot ${acc.online ? 'online' : 'offline'}"></span>
+                    <span>${acc.online ? '已就绪' : '待刷新'}</span>
+                    ${hasCustom ? `<span class="matrix-custom-badge">已定制</span>` : ''}
+                  </div>
+                </div>
+                <div>
+                  <button class="matrix-btn-custom-cfg ${isEditing ? 'active' : ''}" data-action="toggle-custom-cfg" data-acc-id="${escapeHTML(acc.accountId)}" title="${isEditing ? '正在编辑此账号独立参数' : '为该账号配置独立参数'}">
+                    ${isEditing ? '正在定制' : (hasCustom ? '修改定制' : '专属配置')}
+                  </button>
+                </div>
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    }
+
+    listContainer.innerHTML = html
+
+    // 绑定账号勾选
+    listContainer.querySelectorAll('[data-action="toggle-acc-select"]').forEach(box => {
+      box.onclick = (e) => {
+        e.stopPropagation()
+        const accId = box.dataset.accId
+        if (box.checked) {
+          p.selectedAccountIds.add(accId)
+        } else {
+          p.selectedAccountIds.delete(accId)
+        }
+        updateFooterSummary()
+        renderAccountsList()
+      }
+    })
+
+    // 绑定账号点击整行选择
+    listContainer.querySelectorAll('.matrix-account-item').forEach(item => {
+      item.onclick = (e) => {
+        if (e.target.closest('[data-action="toggle-custom-cfg"]') || e.target.closest('input[type="checkbox"]')) return
+        const accId = item.dataset.accId
+        if (p.selectedAccountIds.has(accId)) {
+          p.selectedAccountIds.delete(accId)
+        } else {
+          p.selectedAccountIds.add(accId)
+        }
+        updateFooterSummary()
+        renderAccountsList()
+      }
+    })
+
+    // 绑定专属配置切换
+    listContainer.querySelectorAll('[data-action="toggle-custom-cfg"]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation()
+        const accId = btn.dataset.accId
+        if (p.activeCustomAccountId === accId) {
+          p.activeCustomAccountId = null
+        } else {
+          p.activeCustomAccountId = accId
+          p.selectedAccountIds.add(accId)
+        }
+        renderConfigForm()
+        renderAccountsList()
+        updateFooterSummary()
+      }
+    })
+  }
+
+  // 药丸选项卡点击切换发布类型
+  document.querySelectorAll('.matrix-type-pill').forEach(pill => {
+    pill.onclick = (e) => {
+      e.preventDefault()
+      const newType = pill.dataset.type
+      if (newType === p.currentType) return
+      p.currentType = newType
+      p.activeCustomAccountId = null
+
+      document.querySelectorAll('.matrix-type-pill').forEach(el => el.classList.remove('active'))
+      pill.classList.add('active')
+
+      renderConfigForm()
+      updateFooterSummary()
+      void loadPublishEnvironmentAccounts(false)
+    }
+  })
+
+  // 全选匹配
+  const btnSelectMatched = document.getElementById('matrix-btn-select-matched')
+  if (btnSelectMatched) {
+    btnSelectMatched.onclick = (e) => {
+      e.preventDefault()
+      if (p.selectedAccountIds.size === p.envAccountsList.length) {
+        p.selectedAccountIds.clear()
+      } else {
+        p.envAccountsList.forEach(a => p.selectedAccountIds.add(a.accountId))
+      }
+      updateFooterSummary()
+      renderAccountsList()
+    }
+  }
+
+  // 刷新环境 Cookie
+  const btnRefreshAcc = document.getElementById('matrix-btn-refresh-accounts')
+  if (btnRefreshAcc) {
+    btnRefreshAcc.onclick = (e) => {
+      e.preventDefault()
+      void loadPublishEnvironmentAccounts(true)
+    }
+  }
+
+  // 恢复继承全局配置
+  const btnResetCustom = document.getElementById('matrix-btn-reset-custom')
+  if (btnResetCustom) {
+    btnResetCustom.onclick = (e) => {
+      e.preventDefault()
+      if (!p.activeCustomAccountId) return
+      delete p.accountConfigs[p.activeCustomAccountId]
+      p.activeCustomAccountId = null
+      renderConfigForm()
+      renderAccountsList()
+      updateFooterSummary()
+      toast('已清除独立定制，恢复继承类型全局配置')
+    }
+  }
+
+  // 重置表单
+  const btnResetForm = document.getElementById('matrix-btn-reset-form')
+  if (btnResetForm) {
+    btnResetForm.onclick = (e) => {
+      e.preventDefault()
+      initPublishConfig()
+      p.accountConfigs = {}
+      p.activeCustomAccountId = null
+      renderConfigForm()
+      renderAccountsList()
+      updateFooterSummary()
+      toast('表单参数已重置')
+    }
+  }
+
+  // 核心提交：一键多账号发布调度
+  const submitBtn = document.getElementById('matrix-btn-submit-publish')
+  if (submitBtn) {
+    submitBtn.onclick = async (e) => {
+      e.preventDefault()
+      if (p.selectedAccountIds.size === 0) {
+        return toast('请至少勾选一个目标账号')
+      }
+
+      const targetAccounts = []
+      for (const accId of p.selectedAccountIds) {
+        const acc = findAccountById(accId)
+        if (acc) {
+          targetAccounts.push({
+            accountId: acc.accountId,
+            environmentId: acc.environmentId,
+            environmentName: acc.environmentName,
+            nickname: acc.nickname,
+            platform: acc.platform,
+            cookieStr: acc.cookieStr
+          })
+        }
+      }
+
+      // 展开实时进度监视浮层 (内嵌于平铺工作台)
+      const progressOverlay = document.getElementById('matrix-progress-overlay')
+      const taskTable = document.getElementById('matrix-task-table')
+      const progressFill = document.getElementById('matrix-progress-bar-fill')
+      const progressSubtitle = document.getElementById('matrix-progress-subtitle')
+      const btnCloseProgress = document.getElementById('matrix-btn-close-progress')
+
+      if (progressOverlay) progressOverlay.style.display = 'flex'
+      if (btnCloseProgress) btnCloseProgress.style.display = 'none'
+
+      if (taskTable) {
+        taskTable.innerHTML = targetAccounts.map(t => `
+          <div class="matrix-task-row" id="task-row-${t.accountId}">
+            <div style="font-weight:700;width:140px;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(t.nickname)}</div>
+            <div style="font-size:11px;color:var(--muted);width:130px;">🖥️ ${escapeHTML(t.environmentName)}</div>
+            <div class="matrix-task-row-status" id="task-status-${t.accountId}" style="color:#2563eb;">⏳ 准备中...</div>
+            <div class="matrix-task-row-msg" id="task-msg-${t.accountId}">等待任务派发中...</div>
+          </div>
+        `).join('')
+      }
+
+      let cleanProgress = () => {}
+      if (window.creatorApi?.onPublishProgress) {
+        cleanProgress = window.creatorApi.onPublishProgress((data) => {
+          if (!data || !data.currentAccount) return
+          const cur = data.currentAccount
+          const statusEl = document.getElementById(`task-status-${cur.accountId}`)
+          const msgEl = document.getElementById(`task-msg-${cur.accountId}`)
+          const rowEl = document.getElementById(`task-row-${cur.accountId}`)
+
+          if (statusEl) {
+            if (cur.status === 'success') {
+              statusEl.innerText = '✅ 发布成功'
+              statusEl.style.color = '#16a34a'
+              if (rowEl) rowEl.className = 'matrix-task-row success'
+            } else if (cur.status === 'failed') {
+              statusEl.innerText = '❌ 发布失败'
+              statusEl.style.color = '#dc2626'
+              if (rowEl) rowEl.className = 'matrix-task-row failed'
+            } else {
+              statusEl.innerText = `🔄 ${cur.progress}%`
+              statusEl.style.color = '#2563eb'
+            }
+          }
+
+          if (msgEl) msgEl.innerText = cur.message || ''
+
+          if (progressFill && data.summary) {
+            const finished = data.summary.successCount + data.summary.failCount
+            const pct = Math.floor((finished / data.summary.totalCount) * 100)
+            progressFill.style.width = `${pct}%`
+          }
+        })
+      }
+
+      try {
+        if (progressSubtitle) progressSubtitle.innerText = `正在并发调度各平台发布 Worker，共 ${targetAccounts.length} 个账号...`
+        const summary = await window.creatorApi.publishMultiAccount({
+          publishType: p.currentType,
+          targetAccounts,
+          commonConfig: p.commonConfig,
+          accountConfigs: p.accountConfigs
+        })
+
+        if (progressFill) progressFill.style.width = '100%'
+        if (progressSubtitle) {
+          progressSubtitle.innerHTML = `
+            🎉 发布任务全部执行完毕！成功：<b style="color:#16a34a;">${summary.successCount}</b> 个，失败：<b style="color:#dc2626;">${summary.failCount}</b> 个（耗时 ${(summary.durationMs / 1000).toFixed(1)} 秒）
+          `
+        }
+        if (btnCloseProgress) {
+          btnCloseProgress.style.display = 'block'
+          btnCloseProgress.onclick = () => {
+            cleanProgress()
+            if (progressOverlay) progressOverlay.style.display = 'none'
+            toast('发布任务已完成')
+          }
+        }
+      } catch (err) {
+        if (progressSubtitle) progressSubtitle.innerText = `任务执行异常: ${err.message}`
+        if (btnCloseProgress) {
+          btnCloseProgress.style.display = 'block'
+          btnCloseProgress.onclick = () => {
+            cleanProgress()
+            if (progressOverlay) progressOverlay.style.display = 'none'
+          }
+        }
+      }
+    }
+  }
+
+  // 内部辅助刷新账号
+  window._renderPublishAccountsList = renderAccountsList
+
+  renderConfigForm()
+  updateFooterSummary()
+}
+
+/**
+ * 加载环境账号列表并探测在线状态
+ */
+async function loadPublishEnvironmentAccounts (forceRefresh = false) {
+  const p = creatorState.publish
+  if (!window.creatorApi || !window.creatorApi.listPlatformAccounts) return
+
+  p.loadingAccounts = true
+  if (typeof window._renderPublishAccountsList === 'function') {
+    window._renderPublishAccountsList()
+  }
+
+  try {
+    const accounts = await window.creatorApi.listPlatformAccounts(p.currentType)
+    p.envAccountsList = Array.isArray(accounts) ? accounts : []
+
+    // 默认全选匹配账号
+    p.selectedAccountIds.clear()
+    p.envAccountsList.forEach(a => p.selectedAccountIds.add(a.accountId))
+
+    p.loadingAccounts = false
+    if (typeof window._renderPublishAccountsList === 'function') {
+      window._renderPublishAccountsList()
+    }
+
+    const submitBtn = document.getElementById('matrix-btn-submit-publish')
+    const selectedCountEl = document.getElementById('matrix-selected-count')
+    const summaryEl = document.getElementById('matrix-footer-summary')
+    if (selectedCountEl) selectedCountEl.innerText = `已选 ${p.selectedAccountIds.size} 个`
+    if (summaryEl) summaryEl.innerText = `已勾选 ${p.selectedAccountIds.size} 个账号，包含 ${Object.keys(p.accountConfigs).length} 个个性化独立定制`
+    if (submitBtn) {
+      submitBtn.disabled = p.selectedAccountIds.size === 0
+      submitBtn.innerText = `🚀 一键发布到已选账号 (${p.selectedAccountIds.size})`
+    }
+  } catch (err) {
+    p.loadingAccounts = false
+    console.error('加载环境账号失败:', err)
+  }
+}
+
+/**
+ * 历史调用与单元测试的兼容接口：直接平铺切换到矩阵发布页面
+ */
+async function showMatrixPublishModal (initialAsset = null, preferredType = null) {
+  openMatrixPublishStudio(initialAsset, preferredType)
+}
+
+function showPublishDialog (asset) {
+  return showMatrixPublishModal(asset)
 }
 
   root.creatorPage = creatorPage
   root.attachCreatorEvents = attachCreatorEvents
   root.switchCreatorTab = switchCreatorTab
+  root.showMatrixPublishModal = showMatrixPublishModal
+  root.showPublishDialog = showPublishDialog
+  root.openMatrixPublishStudio = openMatrixPublishStudio
+  root.renderPublishStudio = renderPublishStudio
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { creatorPage, attachCreatorEvents, switchCreatorTab }
+    module.exports = { creatorPage, attachCreatorEvents, switchCreatorTab, showMatrixPublishModal, showPublishDialog, openMatrixPublishStudio, renderPublishStudio }
   }
 })(typeof window !== 'undefined' ? window : globalThis)
 

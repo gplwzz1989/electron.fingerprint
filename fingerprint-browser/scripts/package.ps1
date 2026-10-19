@@ -70,6 +70,12 @@ try {
   foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub', 'creator-hub')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
+  $destNodeService = Join-Path $application 'nodeservice'
+  New-Item -ItemType Directory -Path $destNodeService -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'nodeservice/dist') -Destination (Join-Path $destNodeService 'dist') -Recurse -Force
+  if (Test-Path -LiteralPath (Join-Path $projectRoot 'nodeservice/package.json')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'nodeservice/package.json') -Destination (Join-Path $destNodeService 'package.json') -Force
+  }
   # 确保当前打包平台所需的 FFmpeg 二进制（若缺失则自动按平台下载包含）
   & node (Join-Path $PSScriptRoot 'ensure-ffmpeg.js') "--dest=$(Join-Path $payload 'bin')" --platform=win32 --arch=x64
   if (Test-Path -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe')) {

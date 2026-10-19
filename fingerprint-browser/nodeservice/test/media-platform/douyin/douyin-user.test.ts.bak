@@ -1,0 +1,291 @@
+import { getCreatorUserInfo, getMediaUserInfo } from '@/media-platform/douyin/douyin-user.service';
+import { initMock } from '@@/mock/mock';
+import { rest } from 'msw';
+import { setupServer } from 'msw/node';
+import { describe, expect, test, it } from 'vitest';
+import { getCookie } from './douyin.test';
+import {
+  getDouyinLocationType,
+  getDouyinShopOverLimit,
+  getDouyinUserStatus,
+} from '../../../src/media-platform/douyin/douyin-user';
+
+if (false) {
+  it('获取用户状态', async () => {
+    const cookie = getCookie();
+    const result = await getDouyinUserStatus(cookie);
+    console.log(result);
+    expect(result.code).toBe(0);
+  });
+
+  it('获取用户是否有挂车权限', async () => {
+    const cookie = getCookie();
+    const result = await getDouyinShopOverLimit(cookie);
+    console.log(result);
+    expect(result.code).toBe(0);
+  });
+
+  it('获取用户支持的地理位置类型', async () => {
+    const cookie = getCookie();
+    const result = await getDouyinLocationType(cookie);
+    console.log(result);
+    expect(result.code).toBe(0);
+  });
+}
+
+if(false) {
+  describe('【抖音】获取创作用户信息', () => {
+    const server = setupServer(
+      // 获取用户信息
+      rest.get('https://creator.douyin.com*/aweme/v1/creator/user/info', (req, res, context) => {
+        return res(
+          context.status(200),
+          context.json({
+            douyin_user_verify_info: {
+              avatar_url:
+                'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+              douyin_unique_id: '376623504',
+              follower_count: 80,
+              following_count: 80,
+              is_super_tag_user: false,
+              nick_name: 'Midnight',
+              sync_to_xigua: true,
+              teen_model: false,
+              total_favorited: 339,
+            },
+            extra: {
+              now: 1693670637000,
+            },
+            has_data_mgmt_perm: true,
+            has_welfare_donate_permission: false,
+            is_commerce_user: false,
+            is_confer_login: false,
+            is_log_as_person: true,
+            is_login_hotsoon: false,
+            is_perm_revoke: false,
+            is_registered: true,
+            person_info: {
+              category: '生活记录',
+            },
+            roles: [
+              {
+                id: 100,
+                key: 'CreatorDefaultRole',
+                name: '创作平台默认角色',
+              },
+              {
+                id: 124,
+                key: 'CreatorJuniorTask',
+                name: '创作者平台-完成初级任务',
+              },
+              {
+                id: 134,
+                key: 'CreatorDataManagementRole',
+                name: '创作者数据管理角色',
+              },
+            ],
+            status_code: 0,
+            status_msg: '',
+            user_dashboard_time: '2022-06-21',
+            user_profile: {
+              account_region: '',
+              avatar_url:
+                'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+              follower_count: 80,
+              following_count: 80,
+              gender: 1,
+              location: '',
+              login_with_only_tc: false,
+              mobile: '133******76',
+              nick_name: 'Midnight',
+              region: 'CN',
+              school: '',
+              secret_id: 'MS4wLjABAAAATVL-tW8PUSOZlcNwKJ4guFrOS_ECR9uMkogBON3rPmg',
+              signature: '一个会写代码的摩托佬',
+              total_favorited: 339,
+              unique_id: '376623504',
+              vcd_info: {
+                auth_relation_time: 0,
+                auth_time: 1617980629,
+                aweme_hotsoon_auth: 1,
+                aweme_hotsoon_auth_relation: 0,
+                register_from: '',
+              },
+            },
+          }),
+        );
+      }),
+    );
+
+    initMock(server);
+
+    test('获取用户信息', async () => {
+      // act
+      const result = await getCreatorUserInfo('cookie');
+
+      // assets
+      expect(result).not.toBeUndefined();
+      expect(result).not.toBeNull();
+      expect(result.douyin_user_verify_info.avatar_url).toBe(
+        'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+      );
+      expect(result.douyin_user_verify_info.douyin_unique_id).toBe('376623504');
+      expect(result.douyin_user_verify_info.is_super_tag_user).toBe(false);
+      expect(result.douyin_user_verify_info.nick_name).toBe('Midnight');
+      expect(result.douyin_user_verify_info.sync_to_xigua).toBe(true);
+      expect(result.douyin_user_verify_info.teen_model).toBe(false);
+      expect(result.douyin_user_verify_info.total_favorited).toBe(339);
+      expect(result.is_commerce_user).toBe(false);
+      expect(result.user_profile).not.toBeNull();
+      expect(result.user_profile.nick_name).toBe('Midnight');
+      expect(result.user_profile.unique_id).toBe('376623504');
+    });
+  });
+
+  describe('【抖音】获取媒体用户信息', () => {
+    const server = setupServer(
+      rest.get('https://creator.douyin.com*/web/api/media/user/info', (req, res, context) => {
+        return res(
+          context.status(200),
+          context.json({
+            extra: {
+              logid: '20230905095432E215A6D3B0655040F09B',
+              now: 1693878872000,
+            },
+            login_app: 'aweme',
+            status_code: 0,
+            user: {
+              avatar_larger: {
+                uri: '1080x1080/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799',
+                url_list: [
+                  'https://p3.douyinpic.com/aweme/1080x1080/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p11.douyinpic.com/aweme/1080x1080/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p26.douyinpic.com/aweme/1080x1080/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                ],
+              },
+              avatar_medium: {
+                uri: '720x720/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799',
+                url_list: [
+                  'https://p3.douyinpic.com/aweme/720x720/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p11.douyinpic.com/aweme/720x720/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p26.douyinpic.com/aweme/720x720/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                ],
+              },
+              avatar_thumb: {
+                uri: '100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799',
+                url_list: [
+                  'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p11.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                  'https://p26.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_b3f6b608dcb143eeb1fc0e547d5fc799.jpeg?from=2956013662',
+                ],
+              },
+              aweme_count: 23,
+              bind_phone: '133******76',
+              bind_taobao_pub: false,
+              card_entries: null,
+              city_code: 1815577,
+              commerce_user_info: {
+                star_atlas: 0,
+              },
+              confer_mod: false,
+              custom_verify: '',
+              enterprise_verify_reason: '',
+              favoriting_count: 273,
+              follow_status: 0,
+              follower_count: 79,
+              follower_status: 0,
+              followers_detail: null,
+              following_count: 80,
+              geofencing: null,
+              has_orders: false,
+              is_ad_fake: false,
+              is_gov_media_vip: false,
+              is_preview: false,
+              local_code: '430100',
+              longvideo_permission: true,
+              mix_info: null,
+              mix_permission: true,
+              nickname: 'Midnight',
+              original_musician: {
+                music_count: 0,
+                music_used_count: 0,
+              },
+              permission: {
+                anchor: [4, 13017],
+                batch_images_publish: false,
+                csr_creator_anchor: false,
+                enable_set_charge_comment_audit: false,
+                hotspot: false,
+                important_record: false,
+                knowlege_mix: false,
+                long_title: true,
+                longvideo: true,
+                longvideo_15min: false,
+                longvideo_publish_ab: 1,
+                mix: true,
+                music: false,
+                playlet: false,
+                preview: false,
+                show_chapter_editor: 1,
+                toutiao_recommend_video: false,
+                upload_video_max_duration: 3600,
+                user_sign: false,
+              },
+              platform_sync_info: null,
+              policy_version: null,
+              rate: 1,
+              record_permission: false,
+              region: 'CN',
+              sec_uid: 'MS4wLjABAAAATVL-tW8PUSOZlcNwKJ4guFrOS_ECR9uMkogBON3rPmg',
+              secret: 0,
+              short_id: '376623504',
+              signature: '一个会写代码的摩托佬',
+              special_schedule: false,
+              status: 1,
+              story_open: false,
+              sync_to_xigua: 0,
+              tac: 'tac=\'i+2gv1edgdeucs!i#bgcs"yZl!%s"l"u&kLs#l l#vr*charCodeAtx0[!cb^i$1em7b*0d#>>>s j\\uffeel  s#\'',
+              third_avatar_url:
+                'https://sf6-cdn-tos.bdxiguastatic.com/img/user-avatar/a5d24db505ca9f3287e576893b09a2a8~300x300.image',
+              third_name: '洲谋天下',
+              total_favorited: '339',
+              type_label: [],
+              uid: '77964521232',
+              unique_id: '',
+              user_admire_status: 0,
+              user_canceled: false,
+              user_timer_version: 1,
+              verification_type: 1,
+              video_icon: {
+                uri: '',
+                url_list: [],
+              },
+              with_commerce_entry: false,
+              with_fusion_shop_entry: false,
+              with_shop_entry: false,
+              wx_tag: 0,
+              xigua_permission: {
+                claim_origin_perm: true,
+                claim_origin_perm_disable_tip: '',
+                mvp_status: 1,
+                publish_mvp_perm: false,
+              },
+            },
+          }),
+        );
+      }),
+    );
+
+    initMock(server);
+
+    test('正确获取用户信息', async () => {
+      // 执行
+      const result = await getMediaUserInfo('cookie');
+
+      // 断言
+      expect(result).not.toBeUndefined();
+      expect(result.user).not.toBeUndefined();
+      expect(result.user.uid).toBe('77964521232');
+    });
+  });
+}
