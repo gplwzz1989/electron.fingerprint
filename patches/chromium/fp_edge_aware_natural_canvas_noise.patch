@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Tue, 20 Oct 2026 22:30:00 +08:00
+Subject: [PATCH] fp: implement edge-aware natural canvas and webgl noise to prevent masking detection
+
+---
+ .../core/canvas_interventions/noise_helper.cc | 54 ++++++++++++++++++-
+ 1 file changed, 52 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc b/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
+index 1a8e26401f92e..7c3b2810a9f5d 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/core/canvas_interventions/noise_helper.h"
+ 
++#include <algorithm>
++#include <cmath>
+ #include <cstdint>
+ 
+ #include "base/compiler_specific.h"
+@@ -19,10 +21,58 @@ void NoisePixels(const NoiseHash& token_hash,
+                  base::span<uint8_t> pixels,
+                  int width,
+                  int height) {
+-  // Original Chromium implementation adds uniform noise across all pixels.
++  if (width < 3 || height < 3) {
++    return;
++  }
++  const size_t expected_size = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
++  if (pixels.size() < expected_size) {
++    return;
++  }
++
++  // 仿生自然加噪算法 (Edge-Aware Natural Noise):
++  // 1. 平坦纯色区域 (如纯白、纯黑或纯色背景) 的梯度差为 0，绝对不加噪，完全消除频域白噪声，规避 DCT 掩盖检测 (Masking detected);
++  // 2. 仅在抗锯齿边界与色彩过渡区 (颜色差大于梯度阈值) 引入微弱浮点级微扰 (±1)，离散统计贴合真实 GPU 光栅化舍入误差;
++  // 3. 依赖 token_hash 生成确定性微扰，保证同一配置下指纹 Hash 稳定且与其他配置隔离。
++  const int stride = width * 4;
++  uint64_t rng = token_hash.value() ? token_hash.value() : 0x9e3779b97f4a7c15ULL;
++
++  for (int y = 1; y < height - 1; ++y) {
++    const int row_offset = y * stride;
++    for (int x = 1; x < width - 1; ++x) {
++      const int idx = row_offset + (x * 4);
++
++      // 计算与水平和垂直相邻像素的曼哈顿色差梯度
++      const int diff_h = std::abs(static_cast<int>(pixels[idx - 4]) - static_cast<int>(pixels[idx + 4])) +
++                         std::abs(static_cast<int>(pixels[idx - 3]) - static_cast<int>(pixels[idx + 5])) +
++                         std::abs(static_cast<int>(pixels[idx - 2]) - static_cast<int>(pixels[idx + 6]));
++
++      const int diff_v = std::abs(static_cast<int>(pixels[idx - stride]) - static_cast<int>(pixels[idx + stride])) +
++                         std::abs(static_cast<int>(pixels[idx - stride + 1]) - static_cast<int>(pixels[idx + stride + 1])) +
++                         std::abs(static_cast<int>(pixels[idx - stride + 2]) - static_cast<int>(pixels[idx + stride + 2]));
++
++      // 梯度大于等于 6 判定为边缘/文字过渡区，模拟真实 GPU 浮点抗锯齿误差
++      if (diff_h + diff_v >= 6) {
++        rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
++        const int8_t delta = static_cast<int8_t>((rng >> 56) % 3) - 1;
++        if (delta != 0) {
++          int val = static_cast<int>(pixels[idx]) + delta;
++          pixels[idx] = static_cast<uint8_t>(std::clamp(val, 0, 255));
++        }
++      }
++    }
++  }
+ }
+ 
+ }  // namespace blink
+-- 
+2.47.0.windows.2

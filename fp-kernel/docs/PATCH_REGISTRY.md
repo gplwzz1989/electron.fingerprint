@@ -11,7 +11,7 @@
 | FP-06 | 已完成 | `navigator.platform` 已支持 `Win32`、`MacIntel` 和 `Linux x86_64`；Schema、Browser Process 校验、Chromium 补丁、Session 隔离测试和 Electron 增量编译通过 |
 | FP-07 | 已完成 | Screen 与 DPR 已接入 `screen.width`、`screen.height`、`screen.availWidth`、`screen.availHeight` 和 `devicePixelRatio`；Session 隔离、模块关闭/无 Profile 回退、补丁导出和 Electron 增量编译通过 |
 | FP-08 | 已完成 | `WEBGL_debug_renderer_info` 的 vendor/renderer 已读取 Session 配置；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
-| FP-09 | 已完成 | Canvas 2D 的 `getImageData()` 与 `toDataURL()` 已使用 Session seed 生成像素噪声；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
+| FP-09 | 已完成 | Canvas 2D 的 `getImageData()` 与 `toDataURL()` 已使用 Session seed 生成像素噪声；已通过 `fp_edge_aware_natural_canvas_noise.patch` 升级为仿生边缘感知（Edge-Aware）加噪，纯色平坦区保持绝对纯净，仅在抗锯齿亚像素边缘微扰，彻底消除频域白噪声并规避 PixelScan 等高级掩盖检测（Masking detected） |
 | FP-10 | 已完成 | Canvas 2D 的 `measureText()` 已使用 Session seed 生成稳定的微小指标扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-11 | 已完成 | `OfflineAudioContext` 保持请求采样率、帧数和时长关系，在完成后的 AudioBuffer 样本边界使用 Session seed 生成稳定的微小扰动；本轮一致性补丁待增量编译与回归 |
 | FP-12 | 已完成 | 字体缓存已支持按 Session 目标平台替代和隐藏代表性字体；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
