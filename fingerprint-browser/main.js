@@ -20,6 +20,7 @@ const {
 const { AutomationServer } = require('./automation-server')
 const { MediaHub } = require('./media-hub')
 const { CreatorHub } = require('./creator-hub')
+const { detectExitIp } = require('./geo-ip')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -207,6 +208,16 @@ function registerIpc () {
       return { ok: true, presets: getPresetTemplates() }
     } catch (error) {
       return errorResult('读取预设模板', error, '读取预设模板失败。')
+    }
+  })
+
+  ipcMain.handle('proxy:detect-ip', async (event, options) => {
+    try {
+      assertTrusted(event)
+      const data = await detectExitIp(options)
+      return { ok: true, data }
+    } catch (error) {
+      return errorResult('探测出口IP', error, error?.message || '探测公网出口 IP 失败。')
     }
   })
 

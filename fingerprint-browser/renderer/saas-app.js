@@ -1471,7 +1471,7 @@ function environmentEditDialog (environment) {
   const closeAndEditBtn = `<button class="button small" type="button" data-action="close-env-and-edit" data-id="${escapeHTML(environment.id)}" style="margin-left:12px">关闭环境并编辑</button>`
   const proxyFields = running
     ? `<div class="notice warning">${icon('lock')}当前环境正在运行，代理配置已锁定。关闭环境后可编辑代理，修改将在下次启动时生效。${closeAndEditBtn}</div>`
-    : `<h3>代理配置</h3><div class="form-row"><label class="field"><span>网络方式</span><select name="proxyMode" id="environment-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>代理地址</span><input name="proxyServer" type="url" value="${escapeHTML(proxy.server)}" placeholder="http://服务器地址:端口" spellcheck="false"></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><small>修改代理后需要重新打开环境，连接失败时不会自动切换为直连。</small>`
+    : `<h3>代理配置</h3><div class="form-row"><label class="field"><span>网络方式</span><select name="proxyMode" id="environment-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>代理地址</span><input name="proxyServer" type="url" value="${escapeHTML(proxy.server)}" placeholder="http://服务器地址:端口" spellcheck="false"></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0"><small>修改代理后需要重新打开环境，连接失败时不会自动切换为直连。</small><button type="button" class="button small soft" data-action="detect-and-align-ip">探测出口并对齐时区</button></div>`
   const fingerprint = running
     ? `<h3>指纹参数</h3><div class="notice warning">${icon('lock')}当前环境正在运行，指纹参数已锁定。关闭环境后可编辑，修改将在下次启动时生效。${closeAndEditBtn}</div>`
     : `<h3>指纹参数</h3>${renderFingerprintFields(environmentEditDraft, { scope: 'environment', hideTemplateActions: true, hideSeed: true })}`
@@ -1725,6 +1725,32 @@ document.addEventListener('click', event => {
           const proxy = targetDraft === draft ? draft.proxy : { mode: new FormData(document.getElementById('environment-edit-form')).get('proxyMode') }
           await reviewFingerprint(targetDraft, proxy)
         } catch (error) { toast(error?.message || '无法检查指纹配置，请重试。') }
+      })()
+      break
+    }
+    case 'detect-and-align-ip': {
+      void (async () => {
+        try {
+          toast('正在探测出口网络 IP 与地理时区...')
+          const res = await window.browserApi.detectExitIp()
+          if (!res?.ok || !res?.data) throw new Error(res?.error || '无法解析出口 IP')
+          const geo = res.data
+          const timezoneSelect = document.getElementById('field-environment-timezone') || document.querySelector('select[name="timezone"]')
+          if (timezoneSelect && geo.timezone) {
+            timezoneSelect.value = geo.timezone
+          }
+          if (typeof environmentEditDraft === 'object' && environmentEditDraft) {
+            if (!environmentEditDraft.locale) environmentEditDraft.locale = {}
+            if (geo.timezone) environmentEditDraft.locale.timezone = geo.timezone
+            if (geo.locale) {
+              environmentEditDraft.locale.language = geo.locale.language
+              environmentEditDraft.locale.languages = [...geo.locale.languages]
+            }
+          }
+          toast(`出口 IP 探测成功: ${geo.ip} (${geo.country} · ${geo.city})，已自动对齐为 ${geo.timezone} 时区！`)
+        } catch (err) {
+          toast(err?.message || '探测出口 IP 失败，请检查网络。')
+        }
       })()
       break
     }
