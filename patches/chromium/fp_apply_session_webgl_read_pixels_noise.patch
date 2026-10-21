@@ -4,8 +4,8 @@ Date: Thu, 1 Oct 2026 23:12:06 +0800
 Subject: [PATCH] fp: apply session WebGL readPixels noise
 
 ---
- .../webgl/webgl_rendering_context_base.cc     | 57 ++++++++++++++++++-
- 1 file changed, 56 insertions(+), 1 deletion(-)
+ .../webgl/webgl_rendering_context_base.cc     | 59 ++++++++++++++++++-
+ 1 file changed, 58 insertions(+), 1 deletion(-)
 
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 index 2b4b48279f31a..ea1a43e4c70b1 100644
@@ -16,12 +16,12 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
  #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
  
 +#include <algorithm>
- #include <memory>
- #include <optional>
- #include <string>
- #include <utility>
++#include <memory>
++#include <optional>
++#include <string>
++#include <utility>
 +#include <vector>
- 
++
  #include "base/bit_cast.h"
  #include "base/command_line.h"
 @@ -63,6 +65,8 @@
@@ -41,7 +41,7 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
  };
  
  std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
-@@ -223,13 +228,56 @@ std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
+@@ -223,13 +228,58 @@ std::optional<FingerprintWebGLOverride> GetFingerprintWebGLOverride() {
      if (!vendor || vendor->empty() || !renderer || renderer->empty())
        return std::nullopt;
  
@@ -69,7 +69,7 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
 +                                GLsizei width,
 +                                GLsizei height,
 +                                GLint pack_alignment) {
-+  if (width <= 0 || height <= 0)
++  if (width < 16 || height < 16 || (static_cast<size_t>(width) * height) < 512u)
 +    return;
 +
 +  const size_t row_size = static_cast<size_t>(width) * 4u;
@@ -82,8 +82,8 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
 +                       String::FromUTF8("webgl"));
 +
 +  if (row_size == aligned_row_size) {
-+    NoisePixels(token_hash, base::span<uint8_t>(data, pixel_data_size), width,
-+                height);
++    NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(data, pixel_data_size), width,
++                         height);
 +    return;
 +  }
 +
@@ -93,8 +93,8 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
 +                contiguous_pixels.begin() +
 +                    static_cast<size_t>(y) * row_size);
 +  }
-+  NoisePixels(token_hash, base::span<uint8_t>(contiguous_pixels), width,
-+              height);
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(contiguous_pixels), width,
++                       height);
 +  for (GLsizei y = 0; y < height; ++y) {
 +    std::copy_n(contiguous_pixels.begin() + static_cast<size_t>(y) * row_size,
 +                row_size, data + static_cast<size_t>(y) * aligned_row_size);
@@ -104,7 +104,7 @@ index 2b4b48279f31a..ea1a43e4c70b1 100644
  enum class WebGLANGLEImplementation {
    // These values are persisted to logs. Entries should not be renumbered and
    // numeric values should never be reused.
-@@ -5135,6 +5183,13 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5135,6 +5185,13 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
  

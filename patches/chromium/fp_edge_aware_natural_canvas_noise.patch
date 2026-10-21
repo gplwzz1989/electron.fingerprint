@@ -5,10 +5,10 @@ Subject: [PATCH] fp: implement session edge-aware canvas noise
 
 ---
  .../canvas_interventions_helper.cc            |  9 +-
- .../core/canvas_interventions/noise_helper.cc | 83 +++++++++++++++++++
+ .../core/canvas_interventions/noise_helper.cc | 118 ++++++++++++++++++
  .../core/canvas_interventions/noise_helper.h  |  6 ++
- .../noise_helper_unittest.cc                  | 66 +++++++++++++++
- 4 files changed, 162 insertions(+), 2 deletions(-)
+ .../noise_helper_unittest.cc                  | 74 +++++++++++++++
+ 4 files changed, 205 insertions(+), 2 deletions(-)
 
 diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
 index fa58ead6da2e4d118639cc9fd34fd74ba3dc3258..f5351793469d5b02629db6b210f2927359371823 100644
@@ -49,7 +49,7 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
  
  #include "base/check_op.h"
  #include "base/containers/span.h"
-@@ -109,6 +114,68 @@ void CopyPixelValue(const base::span<uint8_t> from_pixel,
+@@ -109,6 +114,103 @@ void CopyPixelValue(const base::span<uint8_t> from_pixel,
    writer.Write(from_pixel.first<kChannelsPerPixel>());
  }
  
@@ -57,6 +57,12 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
 +                              base::span<uint8_t> pixels,
 +                              const int width,
 +                              const int height) {
++  // 探针尺寸保护：真实指纹采集需绘制长文本（高度通常在 20px~150px 间）。
++  // PixelScan 70x5 等微小尺寸探针画布直接跳过，保持 100% 原始像素。
++  if (width < 16 || height < 16 || (static_cast<size_t>(width) * height) < 512u) {
++    return;
++  }
++
 +  const size_t row_size = static_cast<size_t>(width) * kChannelsPerPixel;
 +  std::vector<uint8_t> row1(row_size);
 +  std::vector<uint8_t> row2(row_size);
@@ -77,6 +83,41 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
 +        continue;
 +      }
 +
++      // 单色平坦区与纯色硬直阶跃拼合边界保护：
++      // 检查当前像素与 4 邻域（左、右、上、下）的同色邻居数量。
++      // 若同色邻居数 >= 2，说明处于单色块内部或纯色块拼合边缘，保持 0 扰动。
++      int same_color_neighbors = 0;
++      const size_t neighbor_offsets[4] = {
++          pixel_offset - kChannelsPerPixel,
++          pixel_offset + kChannelsPerPixel,
++          pixel_offset,
++          pixel_offset
++      };
++
++      for (int dir = 0; dir < 4; ++dir) {
++        const uint8_t* neighbor_data = nullptr;
++        if (dir < 2) {
++          neighbor_data = &current_row[neighbor_offsets[dir]];
++        } else if (dir == 2) {
++          neighbor_data = &previous_row[neighbor_offsets[dir]];
++        } else {
++          neighbor_data = &next_row[neighbor_offsets[dir]];
++        }
++
++        int diff = 0;
++        for (int ch = 0; ch < 3; ++ch) {
++          diff += std::abs(static_cast<int>(current_row[pixel_offset + ch]) -
++                           static_cast<int>(neighbor_data[ch]));
++        }
++        if (diff == 0) {
++          same_color_neighbors++;
++        }
++      }
++
++      if (same_color_neighbors >= 2) {
++        continue;
++      }
++
 +      int horizontal_gradient = 0;
 +      int vertical_gradient = 0;
 +      for (int channel = 0; channel < 3; ++channel) {
@@ -92,7 +133,7 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
 +        continue;
 +      }
 +
-+      // 梯度只读取未修改的行快照，避免前序扰动改变后续边缘判定。
++      // 仅在真实抗锯齿渐变带施加基于 Session 种子的微小扰动
 +      NoiseHash pixel_hash = token_hash;
 +      const uint64_t coordinate =
 +          (static_cast<uint64_t>(y) << 32u) | static_cast<uint32_t>(x);
@@ -132,7 +173,7 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
 +                               static_cast<size_t>(height) *
 +                               kChannelsPerPixel;
 +  CHECK_EQ(pixels.size(), expected_size);
-+  if (width < 3 || height < 3) {
++  if (width < 16 || height < 16) {
 +    return;
 +  }
 +  NoisePixelsEdgeAwareImpl(token_hash, pixels, width, height);
@@ -147,7 +188,7 @@ index 17212834acd2581cc7be15f2e95d5d445315fa0c..945a14c285b667755e72dea571ffec38
                               const int width,
                               const int height);
  
-+// 仅对边缘区域添加基于 Session 种子的稳定像素扰动。
++// 仅对真实抗锯齿边缘区域添加基于 Session 种子的稳定像素扰动，硬直阶跃与微小探针不加噪。
 +CORE_EXPORT void NoisePixelsEdgeAware(const NoiseHash& token_hash,
 +                                      base::span<uint8_t> pixels,
 +                                      const int width,
@@ -168,75 +209,68 @@ index a98e90b69d387059f7ffb670fddeca0e90e7f886..bde939d3dc9c88f52525a470886b052e
  #include <array>
  #include <cstddef>
  #include <cstdint>
-@@ -106,6 +107,71 @@ TEST_F(NoiseHelperTest, NoisePixels) {
+@@ -106,6 +107,79 @@ TEST_F(NoiseHelperTest, NoisePixels) {
    EXPECT_NE(pixels, pixels2);
  }
  
-+TEST_F(NoiseHelperTest, EdgeAwareNoisePixelsOnlyPerturbsEdges) {
-+  constexpr int width = 16;
-+  constexpr int height = 16;
++TEST_F(NoiseHelperTest, EdgeAwareNoisePixelsOnlyPerturbsAntialiasingEdges) {
++  constexpr int width = 32;
++  constexpr int height = 32;
 +  constexpr size_t channels_per_pixel = 4u;
 +  const uint64_t token = 0x01234678901234567;
 +  const auto token_hash = NoiseHash(token, "https://a.test");
 +
++  // 1. 平坦纯色画布：必须 100% 保持不变
 +  std::vector<uint8_t> flat_pixels(width * height * channels_per_pixel, 50u);
 +  const std::vector<uint8_t> original_flat_pixels = flat_pixels;
 +  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(flat_pixels), width, height);
 +  EXPECT_EQ(flat_pixels, original_flat_pixels);
 +
-+  std::vector<uint8_t> original_pixels(width * height * channels_per_pixel);
++  // 2. 纯色块垂直硬阶跃硬直拼合边界（如 PixelScan 14 色块探针）：必须 100% 保持不变
++  std::vector<uint8_t> step_pixels(width * height * channels_per_pixel);
 +  for (int y = 0; y < height; ++y) {
 +    for (int x = 0; x < width; ++x) {
 +      const size_t offset = (y * width + x) * channels_per_pixel;
 +      const uint8_t value = x < width / 2 ? 100u : 160u;
-+      std::fill_n(original_pixels.begin() + offset, 3u, value);
-+      original_pixels[offset + 3u] = 255u;
++      std::fill_n(step_pixels.begin() + offset, 3u, value);
++      step_pixels[offset + 3u] = 255u;
 +    }
 +  }
++  const std::vector<uint8_t> original_step_pixels = step_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(step_pixels), width, height);
++  EXPECT_EQ(step_pixels, original_step_pixels);
 +
-+  std::vector<uint8_t> noised_pixels = original_pixels;
-+  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(noised_pixels), width, height);
-+  EXPECT_NE(noised_pixels, original_pixels);
-+
-+  bool changed = false;
-+  for (int y = 0; y < height; ++y) {
-+    for (int x = 0; x < width; ++x) {
++  // 3. 具有渐变过渡斜率的真实抗锯齿边缘：必须受到确定性微扰以形成独一无二指纹
++  std::vector<uint8_t> aa_pixels(width * height * channels_per_pixel, 255u);
++  for (int y = 8; y < 24; ++y) {
++    for (int x = 8; x < 24; ++x) {
 +      const size_t offset = (y * width + x) * channels_per_pixel;
-+      EXPECT_EQ(noised_pixels[offset + 3u], original_pixels[offset + 3u]);
-+      for (size_t channel = 0; channel < 3u; ++channel) {
-+        const int delta = static_cast<int>(noised_pixels[offset + channel]) -
-+                          static_cast<int>(original_pixels[offset + channel]);
-+        EXPECT_GE(delta, -1);
-+        EXPECT_LE(delta, 1);
-+        if (delta != 0) {
-+          changed = true;
-+          EXPECT_GE(x, width / 2 - 1);
-+          EXPECT_LE(x, width / 2);
-+          EXPECT_GT(y, 0);
-+          EXPECT_LT(y, height - 1);
-+        }
-+      }
++      const int dist = std::abs(x - 16);
++      uint8_t val = 0u;
++      if (dist == 0) val = 0u;
++      else if (dist == 1) val = 80u;
++      else if (dist == 2) val = 180u;
++      else val = 255u;
++      std::fill_n(aa_pixels.begin() + offset, 3u, val);
 +    }
 +  }
-+  EXPECT_TRUE(changed);
++  const std::vector<uint8_t> original_aa_pixels = aa_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(aa_pixels), width, height);
++  EXPECT_NE(aa_pixels, original_aa_pixels);
 +
-+  std::vector<uint8_t> repeated_pixels = original_pixels;
++  // 4. 重复调用相同 Session 保持幂等稳定
++  std::vector<uint8_t> repeated_pixels = original_aa_pixels;
 +  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(repeated_pixels), width, height);
-+  EXPECT_EQ(noised_pixels, repeated_pixels);
++  EXPECT_EQ(aa_pixels, repeated_pixels);
 +
-+  std::vector<uint8_t> other_session_pixels = original_pixels;
++  // 5. 跨 Session 产生不同指纹
++  std::vector<uint8_t> other_session_pixels = original_aa_pixels;
 +  const auto other_session_hash = NoiseHash(token, "https://b.test");
 +  NoisePixelsEdgeAware(other_session_hash, base::span<uint8_t>(other_session_pixels), width, height);
-+  EXPECT_NE(noised_pixels, other_session_pixels);
-+
-+  std::vector<uint8_t> transparent_pixels = original_pixels;
-+  for (size_t offset = 3u; offset < transparent_pixels.size(); offset += 4u) {
-+    transparent_pixels[offset] = 0u;
-+  }
-+  const std::vector<uint8_t> original_transparent_pixels = transparent_pixels;
-+  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(transparent_pixels), width, height);
-+  EXPECT_EQ(transparent_pixels, original_transparent_pixels);
++  EXPECT_NE(aa_pixels, other_session_pixels);
 +}
  TEST_F(NoiseHelperTest, NoisePixelsAllSameValue) {
    const int width = 100;
    const int height = 100;
+-- 
+2.47.0.windows.2

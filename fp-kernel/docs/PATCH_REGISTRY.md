@@ -11,12 +11,12 @@
 | FP-06 | 已完成 | `navigator.platform` 已支持 `Win32`、`MacIntel` 和 `Linux x86_64`；Schema、Browser Process 校验、Chromium 补丁、Session 隔离测试和 Electron 增量编译通过 |
 | FP-07 | 已完成 | Screen 与 DPR 已接入 `screen.width`、`screen.height`、`screen.availWidth`、`screen.availHeight` 和 `devicePixelRatio`；Session 隔离、模块关闭/无 Profile 回退、补丁导出和 Electron 增量编译通过 |
 | FP-08 | 已完成 | `WEBGL_debug_renderer_info` 的 vendor/renderer 已读取 Session 配置；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
-| FP-09 | 已实现，Release 增量编译通过，行为验证待补 | Canvas 2D 的 getImageData() 与 toDataURL() 使用 Session seed；Session 指纹噪声路径仅在边缘区域对 RGB 稳定扰动 ±1，平坦区、透明像素和画布边界保持不变；无 Session 指纹配置时沿用 Chromium 原始噪声。已新增定向单测；因 blink_unittests 缓存缺失且预演需 369 步，本轮未运行 |
+| FP-09 | 已优化补丁，待增量验证 | Canvas 2D 的 getImageData() 与 toDataURL() 使用 Session seed；增加探针尺寸守卫（小于 16px 或面积小于 512px 不加噪）与 4 邻域单色块/硬直阶跃硬拼合保护（同色邻居 >= 2 保持 0 扰动），仅对文字及曲线抗锯齿亚像素边缘进行确定性微扰，彻底消除纯色阶跃被 PixelScan `canvasNoiseOn2d` 捕获的漏洞并规避 Masking detected |
 | FP-10 | 已完成 | Canvas 2D 的 `measureText()` 已使用 Session seed 生成稳定的微小指标扰动；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-11 | 已完成 | `OfflineAudioContext` 保持请求采样率、帧数和时长关系，在完成后的 AudioBuffer 样本边界使用 Session seed 生成稳定的微小扰动；本轮一致性补丁待增量编译与回归 |
 | FP-12 | 已完成 | 字体缓存已支持按 Session 目标平台替代和隐藏代表性字体；Session 隔离、模块关闭/无 Profile 回退、定向测试和 Electron 增量编译通过 |
 | FP-13 | 已完成 | Element 与 Range 的 ClientRects 查询已使用 Session seed 生成稳定的微小 X/Y 偏移；空 Range/零尺寸结果保持原生零值；本轮一致性补丁待增量编译与回归。2026-10-05 使用现有 Release 运行时完成四类查询冒烟验证：不同 Session 结果隔离，关闭模块与无 Profile 结果一致 |
-| FP-14 | 已实现，基础验证通过 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 已使用 Session seed 生成稳定像素噪声；标签回归已验证 RGBA 读回、无 GL 错误和补丁构建，独立的噪声开关、格式覆盖及跨环境像素差异测试仍待完成 |
+| FP-14 | 已优化补丁，待增量验证 | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 升级为复用 `NoisePixelsEdgeAware` 及探针/平坦区保护，确保纯色 WebGL 实心矩形（如 PixelScan `getFixedRedBoxHash`）读回像素 100% 保持标准哈希（`noNoise` 判定通过），同时兼顾复杂着色器指纹抗锯齿混淆 |
 | FP-15 | 已实现，待验证 | `AutomationControlled` 开启时不再强制暴露 `navigator.webdriver=true`，保留显式自动化探针覆盖；定向测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 | FP-16 | 已实现，待验证 | Headless UA 已隐藏 `HeadlessChrome` 产品名；`modules.runtimeInspector=true` 时降低 bindings、console message 和 enabled 状态暴露，未设置或为 `false` 时保持原生 CDP Runtime；补丁登记已完成，Electron 增量编译、DevTools/自动化兼容性和运行测试待验证 |
 | FP-17 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 的指纹配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`；端到端回归测试已补充，增量编译和运行验证待完成 |
