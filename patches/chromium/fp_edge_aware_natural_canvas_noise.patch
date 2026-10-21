@@ -1,72 +1,242 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: gaoyang <gaoyang@coozf.com>
-Date: Tue, 20 Oct 2026 22:30:00 +08:00
-Subject: [PATCH] fp: implement edge-aware natural canvas and webgl noise to prevent masking detection
+From: MrGao <2289240620@qq.com>
+Date: Wed, 21 Oct 2026 18:24:15 +0800
+Subject: [PATCH] fp: implement session edge-aware canvas noise
 
 ---
- .../core/canvas_interventions/noise_helper.cc | 54 ++++++++++++++++++-
- 1 file changed, 52 insertions(+), 2 deletions(-)
+ .../canvas_interventions_helper.cc            |  9 +-
+ .../core/canvas_interventions/noise_helper.cc | 83 +++++++++++++++++++
+ .../core/canvas_interventions/noise_helper.h  |  6 ++
+ .../noise_helper_unittest.cc                  | 66 +++++++++++++++
+ 4 files changed, 162 insertions(+), 2 deletions(-)
 
+diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+index fa58ead6da2e4d118639cc9fd34fd74ba3dc3258..f5351793469d5b02629db6b210f2927359371823 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
+@@ -228,8 +228,13 @@ bool CanvasInterventionsHelper::MaybeNoiseSnapshot(
+   // TODO(crbug.com/392627601): Use the token that is piped down from the
+   // browser.
+   auto token_hash = NoiseHash(noise_token, noise_domain);
+-  NoisePixels(token_hash, modify_pixels, pixmap_to_noise.width(),
+-              pixmap_to_noise.height());
++  if (fingerprint_canvas_seed) {
++    NoisePixelsEdgeAware(token_hash, modify_pixels, pixmap_to_noise.width(),
++                         pixmap_to_noise.height());
++  } else {
++    NoisePixels(token_hash, modify_pixels, pixmap_to_noise.width(),
++                pixmap_to_noise.height());
++  }
+ 
+   auto noised_image = bm.asImage();
+   snapshot = blink::UnacceleratedStaticBitmapImage::Create(
 diff --git a/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc b/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
-index 1a8e26401f92e..7c3b2810a9f5d 100644
+index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78efb8fee59 100644
 --- a/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
 +++ b/third_party/blink/renderer/core/canvas_interventions/noise_helper.cc
-@@ -4,6 +4,8 @@
+@@ -4,9 +4,14 @@
  
  #include "third_party/blink/renderer/core/canvas_interventions/noise_helper.h"
  
 +#include <algorithm>
+ #include <array>
 +#include <cmath>
+ #include <cstddef>
  #include <cstdint>
++#include <cstdlib>
++#include <utility>
++#include <vector>
  
- #include "base/compiler_specific.h"
-@@ -19,10 +21,58 @@ void NoisePixels(const NoiseHash& token_hash,
-                  base::span<uint8_t> pixels,
-                  int width,
-                  int height) {
--  // Original Chromium implementation adds uniform noise across all pixels.
+ #include "base/check_op.h"
+ #include "base/containers/span.h"
+@@ -109,6 +114,68 @@ void CopyPixelValue(const base::span<uint8_t> from_pixel,
+   writer.Write(from_pixel.first<kChannelsPerPixel>());
+ }
+ 
++void NoisePixelsEdgeAwareImpl(const NoiseHash& token_hash,
++                              base::span<uint8_t> pixels,
++                              const int width,
++                              const int height) {
++  const size_t row_size = static_cast<size_t>(width) * kChannelsPerPixel;
++  std::vector<uint8_t> row1(row_size);
++  std::vector<uint8_t> row2(row_size);
++  std::vector<uint8_t> row3(row_size);
++  base::span<uint8_t> previous_row(row1);
++  base::span<uint8_t> current_row(row2);
++  base::span<uint8_t> next_row(row3);
++  previous_row.copy_from(pixels.first(row_size));
++  current_row.copy_from(pixels.subspan(row_size, row_size));
++  next_row.copy_from(pixels.subspan(row_size * 2u, row_size));
++
++  for (int y = 1; y < height - 1; ++y) {
++    const size_t row_offset = static_cast<size_t>(y) * row_size;
++    for (int x = 1; x < width - 1; ++x) {
++      const size_t pixel_offset =
++          static_cast<size_t>(x) * kChannelsPerPixel;
++      if (current_row[pixel_offset + 3u] == 0u) {
++        continue;
++      }
++
++      int horizontal_gradient = 0;
++      int vertical_gradient = 0;
++      for (int channel = 0; channel < 3; ++channel) {
++        const size_t channel_offset = pixel_offset + channel;
++        horizontal_gradient += std::abs(
++            static_cast<int>(current_row[channel_offset - kChannelsPerPixel]) -
++            static_cast<int>(current_row[channel_offset + kChannelsPerPixel]));
++        vertical_gradient += std::abs(
++            static_cast<int>(previous_row[channel_offset]) -
++            static_cast<int>(next_row[channel_offset]));
++      }
++      if (horizontal_gradient + vertical_gradient < 6) {
++        continue;
++      }
++
++      // 梯度只读取未修改的行快照，避免前序扰动改变后续边缘判定。
++      NoiseHash pixel_hash = token_hash;
++      const uint64_t coordinate =
++          (static_cast<uint64_t>(y) << 32u) | static_cast<uint32_t>(x);
++      pixel_hash.Update(coordinate);
++      for (int channel = 0; channel < 3; ++channel) {
++        const int delta = pixel_hash.GetValueBelow(3) - 1;
++        const size_t channel_offset = row_offset + pixel_offset + channel;
++        const int value = static_cast<int>(current_row[pixel_offset + channel]) +
++                          delta;
++        pixels[channel_offset] =
++            static_cast<uint8_t>(std::clamp(value, 0, 255));
++      }
++    }
++
++    if (y + 1 < height - 1) {
++      std::swap(previous_row, current_row);
++      std::swap(current_row, next_row);
++      next_row.copy_from(
++          pixels.subspan(static_cast<size_t>(y + 2) * row_size, row_size));
++    }
++  }
++}
+ }  // namespace
+ 
+ void NoisePixels(const NoiseHash& token_hash,
+@@ -165,4 +232,20 @@ void NoisePixels(const NoiseHash& token_hash,
+   }
+ }
+ 
++void NoisePixelsEdgeAware(const NoiseHash& token_hash,
++                          base::span<uint8_t> pixels,
++                          const int width,
++                          const int height) {
++  CHECK_GE(width, 0);
++  CHECK_GE(height, 0);
++  const size_t expected_size = static_cast<size_t>(width) *
++                               static_cast<size_t>(height) *
++                               kChannelsPerPixel;
++  CHECK_EQ(pixels.size(), expected_size);
 +  if (width < 3 || height < 3) {
 +    return;
 +  }
-+  const size_t expected_size = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
-+  if (pixels.size() < expected_size) {
-+    return;
++  NoisePixelsEdgeAwareImpl(token_hash, pixels, width, height);
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/core/canvas_interventions/noise_helper.h b/third_party/blink/renderer/core/canvas_interventions/noise_helper.h
+index 17212834acd2581cc7be15f2e95d5d445315fa0c..945a14c285b667755e72dea571ffec3866486109 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/noise_helper.h
++++ b/third_party/blink/renderer/core/canvas_interventions/noise_helper.h
+@@ -20,6 +20,12 @@ CORE_EXPORT void NoisePixels(const NoiseHash& token_hash,
+                              const int width,
+                              const int height);
+ 
++// 仅对边缘区域添加基于 Session 种子的稳定像素扰动。
++CORE_EXPORT void NoisePixelsEdgeAware(const NoiseHash& token_hash,
++                                      base::span<uint8_t> pixels,
++                                      const int width,
++                                      const int height);
++
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_NOISE_HELPER_H_
+diff --git a/third_party/blink/renderer/core/canvas_interventions/noise_helper_unittest.cc b/third_party/blink/renderer/core/canvas_interventions/noise_helper_unittest.cc
+index a98e90b69d387059f7ffb670fddeca0e90e7f886..bde939d3dc9c88f52525a470886b052e3c4fda70 100644
+--- a/third_party/blink/renderer/core/canvas_interventions/noise_helper_unittest.cc
++++ b/third_party/blink/renderer/core/canvas_interventions/noise_helper_unittest.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/core/canvas_interventions/noise_helper.h"
+ 
++#include <algorithm>
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
+@@ -106,6 +107,71 @@ TEST_F(NoiseHelperTest, NoisePixels) {
+   EXPECT_NE(pixels, pixels2);
+ }
+ 
++TEST_F(NoiseHelperTest, EdgeAwareNoisePixelsOnlyPerturbsEdges) {
++  constexpr int width = 16;
++  constexpr int height = 16;
++  constexpr size_t channels_per_pixel = 4u;
++  const uint64_t token = 0x01234678901234567;
++  const auto token_hash = NoiseHash(token, "https://a.test");
++
++  std::vector<uint8_t> flat_pixels(width * height * channels_per_pixel, 50u);
++  const std::vector<uint8_t> original_flat_pixels = flat_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(flat_pixels), width, height);
++  EXPECT_EQ(flat_pixels, original_flat_pixels);
++
++  std::vector<uint8_t> original_pixels(width * height * channels_per_pixel);
++  for (int y = 0; y < height; ++y) {
++    for (int x = 0; x < width; ++x) {
++      const size_t offset = (y * width + x) * channels_per_pixel;
++      const uint8_t value = x < width / 2 ? 100u : 160u;
++      std::fill_n(original_pixels.begin() + offset, 3u, value);
++      original_pixels[offset + 3u] = 255u;
++    }
 +  }
 +
-+  // 仿生自然加噪算法 (Edge-Aware Natural Noise):
-+  // 1. 平坦纯色区域 (如纯白、纯黑或纯色背景) 的梯度差为 0，绝对不加噪，完全消除频域白噪声，规避 DCT 掩盖检测 (Masking detected);
-+  // 2. 仅在抗锯齿边界与色彩过渡区 (颜色差大于梯度阈值) 引入微弱浮点级微扰 (±1)，离散统计贴合真实 GPU 光栅化舍入误差;
-+  // 3. 依赖 token_hash 生成确定性微扰，保证同一配置下指纹 Hash 稳定且与其他配置隔离。
-+  const int stride = width * 4;
-+  uint64_t rng = token_hash.value() ? token_hash.value() : 0x9e3779b97f4a7c15ULL;
++  std::vector<uint8_t> noised_pixels = original_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(noised_pixels), width, height);
++  EXPECT_NE(noised_pixels, original_pixels);
 +
-+  for (int y = 1; y < height - 1; ++y) {
-+    const int row_offset = y * stride;
-+    for (int x = 1; x < width - 1; ++x) {
-+      const int idx = row_offset + (x * 4);
-+
-+      // 计算与水平和垂直相邻像素的曼哈顿色差梯度
-+      const int diff_h = std::abs(static_cast<int>(pixels[idx - 4]) - static_cast<int>(pixels[idx + 4])) +
-+                         std::abs(static_cast<int>(pixels[idx - 3]) - static_cast<int>(pixels[idx + 5])) +
-+                         std::abs(static_cast<int>(pixels[idx - 2]) - static_cast<int>(pixels[idx + 6]));
-+
-+      const int diff_v = std::abs(static_cast<int>(pixels[idx - stride]) - static_cast<int>(pixels[idx + stride])) +
-+                         std::abs(static_cast<int>(pixels[idx - stride + 1]) - static_cast<int>(pixels[idx + stride + 1])) +
-+                         std::abs(static_cast<int>(pixels[idx - stride + 2]) - static_cast<int>(pixels[idx + stride + 2]));
-+
-+      // 梯度大于等于 6 判定为边缘/文字过渡区，模拟真实 GPU 浮点抗锯齿误差
-+      if (diff_h + diff_v >= 6) {
-+        rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
-+        const int8_t delta = static_cast<int8_t>((rng >> 56) % 3) - 1;
++  bool changed = false;
++  for (int y = 0; y < height; ++y) {
++    for (int x = 0; x < width; ++x) {
++      const size_t offset = (y * width + x) * channels_per_pixel;
++      EXPECT_EQ(noised_pixels[offset + 3u], original_pixels[offset + 3u]);
++      for (size_t channel = 0; channel < 3u; ++channel) {
++        const int delta = static_cast<int>(noised_pixels[offset + channel]) -
++                          static_cast<int>(original_pixels[offset + channel]);
++        EXPECT_GE(delta, -1);
++        EXPECT_LE(delta, 1);
 +        if (delta != 0) {
-+          int val = static_cast<int>(pixels[idx]) + delta;
-+          pixels[idx] = static_cast<uint8_t>(std::clamp(val, 0, 255));
++          changed = true;
++          EXPECT_GE(x, width / 2 - 1);
++          EXPECT_LE(x, width / 2);
++          EXPECT_GT(y, 0);
++          EXPECT_LT(y, height - 1);
 +        }
 +      }
 +    }
 +  }
- }
- 
- }  // namespace blink
--- 
-2.47.0.windows.2
++  EXPECT_TRUE(changed);
++
++  std::vector<uint8_t> repeated_pixels = original_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(repeated_pixels), width, height);
++  EXPECT_EQ(noised_pixels, repeated_pixels);
++
++  std::vector<uint8_t> other_session_pixels = original_pixels;
++  const auto other_session_hash = NoiseHash(token, "https://b.test");
++  NoisePixelsEdgeAware(other_session_hash, base::span<uint8_t>(other_session_pixels), width, height);
++  EXPECT_NE(noised_pixels, other_session_pixels);
++
++  std::vector<uint8_t> transparent_pixels = original_pixels;
++  for (size_t offset = 3u; offset < transparent_pixels.size(); offset += 4u) {
++    transparent_pixels[offset] = 0u;
++  }
++  const std::vector<uint8_t> original_transparent_pixels = transparent_pixels;
++  NoisePixelsEdgeAware(token_hash, base::span<uint8_t>(transparent_pixels), width, height);
++  EXPECT_EQ(transparent_pixels, original_transparent_pixels);
++}
+ TEST_F(NoiseHelperTest, NoisePixelsAllSameValue) {
+   const int width = 100;
+   const int height = 100;
