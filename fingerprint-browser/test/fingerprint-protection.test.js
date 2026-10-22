@@ -4,7 +4,7 @@ const { describeFingerprintProtection } = require('../fingerprint-protection')
 
 const profile = getDefaultProfile()
 const before = structuredClone(profile)
-assert.deepEqual(describeFingerprintProtection(profile).configured, [])
+assert.deepEqual(describeFingerprintProtection(profile).configured, ['WebGPU 适配器访问限制'])
 assert.match(describeFingerprintProtection(profile, { mode: 'http' }).warnings.join(''), /非代理 UDP/)
 profile.noise.canvas = true
 assert.match(describeFingerprintProtection(profile).warnings.join(''), /对应模块关闭/)
@@ -20,6 +20,9 @@ assert.ok(enabled.configured.includes('音频读回保护'))
 assert.ok(enabled.configured.includes('元素几何保护'))
 assert.ok(enabled.configured.includes('WebGL 像素保护（部分格式）'))
 assert.equal(enabled.warnings.length, 0)
+profile.modules.webgl = false
+assert.equal(describeFingerprintProtection(profile).configured.includes('WebGPU 适配器访问限制'), false)
+profile.modules.webgl = true
 profile.graphics.webglRenderer = ''
 assert.equal(describeFingerprintProtection(profile).configured.includes('WebGL 像素保护（部分格式）'), false)
 profile.enabled = false

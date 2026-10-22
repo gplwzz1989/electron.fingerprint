@@ -164,3 +164,5 @@ fp_hide_headless_chrome_product_name.patch
 fp_configurable_runtime_inspector_exposure.patch
 fix_webgl_fingerprint_release_buffer_checks.patch
 fp_edge_aware_natural_canvas_noise.patch
+fp_block_session_webgpu_adapter.patch
+fp_worker_session_languages.patch

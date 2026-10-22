@@ -7,6 +7,7 @@ function describeFingerprintProtection (fingerprint, proxy = {}) {
     ['元素几何保护', active && noise.rects],
     ['字体平台过滤', active && modules.fonts],
     ['非代理 UDP 限制', active && modules.webrtc],
+    ['WebGPU 适配器访问限制', active && modules.webgl],
     ['WebGL 像素保护（部分格式）', active && modules.webgl && modules.canvas && noise.canvas && Boolean(graphics.webglVendor && graphics.webglRenderer)]
   ]
   const warnings = []

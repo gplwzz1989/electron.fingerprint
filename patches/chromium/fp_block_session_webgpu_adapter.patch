@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] fp: block session WebGPU adapter access
+
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu.cc b/third_party/blink/renderer/modules/webgpu/gpu.cc
+index 700be4df90fb2..4b7e20a67350a 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <utility>
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/notreached.h"
+ #include "base/synchronization/waitable_event.h"
+@@ -433,6 +434,11 @@ ScriptPromise<IDLNullable<GPUAdapter>> GPU::requestAdapter(
+       MakeGarbageCollected<ScriptPromiseResolver<IDLNullable<GPUAdapter>>>(
+           script_state);
+   auto promise = resolver->Promise();
++  // 会话的图形保护只限制所属渲染进程，页面和工作线程共用此入口。
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("disable-webgpu")) {
++    resolver->Resolve(nullptr);
++    return promise;
++  }
+   RequestAdapterImpl(script_state, options, resolver);
+   return promise;
+ }

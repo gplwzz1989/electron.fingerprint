@@ -23,6 +23,7 @@ async function hashFile (filename) {
 }
 
 async function run () {
+  const contexts = process.argv.includes('--contexts')
   const output = path.join(projectRoot, 'dist', 'electron-diagnostics', 'fingerprint', `${Date.now()}-${randomUUID().slice(0, 8)}`)
   const { executable, options, dataRoot } = getLaunchOptions({
     ...process.env,
@@ -37,6 +38,8 @@ async function run () {
     'fingerprint-browser/fingerprint-protection.js', 'fingerprint-browser/renderer/saas-app.js',
     'fingerprint-browser/package.json', 'fingerprint-browser/scripts/test-fingerprint.js',
     'fingerprint-browser/test/fingerprint-isolation.test.js', 'fingerprint-browser/test/fingerprint-probes.js',
+    'fingerprint-browser/test/fingerprint-contexts.test.js',
+    'shell/browser/electron_browser_client.cc', 'patches/chromium/fp_block_session_webgpu_adapter.patch',
     'fingerprint-browser/test/fingerprint-protection.test.js',
     'shell/browser/electron_browser_context.cc',
     'fingerprint-browser/scripts/fingerprint-tls.js', 'fingerprint-browser/test/fingerprint-network.js',
@@ -65,21 +68,27 @@ async function run () {
       note: '本次验证工作区与所选运行时，不代表发行包包含当前应用代码。'
     }
   } catch {}
-  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', contexts, debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
   console.log(`指纹验证记录目录：${output}`)
-  const child = spawn(executable, [path.join(__dirname, '..', 'test', 'fingerprint-isolation.test.js'), `--user-data-dir=${dataRoot}`], { ...options, windowsHide: true })
-  let timedOut = false
-  const timer = setTimeout(() => { timedOut = true; child.kill() }, 180000)
-  try {
-    const code = await new Promise((resolve, reject) => {
-      child.once('error', () => reject(new Error('无法启动指纹验证运行时。')))
-      child.once('exit', value => resolve(value))
-    })
-    if (timedOut) throw new Error('指纹验证超时，已有记录已保留。')
-    process.exitCode = code === 0 ? 0 : 1
-    if (code !== 0) console.error('指纹验证未完成，请查看该目录中的结果记录。')
-  } finally {
-    clearTimeout(timer)
+  for (const phase of contexts ? ['initial', 'restore'] : ['initial']) {
+    const testFile = contexts ? 'fingerprint-contexts.test.js' : 'fingerprint-isolation.test.js'
+    const child = spawn(executable, [path.join(__dirname, '..', 'test', testFile), `--user-data-dir=${dataRoot}`], { ...options, env: { ...options.env, FP_CONTEXT_PHASE: phase }, windowsHide: true })
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; child.kill() }, 180000)
+    try {
+      const code = await new Promise((resolve, reject) => {
+        child.once('error', () => reject(new Error('无法启动指纹验证运行时。')))
+        child.once('exit', value => resolve(value))
+      })
+      if (timedOut) throw new Error('指纹验证超时，已有记录已保留。')
+      process.exitCode = code === 0 ? 0 : 1
+      if (code !== 0) {
+        console.error('指纹验证未完成，请查看该目录中的结果记录。')
+        break
+      }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }
 

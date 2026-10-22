@@ -24,9 +24,7 @@ const { detectExitIp } = require('./geo-ip')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
-// 默认关闭 WebGPU，防止物理显卡驱动与硬件底层信息穿透伪装
-app.commandLine.appendSwitch('disable-webgpu')
-app.commandLine.appendSwitch('disable-features', 'WebGPU')
+// WebGPU 防护由所属 Session 的图形模块控制，避免影响未启用保护的环境。
 
 try {
   app.setPath('userData', initialDataRoot)
