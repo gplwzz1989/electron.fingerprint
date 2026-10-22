@@ -1,15 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-Subject: [PATCH] fp: 增加会话级 TLS 套件顺序与扩展策略
+Subject: [PATCH] fp: 增加会话级 TLS 套件、曲线、签名顺序与扩展策略
 
 diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/public/mojom/ssl_config.mojom
 --- a/services/network/public/mojom/ssl_config.mojom
 +++ b/services/network/public/mojom/ssl_config.mojom
-@@ -29,6 +29,10 @@
+@@ -29,6 +29,12 @@
    // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
    array<uint16> disabled_cipher_suites;
 
 +  // 会话级 TLS 1.2 套件顺序；空列表保留原生策略。
 +  array<uint16> fingerprint_cipher_suites;
++  array<uint16> fingerprint_supported_groups;
++  array<uint16> fingerprint_signature_algorithms;
 +  bool fingerprint_permute_extensions = true;
 +
    // Patterns for matching hostnames to determine when to allow connection
@@ -18,13 +20,15 @@ diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/p
 diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
 --- a/net/ssl/ssl_config_service.h
 +++ b/net/ssl/ssl_config_service.h
-@@ -41,6 +41,10 @@
+@@ -41,6 +41,12 @@
    // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
    // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
    std::vector<uint16_t> disabled_cipher_suites;
 +
 +  // 随所属网络上下文传递，禁止影响其他 Session 的握手策略。
 +  std::vector<uint16_t> fingerprint_cipher_suites;
++  std::vector<uint16_t> fingerprint_supported_groups;
++  std::vector<uint16_t> fingerprint_signature_algorithms;
 +  bool fingerprint_permute_extensions = true;
 
    // Controls whether post-quantum key agreement in TLS connections is allowed.
@@ -32,11 +36,15 @@ diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
 diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ssl_config_type_converter.cc
 --- a/services/network/ssl_config_type_converter.cc
 +++ b/services/network/ssl_config_type_converter.cc
-@@ -32,6 +32,9 @@
+@@ -32,6 +32,13 @@
    DCHECK_LE(net_config.version_min, net_config.version_max);
 
    net_config.disabled_cipher_suites = mojo_config->disabled_cipher_suites;
 +  net_config.fingerprint_cipher_suites = mojo_config->fingerprint_cipher_suites;
++  net_config.fingerprint_supported_groups =
++      mojo_config->fingerprint_supported_groups;
++  net_config.fingerprint_signature_algorithms =
++      mojo_config->fingerprint_signature_algorithms;
 +  net_config.fingerprint_permute_extensions =
 +      mojo_config->fingerprint_permute_extensions;
    net_config.post_quantum_key_agreement_enabled =
@@ -45,7 +53,44 @@ diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ss
 diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
 --- a/net/socket/ssl_client_socket_impl.cc
 +++ b/net/socket/ssl_client_socket_impl.cc
-@@ -735,6 +735,30 @@
+@@ -660,7 +660,35 @@
+-  if (context_->config().post_quantum_key_agreement_enabled) {
++  auto valid_fingerprint_ids = [](const auto& values, const auto& allowed) {
++    if (values.size() > std::size(allowed))
++      return false;
++    for (size_t index = 0; index < values.size(); ++index) {
++      if (std::ranges::find(allowed, values[index]) == std::end(allowed) ||
++          std::find(values.begin(), values.begin() + index, values[index]) !=
++              values.begin() + index) {
++        return false;
++      }
++    }
++    return true;
++  };
++  const auto& fingerprint_groups =
++      context_->config().fingerprint_supported_groups;
++  if (!fingerprint_groups.empty()) {
++    constexpr uint16_t kAllowedGroups[] = {
++        SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1, SSL_GROUP_X25519,
++        SSL_GROUP_X25519_MLKEM768};
++    if (!valid_fingerprint_ids(fingerprint_groups, kAllowedGroups) ||
++        (!context_->config().post_quantum_key_agreement_enabled &&
++         std::ranges::find(fingerprint_groups, SSL_GROUP_X25519_MLKEM768) !=
++             fingerprint_groups.end())) {
++      return ERR_INVALID_ARGUMENT;
++    }
++    if (!SSL_set1_group_ids(ssl_.get(), fingerprint_groups.data(),
++                            fingerprint_groups.size())) {
++      return ERR_UNEXPECTED;
++    }
++  } else if (context_->config().post_quantum_key_agreement_enabled) {
+     const uint16_t kGroups[] = {SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519,
+                                  SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
+     if (!SSL_set1_group_ids(ssl_.get(), kGroups, std::size(kGroups))) {
+       return ERR_UNEXPECTED;
+     }
+   }
+@@ -735,6 +763,30 @@
    // Use BoringSSL defaults, but disable 3DES and HMAC-SHA1 ciphers in ECDSA.
    // These are the remaining CBC-mode ECDSA ciphers.
    std::string command("ALL:!aPSK:!ECDSA+SHA1:!3DES");
@@ -76,7 +121,26 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 
    if (ssl_config_.require_ecdhe)
      command.append(":!kRSA");
-@@ -829,7 +853,8 @@
+@@ -762,7 +814,16 @@
+       SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
+       SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
+   };
+-  if (!SSL_set_verify_algorithm_prefs(ssl_.get(), kVerifyPrefs,
+-                                      std::size(kVerifyPrefs))) {
++  base::span<const uint16_t> verify_prefs = kVerifyPrefs;
++  const auto& fingerprint_signatures =
++      context_->config().fingerprint_signature_algorithms;
++  if (!fingerprint_signatures.empty()) {
++    // 不能借指纹策略重新启用 SHA-1 等原生已禁用的签名算法。
++    if (!valid_fingerprint_ids(fingerprint_signatures, kVerifyPrefs))
++      return ERR_INVALID_ARGUMENT;
++    verify_prefs = fingerprint_signatures;
++  }
++  if (!SSL_set_verify_algorithm_prefs(ssl_.get(), verify_prefs.data(),
++                                      verify_prefs.size())) {
+     return ERR_UNEXPECTED;
+   }
+@@ -829,7 +890,8 @@
      }
    }
 
@@ -89,19 +153,23 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 diff --git a/services/network/ssl_config_service_mojo_unittest.cc b/services/network/ssl_config_service_mojo_unittest.cc
 --- a/services/network/ssl_config_service_mojo_unittest.cc
 +++ b/services/network/ssl_config_service_mojo_unittest.cc
-@@ -359,6 +359,22 @@
+@@ -359,6 +359,26 @@
    }
  }
 
 +TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintCipherOrderAndExtensions) {
 +  net::SSLContextConfig expected_net_config;
 +  expected_net_config.fingerprint_cipher_suites = {0xc030, 0xc02f};
++  expected_net_config.fingerprint_supported_groups = {29, 23};
++  expected_net_config.fingerprint_signature_algorithms = {0x0804, 0x0403};
 +  expected_net_config.fingerprint_permute_extensions = false;
 +  expected_net_config.ech_enabled = false;
 +  expected_net_config.post_quantum_key_agreement_enabled = false;
 +
 +  auto mojo_config = mojom::SSLConfig::New();
 +  mojo_config->fingerprint_cipher_suites = {0xc030, 0xc02f};
++  mojo_config->fingerprint_supported_groups = {29, 23};
++  mojo_config->fingerprint_signature_algorithms = {0x0804, 0x0403};
 +  mojo_config->fingerprint_permute_extensions = false;
 +  mojo_config->ech_enabled = false;
 +  mojo_config->post_quantum_key_agreement_enabled = false;

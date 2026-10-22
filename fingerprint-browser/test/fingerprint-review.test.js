@@ -30,6 +30,12 @@ for (const [change, message] of [
   input.enabled = false
   assert.equal(previewFingerprintProfile(input, runtime).canSave, true, '关闭指纹时不应限制原生表面。')
 }
+for (const token of ['Chrome/138.0.0.0 Chrome/120.0.0.0', 'Chrome/138.0.0.0.123', 'Brand-Chrome/138.0.0.0', 'Chrome/138.0.0.0/other', 'Chrome/138.0.0.0\n']) {
+  const input = structuredClone(profile)
+  input.browser.userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${token}`
+  assert.equal(previewFingerprintProfile(input, runtime).canSave, false, '界面预览必须拒绝原生解析器不支持的 UA 标记。')
+  assert.throws(() => assertFingerprintSave(input, runtime), /版本/)
+}
 const weighted = structuredClone(profile)
 weighted.browser.acceptLanguage = 'en-US;q=0,ZH-cn;q=0.9,zh;q=0.8'
 weighted.locale.languages[0] = 'ZH-cn'

@@ -1,5 +1,6 @@
 const { createFingerprintProfile, ProfileValidationError } = require('./profile-store')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
+const { chromeVersionFromUserAgent } = require('./tls-fingerprint')
 
 function previewFingerprintProfile (input, runtime, proxy) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProfileValidationError('指纹配置必须是对象。')
@@ -19,7 +20,7 @@ function previewFingerprintProfile (input, runtime, proxy) {
       errors.push('操作系统平台与本机不一致；当前仅支持与真实宿主相容的桌面配置。')
     }
     if (modules.ua && browser.userAgent) {
-      const version = browser.userAgent.match(/\bChrome\/(\d+\.\d+\.\d+\.\d+)\b/)?.[1]
+      const version = chromeVersionFromUserAgent(browser.userAgent)
       if (!version || Number(version.split('.')[0]) !== browser.chromiumMajor) {
         errors.push('用户代理必须包含与当前内核一致的 Chrome 主版本。')
       } else if (version !== `${browser.chromiumMajor}.0.0.0` && version !== runtime.chromiumVersion) {

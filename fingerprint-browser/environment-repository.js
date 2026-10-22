@@ -34,6 +34,7 @@ function normalizeEnvironment (record, dataRoot) {
     url: record.lastUrl || DEFAULT_URL,
     revision: record.profileRevision,
     fingerprint: record.fingerprint,
+    tlsFingerprint: record.tlsFingerprint,
     proxy: record.proxy
   })
   const creationUrl = normalizeUrl(record.creationUrl || FALLBACK_CREATION_URL)
@@ -52,6 +53,7 @@ function normalizeEnvironment (record, dataRoot) {
     dataDir,
     proxy: profile.proxy,
     fingerprint: profile.fingerprint,
+    ...(profile.tlsFingerprint ? { tlsFingerprint: profile.tlsFingerprint } : {}),
     creationUrl,
     lastUrl: normalizeUrl(record.lastUrl || DEFAULT_URL),
     status: record.status,
@@ -209,6 +211,7 @@ class EnvironmentRepository {
           dataDir,
           proxy: snapshot.proxy,
           fingerprint: snapshot.fingerprint,
+          tlsFingerprint: snapshot.tlsFingerprint,
           creationUrl: snapshot.url || FALLBACK_CREATION_URL,
           lastUrl: snapshot.url,
           status: 'closed',
@@ -268,6 +271,7 @@ class EnvironmentRepository {
         dataDir,
         proxy: environmentProfile.proxy,
         fingerprint: environmentProfile.fingerprint,
+        tlsFingerprint: environmentProfile.tlsFingerprint,
         creationUrl,
         lastUrl: creationUrl,
         status: 'closed',
@@ -329,9 +333,9 @@ class EnvironmentRepository {
       if (Object.hasOwn(patch, 'fingerprint') && (!patch.fingerprint || typeof patch.fingerprint !== 'object' || Array.isArray(patch.fingerprint))) {
         throw new ProfileValidationError('环境指纹配置无效。')
       }
-      const profileChanged = Object.hasOwn(patch, 'proxy') || Object.hasOwn(patch, 'fingerprint')
+      const profileChanged = Object.hasOwn(patch, 'proxy') || Object.hasOwn(patch, 'fingerprint') || Object.hasOwn(patch, 'tlsFingerprint')
       if (current.status === 'open' && profileChanged) {
-        throw new ProfileValidationError('请先关闭浏览器环境，再修改代理或指纹参数。')
+        throw new ProfileValidationError('请先关闭浏览器环境，再修改代理、TLS 或指纹参数。')
       }
       const nextFingerprint = Object.hasOwn(patch, 'fingerprint')
         ? {
@@ -348,6 +352,7 @@ class EnvironmentRepository {
         url: Object.hasOwn(patch, 'creationUrl') ? patch.creationUrl : current.creationUrl,
         revision: profileChanged ? current.profileRevision + 1 : current.profileRevision,
         fingerprint: nextFingerprint,
+        tlsFingerprint: Object.hasOwn(patch, 'tlsFingerprint') ? patch.tlsFingerprint : current.tlsFingerprint,
         proxy: Object.hasOwn(patch, 'proxy') ? patch.proxy : current.proxy
       })
       const metadataChanged = profile.name !== current.profileName || profile.group !== current.group || profile.url !== current.creationUrl
@@ -357,6 +362,7 @@ class EnvironmentRepository {
         group: profile.group,
         proxy: profile.proxy,
         fingerprint: profile.fingerprint,
+        tlsFingerprint: profile.tlsFingerprint,
         profileRevision: profile.revision,
         metadataRevision: metadataChanged ? current.metadataRevision + 1 : current.metadataRevision,
         creationUrl: profile.url,

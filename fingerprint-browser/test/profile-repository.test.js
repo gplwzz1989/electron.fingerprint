@@ -22,6 +22,24 @@ async function run () {
     detached[0].name = '外部修改'
     assert.notEqual(repository.list()[0].name, detached[0].name, '返回对象可以修改内部配置。')
 
+    const tlsFile = path.join(root, 'tls.json')
+    const tlsRepository = new ProfileRepository(tlsFile)
+    const tlsPolicy = { chromiumVersion: '138.0.7204.185', cipherSuites: [0xc02f, 0xc030] }
+    await tlsRepository.load([record('网络策略')])
+    const withTLS = await tlsRepository.save({ ...tlsRepository.list()[0], tlsFingerprint: tlsPolicy })
+    const restoredTLS = new ProfileRepository(tlsFile)
+    await restoredTLS.load([])
+    assert.deepEqual(restoredTLS.list()[0].tlsFingerprint, tlsPolicy, '重启读取配置时丢失 TLS 策略。')
+    const oldEditorPayload = { ...withTLS, name: '旧界面编辑' }
+    delete oldEditorPayload.tlsFingerprint
+    const preservedTLS = await restoredTLS.save(oldEditorPayload)
+    assert.deepEqual(preservedTLS.tlsFingerprint, tlsPolicy, '旧界面未提交 TLS 字段时不能删除策略。')
+    await assert.rejects(restoredTLS.save({ ...preservedTLS, tlsFingerprint: { ...tlsPolicy, cipherSuites: [] } }), /TLS/)
+    assert.deepEqual(restoredTLS.list()[0], preservedTLS, '非法策略不能覆盖已有配置。')
+    const native = await restoredTLS.save({ ...preservedTLS, tlsFingerprint: null })
+    assert.equal(Object.hasOwn(native, 'tlsFingerprint'), false, '显式清除 TLS 策略后应恢复原生配置。')
+    assert.equal(Object.hasOwn(JSON.parse(await fs.readFile(tlsFile, 'utf8'))[0], 'tlsFingerprint'), false)
+
     const legacyFile = path.join(root, 'legacy.json')
     const legacyRecord = record('旧内存配置')
     legacyRecord.fingerprint.hardware.deviceMemory = 16

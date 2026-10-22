@@ -168,7 +168,7 @@ WEBGL_debug_renderer_info vendor / renderer
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
 | Unicode 配置传输 | 标准 JSON Unicode 转义 | 已实现，待运行验收 | 不改变配置字段与种子内容；覆盖中文、扩展字符、转义及 ASCII 对照 |
 | WebGPU 适配器访问 | `modules.webgl` | 已实现，待运行验收 | 开启时阻止所属 Session 的适配器访问；保留 API 本身，关闭/无配置回退原生 |
-| TLS ClientHello 策略 | Session `setSSLConfig().fingerprint` | 已实现，未编译 | 当前内核版本绑定、TLS 1.2 套件顺序、扩展排列/ECH/PQ 开关；原生 JA4 基线已测，新策略验收待执行 |
+| TLS ClientHello 策略 | Session `setSSLConfig().fingerprint`、环境 `tlsFingerprint` | 已实现，未编译 | 当前内核版本绑定、TLS 1.2 套件/支持组/签名算法顺序、扩展排列/ECH/PQ 开关、环境保存及会话锁定；仅 TCP，原生基线已测，新策略及独立 Chrome 对照待验收 |
 | WebRTC 网络地址 | `modules.webrtc` | 已实现，待验证 | 启用时将 Session 的 RendererPreferences 设为 `disable_non_proxied_udp`；真实 ICE 候选和代理组合仍待验证 |
 
 ### 4.1 当前已生效的指纹点

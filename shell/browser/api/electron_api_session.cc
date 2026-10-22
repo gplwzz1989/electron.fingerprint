@@ -481,7 +481,9 @@ struct Converter<network::mojom::SSLConfigPtr> {
       for (const auto entry : fingerprint) {
         if (entry.first != "chromiumVersion" && entry.first != "cipherSuites" &&
             entry.first != "permuteExtensions" && entry.first != "echEnabled" &&
-            entry.first != "postQuantumKeyAgreementEnabled") {
+            entry.first != "postQuantumKeyAgreementEnabled" &&
+            entry.first != "supportedGroups" &&
+            entry.first != "signatureAlgorithms") {
           return invalid();
         }
       }
@@ -524,6 +526,39 @@ struct Converter<network::mojom::SSLConfigPtr> {
           (*out)->fingerprint_cipher_suites.push_back(id);
         }
       }
+      auto read_ordered_ids = [&](const char* key, const auto& allowed,
+                                  std::vector<uint16_t>* result) {
+        const auto* value = fingerprint.Find(key);
+        if (!value)
+          return true;
+        if (!value->is_list() || value->GetList().empty() ||
+            value->GetList().size() > std::size(allowed)) {
+          return false;
+        }
+        std::set<int> seen;
+        for (const auto& item : value->GetList()) {
+          if (!item.is_int() ||
+              std::ranges::find(allowed, item.GetInt()) == std::end(allowed) ||
+              !seen.insert(item.GetInt()).second) {
+            return false;
+          }
+          result->push_back(item.GetInt());
+        }
+        return true;
+      };
+      // 仅开放当前内核原生安全算法；保留声明顺序并拒绝策略冲突。
+      constexpr int kGroups[] = {23, 24, 29, 4588};
+      constexpr int kSignatures[] = {0x0403, 0x0804, 0x0401, 0x0503,
+                                     0x0805, 0x0501, 0x0806, 0x0601};
+      if (!read_ordered_ids("supportedGroups", kGroups,
+                            &(*out)->fingerprint_supported_groups) ||
+          !read_ordered_ids("signatureAlgorithms", kSignatures,
+                            &(*out)->fingerprint_signature_algorithms) ||
+          (!(*out)->post_quantum_key_agreement_enabled &&
+           std::ranges::find((*out)->fingerprint_supported_groups, 4588) !=
+               (*out)->fingerprint_supported_groups.end())) {
+        return invalid();
+      }
     }
 
     // TODO(nornagon): also support other SSLConfig properties?
@@ -542,11 +577,15 @@ const char kPersistPrefix[] = "persist:";
 base::Value::Dict GetTLSFingerprintCapabilities() {
   return base::Value::Dict()
       .Set("schemaVersion", 1)
+      .Set("transport", "tcp")
+      .Set("quic", false)
       .Set("chromiumVersion", std::string(version_info::GetVersionNumber()))
       .Set("cipherOrder", "tls1.2")
       .Set("tls13CipherOrder", false)
       .Set("arbitraryExtensionOrder", false)
       .Set("extensionPermutation", true)
+      .Set("supportedGroups", true)
+      .Set("signatureAlgorithms", true)
       .Set("ech", true)
       .Set("postQuantumKeyAgreement", true);
 }
@@ -1050,9 +1089,11 @@ void Session::SetUserAgent(const std::string& user_agent,
   const auto* fingerprint_config =
       browser_context_->fingerprint_context()->GetConfig();
   if (fingerprint_config && fingerprint_config->enabled &&
-      fingerprint_config->modules.ua) {
+      (fingerprint_config->modules.ua ||
+       fingerprint_config->modules.client_hints)) {
     auto candidate = fingerprint_config->ToValue();
     candidate.FindDict("browser")->Set("userAgent", user_agent);
+    candidate.FindDict("modules")->Set("ua", true);
     std::string error_message;
     if (!fingerprint::FingerprintProfileParser::Parse(candidate, &error_message)) {
       args->ThrowError(error_message);

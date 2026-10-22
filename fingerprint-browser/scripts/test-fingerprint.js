@@ -6,6 +6,7 @@ const { spawn, execFile } = require('node:child_process')
 const { promisify, isDeepStrictEqual } = require('node:util')
 const { getLaunchOptions } = require('./start')
 const { createDiagnosticTLS } = require('./fingerprint-tls')
+const { validateTLSReference } = require('../test/tls-client-hello')
 
 const projectRoot = path.resolve(__dirname, '..', '..')
 const execute = promisify(execFile)
@@ -19,6 +20,20 @@ async function hashFile (filename) {
   } catch (error) {
     if (error.code === 'ENOENT') return { path: filename, missing: true }
     throw new Error('无法读取基线文件，请检查文件权限。')
+  }
+}
+
+async function readTLSReference (filename) {
+  try {
+    const stat = await fs.stat(filename)
+    if (!stat.isFile() || stat.size > 262144) throw new Error()
+    const bytes = await fs.readFile(filename)
+    if (bytes.length > 262144) throw new Error()
+    const input = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''))
+    const reference = validateTLSReference(input, input?.browser?.version)
+    return { bytes, reference, sha256: createHash('sha256').update(bytes).digest('hex') }
+  } catch {
+    throw new Error('指纹验证无法读取 TLS 对照样本，请检查文件路径、大小和 Chrome 138 样本格式。')
   }
 }
 
@@ -43,11 +58,31 @@ function validateContextReport (report, phase, previous) {
   if (report.tlsComparison?.direct?.throughProxy !== false || report.tlsComparison?.tunnel?.throughProxy !== true) throw new Error('指纹验证缺少直连与代理 TLS 对照。')
 }
 
+function validateTLSReport (report, baselineOnly, reference) {
+  if (report?.ok !== true || report.baselineOnly !== baselineOnly || report.implementationVerified !== !baselineOnly || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.samples) || !report.samples.length) throw new Error('指纹验证缺少有效的 TLS 策略结果。')
+  const names = baselineOnly ? ['native'] : ['native', 'chrome138', 'custom', 'update-before', 'update-custom', 'reset', 'native-after']
+  const expectedKeys = names.flatMap(name => ['direct', 'tunnel'].map(route => `${name}:${route}`)).sort()
+  const keys = samples => samples.map(sample => `${sample.name}:${sample.route}`).sort()
+  if (!isDeepStrictEqual(keys(report.samples), expectedKeys) || report.samples.some(sample => sample.baselineComparison?.matches !== true || sample.hello?.throughProxy !== (sample.route === 'tunnel') || (sample.route === 'tunnel' && sample.tunnelComparison?.matches !== true))) throw new Error('指纹验证缺少完整的 TLS 直连、代理或生命周期样本。')
+  const comparison = report.independentReference
+  if (reference) {
+    if (comparison?.provided !== true || comparison.compared !== true || comparison.matches !== true || comparison.sha256 !== reference.sha256 || !isDeepStrictEqual(comparison.browser, reference.browser) || comparison.platform !== reference.platform || !Array.isArray(comparison.samples) || !comparison.samples.length || comparison.samples.some(sample => sample.matches !== true || !Array.isArray(sample.differences) || sample.differences.length)) throw new Error('指纹验证缺少有效的独立 TLS 样本对照结果。')
+    const expectedComparisons = report.samples.filter(sample => !['custom', 'update-custom'].includes(sample.name))
+    if (!isDeepStrictEqual(keys(comparison.samples), keys(expectedComparisons))) throw new Error('指纹验证的独立 TLS 对照未覆盖所有默认策略样本。')
+  } else if (comparison?.provided !== false || comparison.compared !== false || comparison.matches !== null) throw new Error('指纹验证未提供独立 TLS 样本，不能声明独立对照通过。')
+}
+
 async function run () {
   const contexts = process.argv.includes('--contexts')
   const tlsBaselineOnly = process.argv.includes('--tls-baseline')
   const tls = tlsBaselineOnly || process.argv.includes('--tls')
   if (contexts && tls) throw new Error('指纹验证请分别运行上下文与 TLS 入口。')
+  const referenceIndex = process.argv.indexOf('--tls-reference')
+  const referenceArgument = referenceIndex < 0 ? process.env.FP_TLS_REFERENCE_FILE : process.argv[referenceIndex + 1]
+  if (referenceIndex >= 0 && (!referenceArgument || referenceArgument.startsWith('--') || process.argv.lastIndexOf('--tls-reference') !== referenceIndex)) throw new Error('指纹验证的 --tls-reference 必须指定一个样本文件路径。')
+  if (referenceArgument && !tls) throw new Error('指纹验证的 TLS 对照样本只能用于 TLS 入口。')
+  const referencePath = referenceArgument ? path.resolve(referenceArgument) : null
+  const referenceInput = referencePath ? await readTLSReference(referencePath) : null
   const output = path.join(projectRoot, 'dist', 'electron-diagnostics', 'fingerprint', `${Date.now()}-${randomUUID().slice(0, 8)}`)
   const { executable, options, dataRoot } = getLaunchOptions({
     ...process.env,
@@ -56,6 +91,9 @@ async function run () {
     FP_FINGERPRINT_TEST_OUTPUT: output
   })
   await fs.mkdir(dataRoot, { recursive: true })
+  const capturedReferencePath = referenceInput ? path.join(output, 'tls-reference.json') : ''
+  if (referenceInput) await fs.writeFile(capturedReferencePath, referenceInput.bytes)
+  const tlsReference = referenceInput ? { path: referencePath, capturedPath: capturedReferencePath, sha256: referenceInput.sha256, browser: referenceInput.reference.browser, platform: referenceInput.reference.platform, source: referenceInput.reference.source } : null
   await createDiagnosticTLS(path.join(output, 'tls'))
   const tracked = [
     'fingerprint-browser/profile-store.js', 'fingerprint-browser/browser-tabs.js',
@@ -66,7 +104,8 @@ async function run () {
     'shell/browser/electron_browser_client.cc', 'patches/chromium/fp_block_session_webgpu_adapter.patch',
     'patches/chromium/fp_worker_session_languages.patch',
     'patches/chromium/fp_session_tls_client_hello.patch', 'shell/browser/api/electron_api_session.cc',
-    'shell/browser/fingerprint/fingerprint_profile_parser.cc', 'fingerprint-browser/tls-fingerprint.js',
+    'shell/browser/fingerprint/fingerprint_profile_parser.cc', 'shell/browser/api/electron_api_web_contents.cc', 'fingerprint-browser/tls-fingerprint.js',
+    'fingerprint-browser/profile-repository.js', 'fingerprint-browser/environment-repository.js', 'fingerprint-browser/main.js',
     'fingerprint-browser/test/tls-client-hello.js', 'fingerprint-browser/test/fingerprint-tls.test.js',
     'fingerprint-browser/test/fingerprint-protection.test.js',
     'shell/browser/electron_browser_context.cc',
@@ -96,12 +135,12 @@ async function run () {
       note: '本次验证工作区与所选运行时，不代表发行包包含当前应用代码。'
     }
   } catch {}
-  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', contexts, tls, tlsBaselineOnly, debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', contexts, tls, tlsBaselineOnly, tlsReference, debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
   console.log(`指纹验证记录目录：${output}`)
   let initialReport
   for (const phase of contexts ? ['initial', 'restore'] : ['initial']) {
     const testFile = tls ? 'fingerprint-tls.test.js' : contexts ? 'fingerprint-contexts.test.js' : 'fingerprint-isolation.test.js'
-    const child = spawn(executable, [path.join(__dirname, '..', 'test', testFile), `--user-data-dir=${dataRoot}`], { ...options, env: { ...options.env, FP_CONTEXT_PHASE: phase, FP_TLS_BASELINE_ONLY: tlsBaselineOnly ? '1' : '0' }, windowsHide: true })
+    const child = spawn(executable, [path.join(__dirname, '..', 'test', testFile), `--user-data-dir=${dataRoot}`], { ...options, env: { ...options.env, FP_CONTEXT_PHASE: phase, FP_TLS_BASELINE_ONLY: tlsBaselineOnly ? '1' : '0', FP_TLS_REFERENCE_FILE: capturedReferencePath }, windowsHide: true })
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; child.kill() }, 180000)
     try {
@@ -122,7 +161,7 @@ async function run () {
       }
       if (tls) {
         const report = JSON.parse(await fs.readFile(path.join(output, 'tls-result.json'), 'utf8'))
-        if (!report.ok || report.baselineOnly !== tlsBaselineOnly || (!tlsBaselineOnly && !report.implementationVerified)) throw new Error('指纹验证缺少有效的 TLS 策略结果。')
+        validateTLSReport(report, tlsBaselineOnly, tlsReference)
       }
     } finally {
       clearTimeout(timer)
@@ -135,4 +174,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport }
+module.exports = { hashFile, validateContextReport, readTLSReference, validateTLSReport }

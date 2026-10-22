@@ -1314,14 +1314,16 @@ used after the profile is cleared.
     * `permuteExtensions` boolean (optional) - 是否随机排列扩展，默认 `true`。`false` 使用 BoringSSL 固有顺序，不支持任意扩展顺序列表。
     * `echEnabled` boolean (optional) - 是否允许 ECH 与 ECH GREASE，默认 `true`；实际 ECH 仍取决于站点配置与内核功能开关。
     * `postQuantumKeyAgreementEnabled` boolean (optional) - 是否允许原生后量子密钥协商，默认 `true`。
+    * `supportedGroups` Integer[] (optional) - 支持组的子集与顺序，允许 `23`（P-256）、`24`（P-384）、`29`（X25519）、`4588`（X25519MLKEM768）。显式列表不能为空或重复；关闭后量子密钥协商时不能包含 `4588`。
+    * `signatureAlgorithms` Integer[] (optional) - 签名算法的子集与顺序，允许 `0x0403`、`0x0804`、`0x0401`、`0x0503`、`0x0805`、`0x0501`、`0x0806`、`0x0601`。显式列表不能为空或重复，不允许重新启用 SHA-1。
 
 Sets the SSL configuration for the session. All subsequent network requests
 will use the new configuration. Existing network connections (such as WebSocket
 connections) will not be terminated, but old sockets in the pool will not be
 reused for new connections.
 
-TLS 策略只属于当前 Session，不修改全局 TLS 上下文或证书校验规则。
-调用 `ses.setSSLConfig({})` 恢复默认值；策略不会自动保存到用户环境文件。
+TLS 策略只属于当前 Session 的 TCP TLS 连接，不修改全局 TLS 上下文或证书校验规则，不覆盖 QUIC。
+调用 `ses.setSSLConfig({})` 恢复默认值；原生接口本身不保存配置。应用层通过与 `proxy` 同级的 `tlsFingerprint` 字段保存，并在环境启动时应用及锁定；已使用的环境更改策略后需重启客户端。
 需要强制新握手时，先等待 `ses.closeAllConnections()` 完成。
 自定义策略不等于另一版本 Chrome 的完整仿真，能力与验证范围见 [TLS 实现说明](../../fp-kernel/docs/TLS_CLIENT_HELLO.md)。
 
@@ -1331,12 +1333,16 @@ Returns `Object`:
 
 * `schemaVersion` Integer - 当前策略接口版本为 `1`。
 * `chromiumVersion` string - 当前内核完整版本。
+* `transport` string - 当前为 `tcp`。
+* `quic` boolean - 当前为 `false`，不支持 QUIC 指纹策略。
 * `cipherOrder` string - 当前可配置顺序的范围为 `tls1.2`。
 * `tls13CipherOrder` boolean - 当前为 `false`。
 * `arbitraryExtensionOrder` boolean - 当前为 `false`。
 * `extensionPermutation` boolean - 是否支持扩展随机排列开关。
 * `ech` boolean - 是否支持 ECH 策略开关。
 * `postQuantumKeyAgreement` boolean - 是否支持后量子密钥协商开关。
+* `supportedGroups` boolean - 是否支持安全支持组的子集与顺序。
+* `signatureAlgorithms` boolean - 是否支持原生安全签名算法的子集与顺序。
 
 该接口只描述运行时具备的配置能力，不表示任何网站检测已经通过。
 

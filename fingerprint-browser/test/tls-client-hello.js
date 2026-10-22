@@ -46,6 +46,49 @@ function fingerprintClientHello (hello) {
   }
 }
 
+const identifierFields = ['ciphers', 'extensions', 'groups', 'supportedVersions', 'signatureAlgorithms', 'keyShareGroups']
+
+function validateClientHello (hello) {
+  if (!hello || typeof hello !== 'object' || Array.isArray(hello) || !Number.isInteger(hello.legacyVersion) || hello.legacyVersion < 0 || hello.legacyVersion > 65535) throw new Error('TLS 对照样本缺少有效的握手版本。')
+  for (const field of [...identifierFields, 'pointFormats']) {
+    const maximum = field === 'pointFormats' ? 255 : 65535
+    if (!Array.isArray(hello[field]) || hello[field].length > 512 || hello[field].some(value => !Number.isInteger(value) || value < 0 || value > maximum)) throw new Error('TLS 对照样本的握手列表无效或不完整。')
+  }
+  if (!hello.ciphers.length || new Set(hello.extensions).size !== hello.extensions.length || !Array.isArray(hello.alpnHex) || hello.alpnHex.length > 64 || hello.alpnHex.some(value => typeof value !== 'string' || !/^(?:[\da-f]{2}){1,255}$/i.test(value))) throw new Error('TLS 对照样本的套件、扩展或 ALPN 无效。')
+  for (const [extension, field] of [[10, 'groups'], [11, 'pointFormats'], [13, 'signatureAlgorithms'], [16, 'alpnHex'], [43, 'supportedVersions'], [51, 'keyShareGroups']]) {
+    if ((!hello.extensions.includes(extension) && hello[field].length) || (extension !== 51 && hello.extensions.includes(extension) && !hello[field].length)) throw new Error('TLS 对照样本的扩展与字段内容不一致。')
+  }
+}
+
+function stableClientHello (hello, { fixedExtensionOrder = false } = {}) {
+  validateClientHello(hello)
+  const result = { legacyVersion: hello.legacyVersion }
+  // 保留 GREASE 数量和位置，只归一化随机值；JA4 未覆盖的字段也参与对照。
+  for (const field of identifierFields) result[field] = hello[field].map(value => isGrease(value) ? 0x0a0a : value)
+  if (!fixedExtensionOrder) result.extensions.sort((left, right) => left - right)
+  result.pointFormats = [...hello.pointFormats]
+  result.alpnHex = hello.alpnHex.map(value => value.toLowerCase())
+  return result
+}
+
+function compareClientHello (actual, expected, options) {
+  const normalizedActual = stableClientHello(actual, options)
+  const normalizedExpected = stableClientHello(expected, options)
+  const differences = Object.keys(normalizedExpected).filter(field => JSON.stringify(normalizedActual[field]) !== JSON.stringify(normalizedExpected[field])).map(field => ({ field, expected: normalizedExpected[field], actual: normalizedActual[field] }))
+  return { matches: differences.length === 0, differences }
+}
+
+function validateTLSReference (reference, chromiumVersion) {
+  if (!reference || reference.schemaVersion !== 1 || reference.browser?.family !== 'Chrome' || !/^138\.\d+\.\d+\.\d+$/.test(reference.browser.version) || reference.browser.version !== chromiumVersion || !['win32', 'darwin', 'linux'].includes(reference.platform)) throw new Error('独立 TLS 对照必须提供与当前内核完整版本一致的 Chrome 138 样本及平台。')
+  const source = reference.source
+  if (source?.kind !== 'independent-browser' || typeof source.description !== 'string' || !source.description.trim() || source.description.length > 1000 || typeof source.capturedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(source.capturedAt) || !Number.isFinite(Date.parse(source.capturedAt))) throw new Error('独立 TLS 对照缺少有效的采集来源或时间。')
+  validateClientHello(reference.hello)
+  if (reference.hello.extensions.includes(41)) throw new Error('独立 TLS 对照必须使用未恢复会话票据的首次握手。')
+  const hello = { legacyVersion: reference.hello.legacyVersion }
+  for (const field of [...identifierFields, 'pointFormats', 'alpnHex']) hello[field] = [...reference.hello[field]]
+  return { schemaVersion: 1, browser: { family: 'Chrome', version: reference.browser.version }, platform: reference.platform, source: { kind: source.kind, capturedAt: source.capturedAt, description: source.description.trim() }, hello: { ...hello, ...fingerprintClientHello(hello) } }
+}
+
 function parseBody (body) {
   const input = reader(body)
   const hello = { legacyVersion: input.u16(), ciphers: [], extensions: [], groups: [], pointFormats: [], supportedVersions: [], signatureAlgorithms: [], alpnHex: [], keyShareGroups: [] }
@@ -105,4 +148,4 @@ function readClientHello (bytes) {
   return null
 }
 
-module.exports = { readClientHello, fingerprintClientHello, isGrease }
+module.exports = { readClientHello, fingerprintClientHello, isGrease, stableClientHello, compareClientHello, validateTLSReference }

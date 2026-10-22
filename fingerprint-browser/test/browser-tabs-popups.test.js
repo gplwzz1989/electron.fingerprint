@@ -77,7 +77,7 @@ class MockWebContentsView {
 
 const mockApp = new EventEmitter()
 
-const mockSessionInstance = {
+let mockSessionInstance = {
   setPermissionRequestHandler: () => {},
   setPermissionCheckHandler: () => {},
   setProxy: async () => {},
@@ -215,6 +215,43 @@ async function run () {
 
   await tabBrowser.close('env-1')
   assert.equal(activePopup.isDestroyed(), true, '标签关闭时应级联销毁未关闭的弹窗')
+
+  // TLS 策略在创建网页前应用，持久化会话在关闭、重开时保持锁定。
+  const version = '138.0.7204.185'
+  const oldChrome = Object.getOwnPropertyDescriptor(process.versions, 'chrome')
+  Object.defineProperty(process.versions, 'chrome', { value: version, configurable: true })
+  try {
+    mockEnv.tlsFingerprint = { chromiumVersion: version, cipherSuites: [0xc02f, 0xc030] }
+    await assert.rejects(tabBrowser.reopen(mockEnv.id), /重启客户端/)
+    const calls = []
+    mockSessionInstance = {
+      ...mockSessionInstance,
+      getTLSFingerprintCapabilities: () => ({ schemaVersion: 1, chromiumVersion: version, cipherOrder: 'tls1.2' }),
+      setSSLConfig (config) { calls.push('tls'); assert.deepEqual(config.fingerprint, mockEnv.tlsFingerprint) },
+      setFingerprintConfig () { calls.push('fingerprint') }
+    }
+    await tabBrowser.reopen(mockEnv.id)
+    assert.deepEqual(calls.slice(0, 2), ['tls', 'fingerprint'], '首次请求前应先应用保存的 TLS 策略。')
+    assert.equal(tabBrowser.getTab(mockEnv.id).view.webContents.loadedUrls.length, 1)
+    assert.deepEqual(tabBrowser.snapshot().tabs[0].tlsFingerprint, mockEnv.tlsFingerprint)
+    const repeatedTab = await tabBrowser.openPageTab(mockEnv.id, 'https://example.com/other')
+    assert.equal(repeatedTab.reused, true)
+    assert.equal(calls.filter(value => value === 'tls').length, 1, '同环境重复标签应复用已经锁定的 TLS 会话。')
+    await tabBrowser.close(mockEnv.id)
+    await tabBrowser.reopen(mockEnv.id)
+    assert.equal(calls.filter(value => value === 'tls').length, 1, '重开相同会话不能重复设置 TLS。')
+    await tabBrowser.close(mockEnv.id)
+    mockEnv.tlsFingerprint = { ...mockEnv.tlsFingerprint, cipherSuites: [0xc030] }
+    await assert.rejects(tabBrowser.reopen(mockEnv.id), /重启客户端/)
+    assert.equal(tabBrowser.tabs.size, 0, '策略不匹配时不能创建网页。')
+    mockSessionInstance = { ...mockSessionInstance, getTLSFingerprintCapabilities: undefined }
+    await assert.rejects(tabBrowser.reopen(mockEnv.id), /未包含 TLS/)
+    assert.equal(tabBrowser.tabs.size, 0, '运行时不支持 TLS 策略时必须阻止打开网页。')
+    assert.equal(calls.filter(value => value === 'tls').length, 1)
+  } finally {
+    if (oldChrome) Object.defineProperty(process.versions, 'chrome', oldChrome)
+    else delete process.versions.chrome
+  }
 
   // 清理临时目录
   await fs.rm(testDir, { recursive: true, force: true }).catch(() => {})

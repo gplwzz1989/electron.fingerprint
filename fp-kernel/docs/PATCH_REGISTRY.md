@@ -23,7 +23,7 @@
 | FP-18 | 已实现，待验证 | `modules.webrtc` 已在 Electron `RendererPreferences` 入口启用 `disable_non_proxied_udp`；Session 隔离、模块关闭、无 Profile 回退和真实 ICE 候选测试已补充，增量编译与运行验证待完成 |
 
 | FP-19 | 已实现，待运行验收 | WebGPU 按 Session 的 `modules.webgl` 在 Blink `GPU::requestAdapter` 限制适配器访问；页面和工作线程共享入口，关闭及无配置保持原生行为 |
-| FP-20 | 已实现，未编译 | Chrome 138 TLS/UA 版本绑定、会话级 TLS 1.2 套件顺序与扩展策略；已采集原生 ClientHello/JA3/JA4 基线，新增原生策略尚未运行验证，见 [实现说明](TLS_CLIENT_HELLO.md) |
+| FP-20 | 已实现，未编译 | Chrome 138 TLS/UA 版本绑定、会话级 TLS 1.2 套件/支持组/签名算法顺序与扩展策略；环境保存与生命周期接入完成，已采集原生 ClientHello/JA3/JA4 基线，新增原生策略尚未运行验证，见 [实现说明](TLS_CLIENT_HELLO.md) |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
 

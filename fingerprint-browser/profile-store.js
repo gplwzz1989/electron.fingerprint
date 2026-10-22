@@ -255,6 +255,35 @@ function createProxyConfig (input) {
   return { mode, server, username, password }
 }
 
+function createTLSFingerprintConfig (input) {
+  if (input === undefined || input === null) return undefined
+  ensureObject(input, 'TLS 策略')
+  ensureOnlyKeys(input, ['chromiumVersion', 'cipherSuites', 'permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled', 'supportedGroups', 'signatureAlgorithms'], 'TLS 策略')
+  if (typeof input.chromiumVersion !== 'string' || !/^138\.\d+\.\d+\.\d+$/.test(input.chromiumVersion)) {
+    fail('TLS 策略必须声明当前 Chrome 138 内核的完整版本。')
+  }
+  for (const key of ['permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled']) {
+    if (Object.hasOwn(input, key)) ensureBoolean(input[key], `TLS 策略 ${key}`)
+  }
+  const supported = {
+    cipherSuites: [0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035],
+    supportedGroups: [23, 24, 29, 4588],
+    signatureAlgorithms: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601]
+  }
+  for (const [key, allowed] of Object.entries(supported)) {
+    if (!Object.hasOwn(input, key)) continue
+    const values = input[key]
+    if (!Array.isArray(values) || !values.length || values.length > allowed.length ||
+      new Set(values).size !== values.length || values.some(value => !Number.isInteger(value) || !allowed.includes(value))) {
+      fail(`TLS 策略 ${key} 必须是不重复的受支持整数列表，且不能为空。`)
+    }
+  }
+  if (input.postQuantumKeyAgreementEnabled === false && input.supportedGroups?.includes(4588)) {
+    fail('关闭后量子密钥协商时，TLS 支持组不能包含 X25519MLKEM768。')
+  }
+  return clone(input)
+}
+
 const PRESET_METADATA = {
   'win11-us-nvidia': {
     name: 'Windows 11 · 美东 · RTX 3060',
@@ -337,7 +366,8 @@ function createProfileRecord (input = {}) {
   const group = groupValue || DEFAULT_ENVIRONMENT_GROUP
   const storage = input.storage === undefined || input.storage === null ? DEFAULT_ENVIRONMENT_STORAGE : input.storage
   if (!['local', 'cloud'].includes(storage)) fail('环境保存方式只能是 local 或 cloud。')
-  return { id, name, group, storage, url, revision, fingerprint, proxy: createProxyConfig(input.proxy) }
+  const tlsFingerprint = createTLSFingerprintConfig(input.tlsFingerprint)
+  return { id, name, group, storage, url, revision, fingerprint, proxy: createProxyConfig(input.proxy), ...(tlsFingerprint ? { tlsFingerprint } : {}) }
 }
 
 function getDefaultProfile () {
@@ -349,6 +379,7 @@ module.exports = {
   DEFAULT_ENVIRONMENT_GROUP,
   DEFAULT_ENVIRONMENT_STORAGE,
   createProxyConfig,
+  createTLSFingerprintConfig,
   ProfileValidationError,
   createFingerprintProfile,
   createProfileRecord,

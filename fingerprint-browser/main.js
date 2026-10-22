@@ -295,7 +295,7 @@ function registerIpc () {
         expectedProfileRevision: payload?.profileRevision
       }
       if (Object.hasOwn(payload || {}, 'group')) update.group = group
-      for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint']) {
+      for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint', 'tlsFingerprint']) {
         if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
       }
       if (Object.hasOwn(update, 'fingerprint')) assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy)

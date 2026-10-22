@@ -4,6 +4,7 @@ const net = require('node:net')
 const { randomUUID } = require('node:crypto')
 const { app, BrowserWindow, WebContentsView, session } = require('electron/main')
 const { applyFingerprintConfig } = require('./runtime-compat')
+const { applyEnvironmentTLSFingerprintConfig } = require('./tls-fingerprint')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
@@ -152,6 +153,7 @@ class TabBrowser {
         url: tab.url,
         dataDir: tab.dataDir,
         fingerprint: tab.profile.fingerprint,
+        ...(tab.profile.tlsFingerprint ? { tlsFingerprint: tab.profile.tlsFingerprint } : {}),
         protection: describeFingerprintProtection(tab.profile.fingerprint, tab.profile.proxy),
         userAgent: tab.view.webContents.getUserAgent(),
         proxy: {
@@ -313,6 +315,7 @@ class TabBrowser {
       url: environment.creationUrl,
       revision: environment.profileRevision,
       fingerprint: environment.fingerprint,
+      tlsFingerprint: environment.tlsFingerprint,
       proxy: environment.proxy
     }
     const url = normalizeUrl(targetUrl || environment.creationUrl)
@@ -324,6 +327,7 @@ class TabBrowser {
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
     // 严格使用规范目录路径，确保 LevelDB 与 SQLite WAL 存储引擎正常工作并保持持久化登录态。
     const tabSession = session.fromPath(dataDir)
+    applyEnvironmentTLSFingerprintConfig(tabSession, snapshot.tlsFingerprint)
     if (this.mediaHub?.sniffer) {
       this.mediaHub.sniffer.attachSession(tabSession, () => this.activeId)
     }

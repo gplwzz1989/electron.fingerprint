@@ -99,6 +99,7 @@
 #include "shell/browser/electron_browser_main_parts.h"
 #include "shell/browser/electron_navigation_throttle.h"
 #include "shell/browser/file_select_helper.h"
+#include "shell/browser/fingerprint/fingerprint_profile_parser.h"
 #include "shell/browser/native_window.h"
 #include "shell/browser/osr/osr_render_widget_host_view.h"
 #include "shell/browser/osr/osr_web_contents_view.h"
@@ -422,6 +423,21 @@ struct Converter<content::NavigationEntry*> {
 namespace electron::api {
 
 namespace {
+
+bool ValidateFingerprintUserAgent(ElectronBrowserContext* browser_context,
+                                  const std::string& user_agent,
+                                  std::string* error_message) {
+  const auto* config = browser_context->fingerprint_context()->GetConfig();
+  if (!config || !config->enabled ||
+      !(config->modules.ua || config->modules.client_hints)) {
+    return true;
+  }
+  auto candidate = config->ToValue();
+  candidate.FindDict("browser")->Set("userAgent", user_agent);
+  candidate.FindDict("modules")->Set("ua", true);
+  return fingerprint::FingerprintProfileParser::Parse(candidate, error_message)
+      .has_value();
+}
 
 // Global toggle for disabling draggable regions checks.
 bool g_disable_draggable_regions = false;
@@ -2336,8 +2352,16 @@ void WebContents::LoadURL(const GURL& url,
   }
 
   std::string user_agent;
-  if (options.Get("userAgent", &user_agent))
+  if (options.Get("userAgent", &user_agent)) {
+    std::string error_message;
+    if (!ValidateFingerprintUserAgent(GetBrowserContext(), user_agent,
+                                      &error_message)) {
+      Emit("did-fail-load", static_cast<int>(net::ERR_INVALID_ARGUMENT),
+           error_message, url.possibly_invalid_spec(), true);
+      return;
+    }
     SetUserAgent(user_agent);
+  }
 
   std::string extra_headers;
   if (options.Get("extraHeaders", &extra_headers))
@@ -4419,7 +4443,21 @@ void WebContents::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("isCrashed", &WebContents::IsCrashed)
       .SetMethod("forcefullyCrashRenderer",
                  &WebContents::ForcefullyCrashRenderer)
-      .SetMethod("setUserAgent", &WebContents::SetUserAgent)
+      .SetMethod("setUserAgent", base::BindRepeating(
+          [](const std::string& user_agent, gin::Arguments* args) {
+            WebContents* contents = nullptr;
+            if (!args->GetHolder(&contents) || !contents) {
+              args->ThrowTypeError("无法修改用户代理：页面对象无效。");
+              return;
+            }
+            std::string error_message;
+            if (!ValidateFingerprintUserAgent(contents->GetBrowserContext(),
+                                              user_agent, &error_message)) {
+              gin_helper::ErrorThrower(args->isolate()).ThrowError(error_message);
+              return;
+            }
+            contents->SetUserAgent(user_agent);
+          }))
       .SetMethod("getUserAgent", &WebContents::GetUserAgent)
       .SetMethod("savePage", &WebContents::SavePage)
       .SetMethod("openDevTools", &WebContents::OpenDevTools)

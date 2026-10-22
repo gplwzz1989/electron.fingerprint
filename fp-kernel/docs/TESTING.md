@@ -12,6 +12,7 @@
 - `npm run test:fingerprint:contexts`：七种配置、页面/独立线程/共享线程/Service Worker/同源和跨源 iframe；检查中文与 ASCII 配置、完整语言列表、WebGPU 实际适配器与设备、所有环境同时存在后的刷新，以及第二进程重启后的身份和存储恢复。
 - `npm run test:fingerprint:tls:baseline`：采集现有运行时的真实 ClientHello、JA3/JA4、TLS/ALPN/HTTP 协商与请求身份，不宣称新策略已验证。
 - `npm run test:fingerprint:tls`：新运行时的会话级 TLS 策略、默认回退、跨会话隔离、透明代理和非法值检查。接口缺失或结果不完整返回失败。
+- 两个 TLS 入口均可附加 `-- --tls-reference <样本路径>`，对照同版本 Chrome 的独立首次握手文件；保存输入副本与 SHA-256，缺少样本不计为独立对照通过。套件顺序、支持组、签名、版本、ALPN 和 KeyShare 参与比较，不能只凭 JA4 相同判通过。
 - `npm test` 包含上下文报告完整性、重启比对、TLS 版本绑定以及 ClientHello 解析的纯 Node 自检。
 
 报告与运行时哈希写入独立 `dist/electron-diagnostics/fingerprint/<本轮目录>`。不使用真实用户环境或凭据；本轮不重复优化或测试已经由用户确认完成的噪音算法。

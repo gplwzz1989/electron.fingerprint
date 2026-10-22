@@ -1908,7 +1908,7 @@ describe('session module', () => {
       })).to.throw();
     });
 
-    it('将启用配置的用户代理版本绑定到 TLS 内核', () => {
+    it('将启用配置的用户代理版本绑定到 TLS 内核', async () => {
       const ses = session.fromPartition(`fingerprint-tls-version-${Math.random()}`) as any;
       const configured = { ...profile, modules: { ...profile.modules, clientHints: false } };
       for (const version of ['139.0.0.0', '138.0.1.1']) {
@@ -1917,6 +1917,21 @@ describe('session module', () => {
       }
       ses.setFingerprintConfig(configured);
       expect(() => ses.setUserAgent('Mozilla/5.0 Chrome/139.0.0.0')).to.throw('TLS 内核');
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      const originalUserAgent = w.webContents.getUserAgent();
+      expect(() => w.webContents.setUserAgent('Mozilla/5.0 Chrome/139.0.0.0')).to.throw('TLS 内核');
+      await expect(w.loadURL('data:text/html,tls-version', { userAgent: 'Mozilla/5.0 Chrome/139.0.0.0' })).to.eventually.be.rejectedWith('TLS 内核');
+      expect(w.webContents.getUserAgent()).to.equal(originalUserAgent);
+      expect(() => w.webContents.setUserAgent('Mozilla/5.0 Chrome/138.0.0.0')).to.not.throw();
+    });
+
+    it('仅启用客户端提示时也拒绝会话和页面的错误用户代理版本', async () => {
+      const ses = session.fromPartition(`fingerprint-tls-hints-${Math.random()}`) as any;
+      ses.setFingerprintConfig({ ...profile, modules: { ...profile.modules, ua: false } });
+      expect(() => ses.setUserAgent('Mozilla/5.0 Chrome/139.0.0.0')).to.throw('TLS 内核');
+      const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
+      expect(() => w.webContents.setUserAgent('Mozilla/5.0 Chrome/139.0.0.0')).to.throw('TLS 内核');
+      await expect(w.loadURL('data:text/html,tls-hints', { userAgent: 'Mozilla/5.0 Chrome/139.0.0.0' })).to.eventually.be.rejectedWith('TLS 内核');
     });
 
     it('rejects invalid hardware values', () => {
@@ -2482,12 +2497,23 @@ describe('session module', () => {
   describe('ses.setSSLConfig()', () => {
     it('校验会话级 TLS 策略并拒绝无效值', () => {
       const ses = session.fromPartition(`tls-policy-${Math.random()}`) as any;
-      expect(ses.getTLSFingerprintCapabilities().chromiumVersion).to.equal(process.versions.chrome);
-      ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, cipherSuites: [0xc030, 0xc02f], permuteExtensions: false } });
+      const capabilities = ses.getTLSFingerprintCapabilities();
+      expect(capabilities.chromiumVersion).to.equal(process.versions.chrome);
+      expect(capabilities.transport).to.equal('tcp');
+      expect(capabilities.quic).to.equal(false);
+      expect(capabilities.supportedGroups).to.equal(true);
+      expect(capabilities.signatureAlgorithms).to.equal(true);
+      ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, cipherSuites: [0xc030, 0xc02f], supportedGroups: [29, 23], signatureAlgorithms: [0x0804, 0x0403], permuteExtensions: false } });
       for (const policy of [
         { chromiumVersion: '139.0.0.0' }, { cipherSuites: [] }, { cipherSuites: [0x1301] },
         { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] },
-        { permuteExtensions: 'false' }, { echEnabled: null }, { unknown: true }
+        { permuteExtensions: 'false' }, { echEnabled: null }, { unknown: true },
+        { supportedGroups: [] }, { supportedGroups: [25] }, { supportedGroups: [29, 29] },
+        { supportedGroups: [29.5] }, { supportedGroups: '29' },
+        { supportedGroups: [4588, 29], postQuantumKeyAgreementEnabled: false },
+        { signatureAlgorithms: [] }, { signatureAlgorithms: [0x0201] },
+        { signatureAlgorithms: [0x0804, 0x0804] }, { signatureAlgorithms: [0x0804 + 0.5] },
+        { signatureAlgorithms: null }
       ]) {
         expect(() => ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, ...policy } })).to.throw('TLS 指纹配置无效');
       }

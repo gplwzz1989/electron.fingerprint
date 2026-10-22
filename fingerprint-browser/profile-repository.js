@@ -116,7 +116,7 @@ class ProfileRepository {
       if (expectedRevision !== null && (!current || expectedRevision !== current.revision)) {
         throw new ProfileValidationError('配置已被其他操作修改，请重新加载管理页后再保存。')
       }
-      const profile = createProfileRecord({ ...input, revision: current ? current.revision + 1 : 1 })
+      const profile = createProfileRecord({ ...input, tlsFingerprint: Object.hasOwn(input, 'tlsFingerprint') ? input.tlsFingerprint : current?.tlsFingerprint, revision: current ? current.revision + 1 : 1 })
       if (!current && this.records.some(record => record.id === profile.id)) throw new ProfileValidationError('配置 ID 已存在。')
       const nextRecords = current
         ? this.records.map(record => record.id === current.id ? profile : record)

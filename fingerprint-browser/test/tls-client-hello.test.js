@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { fingerprintClientHello, readClientHello, isGrease } = require('./tls-client-hello')
+const { fingerprintClientHello, readClientHello, isGrease, compareClientHello, validateTLSReference } = require('./tls-client-hello')
 
 // 使用 JA4 公开技术规范的向量核对哈希，避免只与同一实现互相验证。
 const hello = {
@@ -7,7 +7,7 @@ const hello = {
   ciphers: '1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,c013,c014,009c,009d,002f,0035'.split(',').map(value => parseInt(value, 16)),
   extensions: '001b,0000,0033,0010,4469,0017,002d,000d,0005,0023,0012,002b,ff01,000b,000a,0015'.split(',').map(value => parseInt(value, 16)),
   groups: [29, 23, 24], pointFormats: [0], supportedVersions: [772, 771], alpnHex: ['6832'],
-  signatureAlgorithms: '0403,0804,0401,0503,0805,0501,0806,0601'.split(',').map(value => parseInt(value, 16))
+  signatureAlgorithms: '0403,0804,0401,0503,0805,0501,0806,0601'.split(',').map(value => parseInt(value, 16)), keyShareGroups: []
 }
 const expected = 't13d1516h2_8daaf6152771_e5627efa2ab1'
 assert.equal(fingerprintClientHello(hello).ja4, expected)
@@ -20,6 +20,38 @@ assert.equal(fingerprintClientHello(reordered).ja4, expected)
 assert.notEqual(fingerprintClientHello(reordered).ja3, fingerprintClientHello(hello).ja3)
 assert.match(fingerprintClientHello({ ...hello, alpnHex: ['2061'] }).ja4, /^t13d151621_/)
 assert.match(fingerprintClientHello({ ...hello, alpnHex: [] }).ja4, /^t13d151600_/)
+
+assert.equal(compareClientHello(reordered, hello).matches, true)
+assert.equal(compareClientHello(reordered, hello, { fixedExtensionOrder: true }).matches, false)
+for (const field of ['ciphers', 'groups', 'supportedVersions']) {
+  const changed = { ...hello, [field]: [...hello[field]].reverse() }
+  assert.equal(fingerprintClientHello(changed).ja4, expected)
+  assert.deepEqual(compareClientHello(changed, hello).differences.map(value => value.field), [field])
+}
+const changedKeyShare = { ...hello, keyShareGroups: [29] }
+assert.equal(fingerprintClientHello(changedKeyShare).ja4, expected)
+assert.deepEqual(compareClientHello(changedKeyShare, hello).differences.map(value => value.field), ['keyShareGroups'])
+const changedALPN = { ...hello, alpnHex: [...hello.alpnHex, '687474702f312e31'] }
+assert.equal(fingerprintClientHello(changedALPN).ja4, expected)
+assert.deepEqual(compareClientHello(changedALPN, hello).differences.map(value => value.field), ['alpnHex'])
+const greaseA = { ...hello, ciphers: [0x2a2a, ...hello.ciphers], extensions: [0x3a3a, ...hello.extensions] }
+const greaseB = { ...hello, ciphers: [0x4a4a, ...hello.ciphers], extensions: [0x5a5a, ...hello.extensions] }
+assert.equal(compareClientHello(greaseA, greaseB).matches, true)
+assert.equal(compareClientHello(greaseA, hello).matches, false)
+const reference = { schemaVersion: 1, browser: { family: 'Chrome', version: '138.0.7204.185' }, platform: 'win32', source: { kind: 'independent-browser', capturedAt: '2026-10-22T06:00:00Z', description: '独立 Chrome 138 首次握手样本。' }, hello: { ...hello, ja4: '不可信的外部摘要' } }
+assert.equal(validateTLSReference(reference, reference.browser.version).hello.ja4, expected)
+for (const invalid of [
+  { ...reference, schemaVersion: 2 }, { ...reference, platform: 'unknown' },
+  { ...reference, browser: { family: 'Electron', version: reference.browser.version } },
+  { ...reference, source: { ...reference.source, kind: 'electron-baseline' } },
+  { ...reference, source: { ...reference.source, capturedAt: '未知时间' } },
+  { ...reference, source: { ...reference.source, description: ' ' } },
+  { ...reference, hello: { ...hello, groups: undefined } },
+  { ...reference, hello: { ...hello, groups: [65536] } },
+  { ...reference, hello: { ...hello, alpnHex: ['6'] } },
+  { ...reference, hello: { ...hello, extensions: [...hello.extensions, 41] } }
+]) assert.throws(() => validateTLSReference(invalid, reference.browser.version), /TLS/)
+assert.throws(() => validateTLSReference(reference, '138.0.7204.184'), /完整版本/)
 
 const u16 = value => { const data = Buffer.alloc(2); data.writeUInt16BE(value); return data }
 const vector16 = bytes => Buffer.concat([u16(bytes.length), bytes])
@@ -47,4 +79,4 @@ const malformed = Buffer.from(body)
 malformed.writeUInt16BE(65535, 35)
 const malformedHeader = Buffer.from(handshakeHeader)
 assert.throws(() => readClientHello(record(Buffer.concat([malformedHeader, malformed]))), /长度无效/)
-console.log('ClientHello 分片解析、GREASE 过滤和 JA4 公开向量自检通过。')
+console.log('ClientHello 分片解析、GREASE、JA4 公开向量、稳定字段与独立样本校验通过。')
