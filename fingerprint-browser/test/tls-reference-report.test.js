@@ -28,7 +28,7 @@ async function run () {
     }
 
     const samples = names => names.flatMap(name => ['direct', 'tunnel'].map(route => ({ name, route, hello: { throughProxy: route === 'tunnel' }, baselineComparison: { matches: true }, ...(route === 'tunnel' ? { tunnelComparison: { matches: true } } : {}) })))
-    const baseline = { ok: true, baselineOnly: true, implementationVerified: false, failures: [], samples: samples(['native']), independentReference: { provided: false, compared: false, matches: null, samples: [] } }
+    const baseline = { ok: true, baselineOnly: true, implementationVerified: false, runtime: { chrome: '138.0.7204.185' }, platform: 'win32', failures: [], samples: samples(['native']), independentReference: { provided: false, compared: false, matches: null, runtimeIdentityMatches: null, samples: [] } }
     assert.doesNotThrow(() => validateTLSReport(baseline, true, null))
     assert.throws(() => validateTLSReport({ ...baseline, implementationVerified: true }, true, null), /TLS/)
     assert.throws(() => validateTLSReport({ ...baseline, samples: [] }, true, null), /TLS/)
@@ -38,10 +38,14 @@ async function run () {
     assert.throws(() => validateTLSReport({ ...complete, samples: complete.samples.slice(1) }, false, null), /生命周期样本/)
     assert.throws(() => validateTLSReport({ ...complete, samples: [...complete.samples.slice(1), complete.samples[1]] }, false, null), /生命周期样本/)
     const metadata = { ...reference, sha256: captured.sha256 }
-    const matched = { ...baseline, independentReference: { provided: true, compared: true, matches: true, sha256: captured.sha256, browser: reference.browser, platform: reference.platform, samples: baseline.samples.map(({ name, route }) => ({ name, route, matches: true, differences: [] })) } }
+    const matched = { ...baseline, independentReference: { provided: true, compared: true, matches: true, runtimeIdentityMatches: true, sha256: captured.sha256, browser: reference.browser, platform: reference.platform, samples: baseline.samples.map(({ name, route }) => ({ name, route, matches: true, differences: [] })) } }
     assert.doesNotThrow(() => validateTLSReport(matched, true, metadata))
     assert.throws(() => validateTLSReport(matched, true, null), /不能声明/)
     assert.throws(() => validateTLSReport(baseline, true, metadata), /独立 TLS/)
+    const differentTarget = { ...metadata, browser: { family: 'Chrome', version: '120.0.6099.1' }, platform: 'darwin' }
+    const crossVersion = { ...matched, independentReference: { ...matched.independentReference, browser: differentTarget.browser, platform: differentTarget.platform, runtimeIdentityMatches: false } }
+    assert.doesNotThrow(() => validateTLSReport(crossVersion, true, differentTarget))
+    assert.throws(() => validateTLSReport({ ...crossVersion, independentReference: { ...crossVersion.independentReference, runtimeIdentityMatches: true } }, true, differentTarget), /身份标记/)
     for (const change of [
       report => { report.independentReference.sha256 = '其他样本' },
       report => { report.independentReference.browser.version = '139.0.0.0' },

@@ -16,7 +16,7 @@ const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 if (!output || !path.resolve(output).startsWith(`${path.resolve(__dirname, '../../dist/electron-diagnostics/fingerprint')}${path.sep}`)) throw new Error('TLS 验证必须使用独立诊断目录。')
 app.setPath('userData', path.join(output, 'data'))
 const baselineOnly = process.env.FP_TLS_BASELINE_ONLY === '1'
-const report = { ok: false, baselineOnly, implementationVerified: false, runtime: process.versions, platform: process.platform, samples: [], failures: [], independentReference: { provided: Boolean(process.env.FP_TLS_REFERENCE_FILE), compared: false, matches: null, samples: [], note: '未提供独立 Chrome 样本时，仅验证当前运行时策略，不证明与 Chrome 发行版一致。' }, scope: '受控 TCP 首次 TLS ClientHello、协商协议与 HTTP/2 SETTINGS 值；不覆盖 SETTINGS 字节顺序、TLS 票据恢复、QUIC、真实 ECH 配置及 TLS 终止代理。' }
+const report = { ok: false, baselineOnly, implementationVerified: false, runtime: process.versions, platform: process.platform, samples: [], failures: [], independentReference: { provided: Boolean(process.env.FP_TLS_REFERENCE_FILE), compared: false, matches: null, runtimeIdentityMatches: null, samples: [], note: '未提供独立 Chrome 样本时，仅验证当前运行时策略，不证明与 Chrome 发行版一致。' }, scope: '受控 TCP 首次 TLS ClientHello、协商协议与 HTTP/2 SETTINGS 值；不覆盖 SETTINGS 字节顺序、TLS 票据恢复、QUIC、真实 ECH 配置及 TLS 终止代理。' }
 const sockets = new Set()
 const servers = []
 const sessions = []
@@ -42,8 +42,8 @@ async function run () {
       if ((await fs.stat(referencePath)).size > 262144) throw new Error('独立 TLS 对照文件超过大小限制。')
       const bytes = await fs.readFile(referencePath)
       if (bytes.length > 262144) throw new Error('独立 TLS 对照文件超过大小限制。')
-      reference = validateTLSReference(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, '')), process.versions.chrome)
-      Object.assign(report.independentReference, { browser: reference.browser, platform: reference.platform, source: reference.source, sha256: createHash('sha256').update(bytes).digest('hex'), note: '仅与提供的独立样本对照；来源声明不等于已认证采集来源，不证明 CDN 放行或账号不会关联。' })
+      reference = validateTLSReference(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, '')))
+      Object.assign(report.independentReference, { browser: reference.browser, platform: reference.platform, source: reference.source, sha256: createHash('sha256').update(bytes).digest('hex'), runtimeIdentityMatches: reference.browser.version === process.versions.chrome && reference.platform === process.platform, note: '仅对照提供样本的握手字段；身份标记仅表示版本与平台元数据相同，跨版本匹配不代表用户代理或操作系统完整拟真，来源声明也不等于来源认证。' })
     } catch {
       throw new Error('无法读取有效的独立 TLS 对照，请检查样本格式、完整版本与采集来源。')
     }

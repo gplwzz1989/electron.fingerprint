@@ -78,8 +78,10 @@ function compareClientHello (actual, expected, options) {
   return { matches: differences.length === 0, differences }
 }
 
-function validateTLSReference (reference, chromiumVersion) {
-  if (!reference || reference.schemaVersion !== 1 || reference.browser?.family !== 'Chrome' || !/^138\.\d+\.\d+\.\d+$/.test(reference.browser.version) || reference.browser.version !== chromiumVersion || !['win32', 'darwin', 'linux'].includes(reference.platform)) throw new Error('独立 TLS 对照必须提供与当前内核完整版本一致的 Chrome 138 样本及平台。')
+function validateTLSReference (reference) {
+  const version = reference?.browser?.version
+  const validVersion = typeof version === 'string' && /^[1-9]\d{0,9}(?:\.(?:0|[1-9]\d{0,9})){3}$/.test(version) && version.split('.').every(value => Number(value) <= 0xffffffff)
+  if (!reference || reference.schemaVersion !== 1 || reference.browser?.family !== 'Chrome' || !validVersion || !['win32', 'darwin', 'linux'].includes(reference.platform)) throw new Error('独立 TLS 对照必须提供合法的 Chrome 四段版本号及平台。')
   const source = reference.source
   if (source?.kind !== 'independent-browser' || typeof source.description !== 'string' || !source.description.trim() || source.description.length > 1000 || typeof source.capturedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(source.capturedAt) || !Number.isFinite(Date.parse(source.capturedAt))) throw new Error('独立 TLS 对照缺少有效的采集来源或时间。')
   validateClientHello(reference.hello)

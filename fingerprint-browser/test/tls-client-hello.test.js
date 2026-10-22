@@ -38,8 +38,10 @@ const greaseA = { ...hello, ciphers: [0x2a2a, ...hello.ciphers], extensions: [0x
 const greaseB = { ...hello, ciphers: [0x4a4a, ...hello.ciphers], extensions: [0x5a5a, ...hello.extensions] }
 assert.equal(compareClientHello(greaseA, greaseB).matches, true)
 assert.equal(compareClientHello(greaseA, hello).matches, false)
-const reference = { schemaVersion: 1, browser: { family: 'Chrome', version: '138.0.7204.185' }, platform: 'win32', source: { kind: 'independent-browser', capturedAt: '2026-10-22T06:00:00Z', description: '独立 Chrome 138 首次握手样本。' }, hello: { ...hello, ja4: '不可信的外部摘要' } }
-assert.equal(validateTLSReference(reference, reference.browser.version).hello.ja4, expected)
+const reference = { schemaVersion: 1, browser: { family: 'Chrome', version: '138.0.7204.185' }, platform: 'win32', source: { kind: 'independent-browser', capturedAt: '2026-10-22T06:00:00Z', description: '格式与比较器测试夹具，不是真实 Chrome 采集证据。' }, hello: { ...hello, ja4: '不可信的外部摘要' } }
+assert.equal(validateTLSReference(reference).hello.ja4, expected)
+for (const version of ['120.0.6099.109', '138.0.7204.184']) assert.equal(validateTLSReference({ ...reference, browser: { family: 'Chrome', version } }).browser.version, version)
+for (const version of [138, null, undefined, {}, [], '120', '120.0.1', '120.0.1.2.3', '120.00.1.2', '0120.0.1.2', '120.0.a.1', '120.0.1.2beta', ' 120.0.1.2', '0.0.0.0', '120.0.1.4294967296']) assert.throws(() => validateTLSReference({ ...reference, browser: { family: 'Chrome', version } }), /四段版本/)
 for (const invalid of [
   { ...reference, schemaVersion: 2 }, { ...reference, platform: 'unknown' },
   { ...reference, browser: { family: 'Electron', version: reference.browser.version } },
@@ -50,8 +52,7 @@ for (const invalid of [
   { ...reference, hello: { ...hello, groups: [65536] } },
   { ...reference, hello: { ...hello, alpnHex: ['6'] } },
   { ...reference, hello: { ...hello, extensions: [...hello.extensions, 41] } }
-]) assert.throws(() => validateTLSReference(invalid, reference.browser.version), /TLS/)
-assert.throws(() => validateTLSReference(reference, '138.0.7204.184'), /完整版本/)
+]) assert.throws(() => validateTLSReference(invalid), /TLS/)
 
 const u16 = value => { const data = Buffer.alloc(2); data.writeUInt16BE(value); return data }
 const vector16 = bytes => Buffer.concat([u16(bytes.length), bytes])

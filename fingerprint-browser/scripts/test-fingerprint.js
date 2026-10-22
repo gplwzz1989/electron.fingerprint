@@ -30,10 +30,10 @@ async function readTLSReference (filename) {
     const bytes = await fs.readFile(filename)
     if (bytes.length > 262144) throw new Error()
     const input = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''))
-    const reference = validateTLSReference(input, input?.browser?.version)
+    const reference = validateTLSReference(input)
     return { bytes, reference, sha256: createHash('sha256').update(bytes).digest('hex') }
   } catch {
-    throw new Error('指纹验证无法读取 TLS 对照样本，请检查文件路径、大小和 Chrome 138 样本格式。')
+    throw new Error('指纹验证无法读取 TLS 对照样本，请检查文件路径、大小和 Chrome 样本格式。')
   }
 }
 
@@ -60,6 +60,7 @@ function validateContextReport (report, phase, previous) {
 
 function validateTLSReport (report, baselineOnly, reference) {
   if (report?.ok !== true || report.baselineOnly !== baselineOnly || report.implementationVerified !== !baselineOnly || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.samples) || !report.samples.length) throw new Error('指纹验证缺少有效的 TLS 策略结果。')
+  if (typeof report.runtime?.chrome !== 'string' || !['win32', 'darwin', 'linux'].includes(report.platform)) throw new Error('指纹验证缺少实际 TLS 运行时身份。')
   const names = baselineOnly ? ['native'] : ['native', 'chrome138', 'custom', 'legacy-pq', 'update-before', 'update-custom', 'reset', 'native-after']
   const expectedKeys = names.flatMap(name => ['direct', 'tunnel'].map(route => `${name}:${route}`)).sort()
   const keys = samples => samples.map(sample => `${sample.name}:${sample.route}`).sort()
@@ -69,7 +70,8 @@ function validateTLSReport (report, baselineOnly, reference) {
     if (comparison?.provided !== true || comparison.compared !== true || comparison.matches !== true || comparison.sha256 !== reference.sha256 || !isDeepStrictEqual(comparison.browser, reference.browser) || comparison.platform !== reference.platform || !Array.isArray(comparison.samples) || !comparison.samples.length || comparison.samples.some(sample => sample.matches !== true || !Array.isArray(sample.differences) || sample.differences.length)) throw new Error('指纹验证缺少有效的独立 TLS 样本对照结果。')
     const expectedComparisons = report.samples.filter(sample => !['custom', 'update-custom', 'legacy-pq'].includes(sample.name))
     if (!isDeepStrictEqual(keys(comparison.samples), keys(expectedComparisons))) throw new Error('指纹验证的独立 TLS 对照未覆盖所有默认策略样本。')
-  } else if (comparison?.provided !== false || comparison.compared !== false || comparison.matches !== null) throw new Error('指纹验证未提供独立 TLS 样本，不能声明独立对照通过。')
+    if (comparison.runtimeIdentityMatches !== (reference.browser.version === report.runtime.chrome && reference.platform === report.platform)) throw new Error('指纹验证的目标身份与实际运行时身份标记不一致。')
+  } else if (comparison?.provided !== false || comparison.compared !== false || comparison.matches !== null || comparison.runtimeIdentityMatches !== null) throw new Error('指纹验证未提供独立 TLS 样本，不能声明独立对照通过。')
 }
 
 async function run () {
