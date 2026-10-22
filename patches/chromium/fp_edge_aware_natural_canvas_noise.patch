@@ -5,10 +5,10 @@ Subject: [PATCH] fp: implement session edge-aware canvas noise
 
 ---
  .../canvas_interventions_helper.cc            |  9 +-
- .../core/canvas_interventions/noise_helper.cc | 118 ++++++++++++++++++
+ .../core/canvas_interventions/noise_helper.cc | 117 ++++++++++++++++++
  .../core/canvas_interventions/noise_helper.h  |  6 ++
- .../noise_helper_unittest.cc                  | 74 +++++++++++++++
- 4 files changed, 205 insertions(+), 2 deletions(-)
+ .../noise_helper_unittest.cc                  | 57 +++++++++++++++
+ 4 files changed, 187 insertions(+), 2 deletions(-)
 
 diff --git a/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc b/third_party/blink/renderer/core/canvas_interventions/canvas_interventions_helper.cc
 index fa58ead6da2e4d118639cc9fd34fd74ba3dc3258..f5351793469d5b02629db6b210f2927359371823 100644
@@ -49,7 +49,7 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
  
  #include "base/check_op.h"
  #include "base/containers/span.h"
-@@ -109,6 +114,103 @@ void CopyPixelValue(const base::span<uint8_t> from_pixel,
+@@ -109,6 +114,102 @@ void CopyPixelValue(const base::span<uint8_t> from_pixel,
    writer.Write(from_pixel.first<kChannelsPerPixel>());
  }
  
@@ -87,31 +87,24 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
 +      // 检查当前像素与 4 邻域（左、右、上、下）的同色邻居数量。
 +      // 若同色邻居数 >= 2，说明处于单色块内部或纯色块拼合边缘，保持 0 扰动。
 +      int same_color_neighbors = 0;
-+      const size_t neighbor_offsets[4] = {
-+          pixel_offset - kChannelsPerPixel,
-+          pixel_offset + kChannelsPerPixel,
-+          pixel_offset,
-+          pixel_offset
++      auto same_color = [&](base::span<uint8_t> neighbor) {
++        return current_row[pixel_offset] == neighbor[0] &&
++               current_row[pixel_offset + 1u] == neighbor[1] &&
++               current_row[pixel_offset + 2u] == neighbor[2];
 +      };
-+
-+      for (int dir = 0; dir < 4; ++dir) {
-+        const uint8_t* neighbor_data = nullptr;
-+        if (dir < 2) {
-+          neighbor_data = &current_row[neighbor_offsets[dir]];
-+        } else if (dir == 2) {
-+          neighbor_data = &previous_row[neighbor_offsets[dir]];
-+        } else {
-+          neighbor_data = &next_row[neighbor_offsets[dir]];
-+        }
-+
-+        int diff = 0;
-+        for (int ch = 0; ch < 3; ++ch) {
-+          diff += std::abs(static_cast<int>(current_row[pixel_offset + ch]) -
-+                           static_cast<int>(neighbor_data[ch]));
-+        }
-+        if (diff == 0) {
-+          same_color_neighbors++;
-+        }
++      if (same_color(current_row.subspan(
++              pixel_offset - kChannelsPerPixel, 3u))) {
++        ++same_color_neighbors;
++      }
++      if (same_color(current_row.subspan(
++              pixel_offset + kChannelsPerPixel, 3u))) {
++        ++same_color_neighbors;
++      }
++      if (same_color(previous_row.subspan(pixel_offset, 3u))) {
++        ++same_color_neighbors;
++      }
++      if (same_color(next_row.subspan(pixel_offset, 3u))) {
++        ++same_color_neighbors;
 +      }
 +
 +      if (same_color_neighbors >= 2) {
@@ -159,7 +152,7 @@ index 7874aae9a70a01422335194a6c4ab47402921d23..6d1656ac32004c68f95470d0b131d78e
  }  // namespace
  
  void NoisePixels(const NoiseHash& token_hash,
-@@ -165,4 +232,20 @@ void NoisePixels(const NoiseHash& token_hash,
+@@ -165,4 +266,20 @@ void NoisePixels(const NoiseHash& token_hash,
    }
  }
  
@@ -209,7 +202,7 @@ index a98e90b69d387059f7ffb670fddeca0e90e7f886..bde939d3dc9c88f52525a470886b052e
  #include <array>
  #include <cstddef>
  #include <cstdint>
-@@ -106,6 +107,79 @@ TEST_F(NoiseHelperTest, NoisePixels) {
+@@ -106,6 +107,62 @@ TEST_F(NoiseHelperTest, NoisePixels) {
    EXPECT_NE(pixels, pixels2);
  }
  
