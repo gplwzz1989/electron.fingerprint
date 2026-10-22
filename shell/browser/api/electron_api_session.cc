@@ -553,7 +553,7 @@ struct Converter<network::mojom::SSLConfigPtr> {
         return true;
       };
       // 仅开放当前内核原生安全算法；保留声明顺序并拒绝策略冲突。
-      constexpr int kGroups[] = {23, 24, 29, 4588};
+      constexpr int kGroups[] = {23, 24, 29, 4588, 25497};
       constexpr int kSignatures[] = {0x0403, 0x0804, 0x0401, 0x0503,
                                      0x0805, 0x0501, 0x0806, 0x0601};
       if (!read_ordered_ids("supportedGroups", kGroups,
@@ -561,8 +561,10 @@ struct Converter<network::mojom::SSLConfigPtr> {
           !read_ordered_ids("signatureAlgorithms", kSignatures,
                             &(*out)->fingerprint_signature_algorithms) ||
           (!(*out)->post_quantum_key_agreement_enabled &&
-           std::ranges::find((*out)->fingerprint_supported_groups, 4588) !=
-               (*out)->fingerprint_supported_groups.end())) {
+           (std::ranges::find((*out)->fingerprint_supported_groups, 4588) !=
+                (*out)->fingerprint_supported_groups.end() ||
+            std::ranges::find((*out)->fingerprint_supported_groups, 25497) !=
+                (*out)->fingerprint_supported_groups.end()))) {
         return invalid();
       }
     }
@@ -581,6 +583,9 @@ namespace {
 const char kPersistPrefix[] = "persist:";
 
 base::Value::Dict GetTLSFingerprintCapabilities() {
+  base::Value::List supported_group_ids;
+  for (const int group : {23, 24, 29, 4588, 25497})
+    supported_group_ids.Append(group);
   base::Value::List alps_codepoints;
   alps_codepoints.Append(17513);
   alps_codepoints.Append(17613);
@@ -594,6 +599,7 @@ base::Value::Dict GetTLSFingerprintCapabilities() {
       .Set("arbitraryExtensionOrder", false)
       .Set("extensionPermutation", true)
       .Set("supportedGroups", true)
+      .Set("supportedGroupIds", std::move(supported_group_ids))
       .Set("signatureAlgorithms", true)
       .Set("alpsCodepoints", std::move(alps_codepoints))
       .Set("ech", true)

@@ -33,7 +33,7 @@ async function run () {
     assert.throws(() => validateTLSReport({ ...baseline, implementationVerified: true }, true, null), /TLS/)
     assert.throws(() => validateTLSReport({ ...baseline, samples: [] }, true, null), /TLS/)
     assert.throws(() => validateTLSReport(baseline, false, null), /TLS/)
-    const complete = { ...baseline, baselineOnly: false, implementationVerified: true, samples: samples(['native', 'chrome138', 'custom', 'update-before', 'update-custom', 'reset', 'native-after']) }
+    const complete = { ...baseline, baselineOnly: false, implementationVerified: true, samples: samples(['native', 'chrome138', 'custom', 'legacy-pq', 'update-before', 'update-custom', 'reset', 'native-after']) }
     assert.doesNotThrow(() => validateTLSReport(complete, false, null))
     assert.throws(() => validateTLSReport({ ...complete, samples: complete.samples.slice(1) }, false, null), /生命周期样本/)
     assert.throws(() => validateTLSReport({ ...complete, samples: [...complete.samples.slice(1), complete.samples[1]] }, false, null), /生命周期样本/)

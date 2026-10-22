@@ -36,6 +36,7 @@ function applyTLSFingerprintConfig (profileSession, policy, chromiumVersion = pr
   for (const [key, [capability, value]] of Object.entries(required)) {
     if (Object.hasOwn(normalized, key) && capabilities[capability] !== value) throw new ProfileValidationError(`当前运行时不支持 TLS 策略字段 ${key}，请更新匹配的运行时。`)
   }
+  if (normalized.supportedGroups?.includes(25497) && (!Array.isArray(capabilities.supportedGroupIds) || !capabilities.supportedGroupIds.includes(25497))) throw new ProfileValidationError('当前运行时不支持 X25519Kyber768Draft00 密钥协商组，请更新匹配的运行时。')
   if (Object.hasOwn(normalized, 'alpsCodepoint') && (!Array.isArray(capabilities.alpsCodepoints) || !capabilities.alpsCodepoints.includes(normalized.alpsCodepoint))) throw new ProfileValidationError('当前运行时不支持所选的 ALPS 扩展标识，请更新匹配的运行时。')
   try {
     profileSession.setSSLConfig({ fingerprint: normalized })

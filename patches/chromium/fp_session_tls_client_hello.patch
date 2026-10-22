@@ -57,7 +57,7 @@ diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ss
 diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
 --- a/net/socket/ssl_client_socket_impl.cc
 +++ b/net/socket/ssl_client_socket_impl.cc
-@@ -660,7 +660,35 @@
+@@ -660,7 +660,38 @@
 -  if (context_->config().post_quantum_key_agreement_enabled) {
 +  auto valid_fingerprint_ids = [](const auto& values, const auto& allowed) {
 +    if (values.size() > std::size(allowed))
@@ -76,11 +76,14 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 +  if (!fingerprint_groups.empty()) {
 +    constexpr uint16_t kAllowedGroups[] = {
 +        SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1, SSL_GROUP_X25519,
-+        SSL_GROUP_X25519_MLKEM768};
++        SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519_KYBER768_DRAFT00};
 +    if (!valid_fingerprint_ids(fingerprint_groups, kAllowedGroups) ||
 +        (!context_->config().post_quantum_key_agreement_enabled &&
-+         std::ranges::find(fingerprint_groups, SSL_GROUP_X25519_MLKEM768) !=
-+             fingerprint_groups.end())) {
++         (std::ranges::find(fingerprint_groups, SSL_GROUP_X25519_MLKEM768) !=
++              fingerprint_groups.end() ||
++          std::ranges::find(fingerprint_groups,
++                            SSL_GROUP_X25519_KYBER768_DRAFT00) !=
++              fingerprint_groups.end()))) {
 +      return ERR_INVALID_ARGUMENT;
 +    }
 +    if (!SSL_set1_group_ids(ssl_.get(), fingerprint_groups.data(),
@@ -94,7 +97,7 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
        return ERR_UNEXPECTED;
      }
    }
-@@ -735,6 +763,30 @@
+@@ -735,6 +766,30 @@
    // Use BoringSSL defaults, but disable 3DES and HMAC-SHA1 ciphers in ECDSA.
    // These are the remaining CBC-mode ECDSA ciphers.
    std::string command("ALL:!aPSK:!ECDSA+SHA1:!3DES");
@@ -125,7 +128,7 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 
    if (ssl_config_.require_ecdhe)
      command.append(":!kRSA");
-@@ -762,7 +814,16 @@
+@@ -762,7 +817,16 @@
        SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
        SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
    };
@@ -144,7 +147,7 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 +                                      verify_prefs.size())) {
      return ERR_UNEXPECTED;
    }
-@@ -770,5 +831,10 @@
+@@ -770,5 +834,10 @@
 +  const uint16_t alps_codepoint = context_->config().fingerprint_alps_codepoint;
 +  if (alps_codepoint != 0 && alps_codepoint != 17513 && alps_codepoint != 17613)
 +    return ERR_INVALID_ARGUMENT;
@@ -156,7 +159,7 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 +          : alps_codepoint == 17613);
 
    if (!ssl_config_.alpn_protos.empty()) {
-@@ -829,7 +895,8 @@
+@@ -829,7 +898,8 @@
      }
    }
 
@@ -169,7 +172,7 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 diff --git a/services/network/ssl_config_service_mojo_unittest.cc b/services/network/ssl_config_service_mojo_unittest.cc
 --- a/services/network/ssl_config_service_mojo_unittest.cc
 +++ b/services/network/ssl_config_service_mojo_unittest.cc
-@@ -359,6 +359,36 @@
+@@ -359,6 +359,44 @@
    }
  }
 
@@ -181,6 +184,14 @@ diff --git a/services/network/ssl_config_service_mojo_unittest.cc b/services/net
 +    mojo_config->fingerprint_alps_codepoint = codepoint;
 +    RunConversionTests(*mojo_config, expected_net_config);
 +  }
++}
++
++TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintLegacyKyberGroup) {
++  net::SSLContextConfig expected_net_config;
++  expected_net_config.fingerprint_supported_groups = {0x6399, 29};
++  auto mojo_config = mojom::SSLConfig::New();
++  mojo_config->fingerprint_supported_groups = {0x6399, 29};
++  RunConversionTests(*mojo_config, expected_net_config);
 +}
 +
 +TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintCipherOrderAndExtensions) {

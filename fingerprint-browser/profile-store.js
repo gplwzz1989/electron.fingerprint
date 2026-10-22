@@ -270,7 +270,7 @@ function createTLSFingerprintConfig (input) {
   }
   const supported = {
     cipherSuites: [0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035],
-    supportedGroups: [23, 24, 29, 4588],
+    supportedGroups: [23, 24, 29, 4588, 25497],
     signatureAlgorithms: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601]
   }
   for (const [key, allowed] of Object.entries(supported)) {
@@ -281,8 +281,8 @@ function createTLSFingerprintConfig (input) {
       fail(`TLS 策略 ${key} 必须是不重复的受支持整数列表，且不能为空。`)
     }
   }
-  if (input.postQuantumKeyAgreementEnabled === false && input.supportedGroups?.includes(4588)) {
-    fail('关闭后量子密钥协商时，TLS 支持组不能包含 X25519MLKEM768。')
+  if (input.postQuantumKeyAgreementEnabled === false && input.supportedGroups?.some(group => group === 4588 || group === 25497)) {
+    fail('关闭后量子密钥协商时，TLS 支持组不能包含 X25519MLKEM768 或 X25519Kyber768Draft00。')
   }
   return clone(input)
 }

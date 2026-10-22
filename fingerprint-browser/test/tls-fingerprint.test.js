@@ -95,6 +95,21 @@ for (const alpsCodepoints of [[17513], ['17613'], true, null]) {
 }
 applyTLSFingerprintConfig(fakeSession, storedPolicy, version)
 assert.equal(Object.hasOwn(applied.fingerprint, 'alpsCodepoint'), false, '未声明 ALPS 标识时应保持原生默认。')
+const kyberPolicy = { ...storedPolicy, supportedGroups: [25497, 29, 23], postQuantumKeyAgreementEnabled: true }
+assert.deepEqual(createProfileRecord({ fingerprint: getDefaultProfile(), tlsFingerprint: kyberPolicy }).tlsFingerprint, kyberPolicy)
+const kyberSession = { ...fakeSession, getTLSFingerprintCapabilities: () => ({ ...capabilities, supportedGroupIds: [23, 24, 29, 4588, 25497] }) }
+applyTLSFingerprintConfig(kyberSession, kyberPolicy, version)
+assert.deepEqual(applied.fingerprint.supportedGroups, [25497, 29, 23])
+for (const supportedGroupIds of [undefined, [23, 24, 29, 4588], ['25497'], true, null]) {
+  const previousApplied = applied
+  assert.throws(() => applyTLSFingerprintConfig({ ...fakeSession, getTLSFingerprintCapabilities: () => ({ ...capabilities, supportedGroupIds }) }, kyberPolicy, version), /不支持 X25519Kyber768Draft00/)
+  assert.equal(applied, previousApplied, '运行时未声明旧 Kyber 能力时不能更改已有策略。')
+}
+for (const supportedGroups of [[4588], [25497], [29, 25497]]) {
+  assert.throws(() => createTLSFingerprintConfig({ ...storedPolicy, supportedGroups }), /关闭后量子密钥协商/)
+}
+applyTLSFingerprintConfig(fakeSession, { ...storedPolicy, supportedGroups: [23, 24, 29, 4588], postQuantumKeyAgreementEnabled: true }, version)
+assert.deepEqual(applied.fingerprint.supportedGroups, [23, 24, 29, 4588], '既有四种支持组仍兼容原有布尔能力声明。')
 let firstCalls = 0
 let secondCalls = 0
 const firstSession = { ...fakeSession, setSSLConfig () { firstCalls++ } }

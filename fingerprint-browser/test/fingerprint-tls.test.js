@@ -122,6 +122,7 @@ async function run () {
   })
   const proxyPort = await listen(proxy)
   const custom = { cipherSuites: [0xc030, 0xc02f], supportedGroups: [29, 23], signatureAlgorithms: [0x0804, 0x0403, 0x0401], permuteExtensions: false, echEnabled: false, postQuantumKeyAgreementEnabled: false }
+  const legacyPQ = { supportedGroups: [25497, 29, 23, 24], postQuantumKeyAgreementEnabled: true }
   async function capture (name, route, current) {
     const response = await current.fetch(url, { cache: 'no-store' })
     if (!response.ok) throw new Error('TLS 诊断请求失败。')
@@ -141,7 +142,7 @@ async function run () {
     })
     await current.closeAllConnections()
   }
-  const cases = baselineOnly ? ['native'] : ['native', 'chrome138', 'custom', 'update', 'native-after']
+  const cases = baselineOnly ? ['native'] : ['native', 'chrome138', 'legacy-pq', 'custom', 'update', 'native-after']
   for (const name of cases) {
     for (const route of ['direct', 'tunnel']) {
       // 各对照使用新 Session；update 刻意复用同一会话，验证真实握手后的更新与恢复。
@@ -157,7 +158,7 @@ async function run () {
         fingerprint.id = `tls-${name}-${route}`
         fingerprint.browser.userAgent = current.getUserAgent().replace(/Electron\/[^ ]+\s*/g, '').replace(/Chrome\/[\d.]+/, 'Chrome/138.0.0.0')
         current.setFingerprintConfig(fingerprint)
-        applyTLSFingerprintConfig(current, name === 'custom' ? custom : {})
+        applyTLSFingerprintConfig(current, name === 'custom' ? custom : name === 'legacy-pq' ? legacyPQ : {})
         if (name === 'custom') check('非法 TLS 策略不覆盖现有配置', () => assert.throws(() => current.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, cipherSuites: [0x1301] } })))
       }
       await applyProxyConfig(current, route === 'direct' ? { mode: 'direct' } : { mode: 'http', server: `http://127.0.0.1:${proxyPort}` }, url)
@@ -194,6 +195,13 @@ async function run () {
         assert.notEqual(hello.ja4, original.ja4)
         const firstCustom = report.samples.find(value => value.name === 'custom' && value.route === sample.route)
         sample.baselineComparison = compareClientHello(hello, firstCustom.hello, { fixedExtensionOrder: true })
+      } else if (sample.name === 'legacy-pq') {
+        assert.deepEqual(hello.groups.filter(id => !isGrease(id)), legacyPQ.supportedGroups)
+        assert.deepEqual(hello.keyShareGroups.filter(id => !isGrease(id)), [25497, 29])
+        assert.equal(hello.groups.includes(4588), false)
+        assert.equal(hello.keyShareGroups.includes(4588), false)
+        assert.equal(hello.ja4, original.ja4)
+        sample.baselineComparison = compareClientHello(hello, { ...original, groups: [...original.groups.filter(isGrease), ...legacyPQ.supportedGroups], keyShareGroups: [...original.keyShareGroups.filter(isGrease), 25497, 29] })
       } else {
         assert.equal(hello.ja4, original.ja4)
         sample.baselineComparison = compareClientHello(hello, original)
@@ -209,21 +217,21 @@ async function run () {
       assert.deepEqual(sample.http2Settings, direct.http2Settings)
       if (customized) assert.equal(sample.hello.ja3, direct.hello.ja3)
     })
-    if (reference && !customized) check(`${sample.name} ${sample.route} 提供的独立 Chrome 样本对照`, () => {
+    if (reference && !customized && sample.name !== 'legacy-pq') check(`${sample.name} ${sample.route} 提供的独立 Chrome 样本对照`, () => {
       const comparison = compareClientHello(sample.hello, reference.hello)
       report.independentReference.samples.push({ name: sample.name, route: sample.route, ...comparison })
       assert.equal(comparison.matches, true)
     })
   }
   if (reference) {
-    const expectedSamples = report.samples.filter(sample => !['custom', 'update-custom'].includes(sample.name)).length
+    const expectedSamples = report.samples.filter(sample => !['custom', 'update-custom', 'legacy-pq'].includes(sample.name)).length
     report.independentReference.compared = expectedSamples > 0 && report.independentReference.samples.length === expectedSamples
     report.independentReference.matches = report.independentReference.compared && report.independentReference.samples.every(value => value.matches)
   }
   if (!baselineOnly) {
     const validation = session.fromPartition('tls-validation')
     check('ALPS 码点能力声明', () => assert.deepEqual(validation.getTLSFingerprintCapabilities().alpsCodepoints, [17513, 17613]))
-    for (const invalid of [{ chromiumVersion: '139.0.0.0' }, { cipherSuites: [0x1301] }, { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] }, { supportedGroups: [] }, { supportedGroups: [29, 29] }, { supportedGroups: [4588], postQuantumKeyAgreementEnabled: false }, { signatureAlgorithms: [0x0201] }, { signatureAlgorithms: [0x0804, 0x0804] }, { alpsCodepoint: 0 }, { alpsCodepoint: null }, { alpsCodepoint: 17513.5 }, { alpsCodepoint: '17513' }, { permuteExtensions: 'false' }, { unknown: true }]) {
+    for (const invalid of [{ chromiumVersion: '139.0.0.0' }, { cipherSuites: [0x1301] }, { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] }, { supportedGroups: [] }, { supportedGroups: [29, 29] }, { supportedGroups: [4588], postQuantumKeyAgreementEnabled: false }, { supportedGroups: [25497], postQuantumKeyAgreementEnabled: false }, { signatureAlgorithms: [0x0201] }, { signatureAlgorithms: [0x0804, 0x0804] }, { alpsCodepoint: 0 }, { alpsCodepoint: null }, { alpsCodepoint: 17513.5 }, { alpsCodepoint: '17513' }, { permuteExtensions: 'false' }, { unknown: true }]) {
       check('非法 TLS 策略拒绝', () => assert.throws(() => validation.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, ...invalid } })))
     }
     const profile = getDefaultProfile()

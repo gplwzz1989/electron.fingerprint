@@ -2502,6 +2502,8 @@ describe('session module', () => {
       expect(capabilities.transport).to.equal('tcp');
       expect(capabilities.quic).to.equal(false);
       expect(capabilities.supportedGroups).to.equal(true);
+      expect(capabilities.supportedGroupIds).to.deep.equal([23, 24, 29, 4588, 25497]);
+      ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, supportedGroups: [25497, 29] } });
       expect(capabilities.signatureAlgorithms).to.equal(true);
       expect(capabilities.alpsCodepoints).to.deep.equal([17513, 17613]);
       for (const alpsCodepoint of capabilities.alpsCodepoints) {
@@ -2515,6 +2517,7 @@ describe('session module', () => {
         { supportedGroups: [] }, { supportedGroups: [25] }, { supportedGroups: [29, 29] },
         { supportedGroups: [29.5] }, { supportedGroups: '29' },
         { supportedGroups: [4588, 29], postQuantumKeyAgreementEnabled: false },
+        { supportedGroups: [25497, 29], postQuantumKeyAgreementEnabled: false },
         { signatureAlgorithms: [] }, { signatureAlgorithms: [0x0201] },
         { signatureAlgorithms: [0x0804, 0x0804] }, { signatureAlgorithms: [0x0804 + 0.5] },
         { signatureAlgorithms: null },
