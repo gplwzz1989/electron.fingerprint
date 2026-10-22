@@ -1306,11 +1306,39 @@ used after the profile is cleared.
     Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
     disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
     Note that TLSv1.3 ciphers cannot be disabled using this mechanism.
+  * `fingerprint` Object (optional) - 本项目的会话级 TLS 策略；省略时保持原生行为。
+    * `chromiumVersion` string - 必须等于当前 `process.versions.chrome`；首版仅支持 Chromium 138。
+    * `cipherSuites` Integer[] (optional) - 按发送顺序指定 TLS 1.2 套件。省略时使用原生列表；显式列表不能为空、重复或包含禁用的套件。
+      允许值为 `0xc02b`、`0xc02f`、`0xc02c`、`0xc030`、`0xcca9`、`0xcca8`、`0xc013`、`0xc014`、`0x009c`、`0x009d`、`0x002f`、`0x0035`。
+      TLS 1.3 套件及其顺序继续由 BoringSSL 的原生策略决定。
+    * `permuteExtensions` boolean (optional) - 是否随机排列扩展，默认 `true`。`false` 使用 BoringSSL 固有顺序，不支持任意扩展顺序列表。
+    * `echEnabled` boolean (optional) - 是否允许 ECH 与 ECH GREASE，默认 `true`；实际 ECH 仍取决于站点配置与内核功能开关。
+    * `postQuantumKeyAgreementEnabled` boolean (optional) - 是否允许原生后量子密钥协商，默认 `true`。
 
 Sets the SSL configuration for the session. All subsequent network requests
 will use the new configuration. Existing network connections (such as WebSocket
 connections) will not be terminated, but old sockets in the pool will not be
 reused for new connections.
+
+TLS 策略只属于当前 Session，不修改全局 TLS 上下文或证书校验规则。
+调用 `ses.setSSLConfig({})` 恢复默认值；策略不会自动保存到用户环境文件。
+需要强制新握手时，先等待 `ses.closeAllConnections()` 完成。
+自定义策略不等于另一版本 Chrome 的完整仿真，能力与验证范围见 [TLS 实现说明](../../fp-kernel/docs/TLS_CLIENT_HELLO.md)。
+
+#### `ses.getTLSFingerprintCapabilities()`
+
+Returns `Object`:
+
+* `schemaVersion` Integer - 当前策略接口版本为 `1`。
+* `chromiumVersion` string - 当前内核完整版本。
+* `cipherOrder` string - 当前可配置顺序的范围为 `tls1.2`。
+* `tls13CipherOrder` boolean - 当前为 `false`。
+* `arbitraryExtensionOrder` boolean - 当前为 `false`。
+* `extensionPermutation` boolean - 是否支持扩展随机排列开关。
+* `ech` boolean - 是否支持 ECH 策略开关。
+* `postQuantumKeyAgreement` boolean - 是否支持后量子密钥协商开关。
+
+该接口只描述运行时具备的配置能力，不表示任何网站检测已经通过。
 
 #### `ses.getBlobData(identifier)`
 

@@ -1908,6 +1908,17 @@ describe('session module', () => {
       })).to.throw();
     });
 
+    it('将启用配置的用户代理版本绑定到 TLS 内核', () => {
+      const ses = session.fromPartition(`fingerprint-tls-version-${Math.random()}`) as any;
+      const configured = { ...profile, modules: { ...profile.modules, clientHints: false } };
+      for (const version of ['139.0.0.0', '138.0.1.1']) {
+        expect(() => ses.setFingerprintConfig({ ...configured, browser: { ...profile.browser, userAgent: `Mozilla/5.0 Chrome/${version}` } })).to.throw('TLS 内核');
+        expect(ses.getFingerprintConfig()).to.equal(null);
+      }
+      ses.setFingerprintConfig(configured);
+      expect(() => ses.setUserAgent('Mozilla/5.0 Chrome/139.0.0.0')).to.throw('TLS 内核');
+    });
+
     it('rejects invalid hardware values', () => {
       const ses = session.fromPartition(`fingerprint-invalid-${Math.random()}`) as any;
       expect(() => ses.setFingerprintConfig({ ...profile, hardware: { ...profile.hardware, hardwareConcurrency: 0 } })).to.throw();
@@ -2469,6 +2480,20 @@ describe('session module', () => {
   });
 
   describe('ses.setSSLConfig()', () => {
+    it('校验会话级 TLS 策略并拒绝无效值', () => {
+      const ses = session.fromPartition(`tls-policy-${Math.random()}`) as any;
+      expect(ses.getTLSFingerprintCapabilities().chromiumVersion).to.equal(process.versions.chrome);
+      ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, cipherSuites: [0xc030, 0xc02f], permuteExtensions: false } });
+      for (const policy of [
+        { chromiumVersion: '139.0.0.0' }, { cipherSuites: [] }, { cipherSuites: [0x1301] },
+        { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] },
+        { permuteExtensions: 'false' }, { echEnabled: null }, { unknown: true }
+      ]) {
+        expect(() => ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, ...policy } })).to.throw('TLS 指纹配置无效');
+      }
+      ses.setSSLConfig({});
+    });
+
     it('can disable cipher suites', async () => {
       const ses = session.fromPartition('' + Math.random());
       const fixturesPath = path.resolve(__dirname, 'fixtures');

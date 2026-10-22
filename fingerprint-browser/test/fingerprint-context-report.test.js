@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict')
+const { validateContextReport } = require('../scripts/test-fingerprint')
+
+const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
+const values = Object.fromEntries(contexts.map(context => [context, {
+  userAgent: '诊断用户代理', platform: 'Win32', language: 'en-US', languages: ['en-US', 'en'],
+  hardwareConcurrency: 4, deviceMemory: 8, timezone: 'America/New_York',
+  hints: { platform: 'Windows' }, webglVendor: '测试厂商', webgpu: { adapter: false, device: false },
+  headers: { userAgent: '诊断用户代理', language: 'en-US,en;q=0.9' }
+}]))
+const initial = {
+  phase: 'initial', ok: true, failures: [], runtime: { electron: '37.2.6', chrome: '138.0.7204.185' },
+  samples: Array.from({ length: 7 }, (_, index) => ({ index, values: structuredClone(values), refreshed: structuredClone(values) })),
+  tlsComparison: { direct: { throughProxy: false }, tunnel: { throughProxy: true } }
+}
+const restored = { ...structuredClone(initial), phase: 'restore' }
+assert.doesNotThrow(() => validateContextReport(initial, 'initial'))
+assert.doesNotThrow(() => validateContextReport(restored, 'restore', initial))
+assert.throws(() => validateContextReport(restored, 'restore'), /首次运行对照/)
+for (const change of [
+  report => { report.ok = false },
+  report => { report.failures.push({ message: '测试失败。' }) },
+  report => { report.samples.pop() },
+  report => { report.samples[2].index = 1 },
+  report => { delete report.samples[1].values.shared },
+  report => { delete report.samples[1].refreshed.crossOriginFrame },
+  report => { report.tlsComparison.tunnel.throughProxy = false }
+]) {
+  const incomplete = structuredClone(initial)
+  change(incomplete)
+  assert.throws(() => validateContextReport(incomplete, 'initial'), /指纹验证/)
+}
+for (const change of [
+  report => { report.runtime.chrome = '139.0.0.0' },
+  report => { report.samples[1].values.serviceWorker.languages = ['en-US'] },
+  report => { report.samples[2].values.crossOriginFrame.webgpu.adapter = true },
+  report => { report.samples[1].values.page.headers.language = 'zh-CN' }
+]) {
+  const changed = structuredClone(restored)
+  change(changed)
+  assert.throws(() => validateContextReport(changed, 'restore', initial), /指纹验证/)
+}
+console.log('上下文报告完整性及重启身份比对自检通过。')

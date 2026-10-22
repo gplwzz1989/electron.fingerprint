@@ -14,6 +14,7 @@ const { applyProxyConfig } = require('../browser-tabs')
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
 if (!output || !path.resolve(output).startsWith(`${path.resolve(__dirname, '../../dist/electron-diagnostics/fingerprint')}${path.sep}`)) throw new Error('上下文验证必须使用独立诊断目录。')
+if (!['initial', 'restore'].includes(phase)) throw new Error('上下文验证阶段无效。')
 app.setPath('userData', path.join(output, 'data'))
 const report = { ok: false, phase, runtime: process.versions, samples: [], failures: [], tls: [], unverified: [], scope: '本地受控 HTTPS；记录协商协议和密码套件，不将其称为 JA3/JA4 或公网验收。' }
 const windows = []
@@ -56,6 +57,7 @@ async function collectRelatedContexts (otherOrigin, restore) {
       const timer = setTimeout(() => { port.close?.(); reject(new Error('上下文采集超时。')) }, 20000)
       port.onmessage = event => {
         clearTimeout(timer)
+        port.onmessage = null
         if (event.data.error) reject(new Error('上下文采集失败。'))
         else resolve(event.data)
       }
@@ -116,9 +118,10 @@ async function run () {
     response.setHeader('Cache-Control', 'no-store')
     response.setHeader('Accept-CH', 'Sec-CH-UA-Full-Version-List, Sec-CH-UA-Platform, Sec-CH-UA-Arch, Sec-CH-UA-Bitness')
     if (url.pathname === '/headers') {
-      report.tls.push({ host: url.host, protocol: request.socket.getProtocol(), cipher: request.socket.getCipher().standardName, alpn: request.socket.alpnProtocol, httpVersion: request.httpVersion, userAgent: request.headers['user-agent'], throughProxy: tunnelPorts.has(request.socket.remotePort) })
+      const transport = { host: url.host, protocol: request.socket.getProtocol(), cipher: request.socket.getCipher().standardName, alpn: request.socket.alpnProtocol, httpVersion: request.httpVersion, userAgent: request.headers['user-agent'], throughProxy: tunnelPorts.has(request.socket.remotePort) }
+      report.tls.push(transport)
       response.setHeader('Content-Type', 'application/json; charset=utf-8')
-      response.end(JSON.stringify({ userAgent: request.headers['user-agent'], language: request.headers['accept-language'], hints: Object.fromEntries(Object.entries(request.headers).filter(([name]) => name.startsWith('sec-ch-'))) }))
+      response.end(JSON.stringify({ userAgent: request.headers['user-agent'], language: request.headers['accept-language'], hints: Object.fromEntries(Object.entries(request.headers).filter(([name]) => name.startsWith('sec-ch-'))), tls: transport }))
     } else if (url.pathname.endsWith('.js')) {
       response.setHeader('Content-Type', 'application/javascript; charset=utf-8')
       if (url.pathname === '/service.js') response.end(`${reply}; self.addEventListener('install', event => event.waitUntil(self.skipWaiting())); self.addEventListener('activate', event => event.waitUntil(self.clients.claim())); self.addEventListener('message', event => event.waitUntil(reply(event.ports[0])))`)
@@ -144,7 +147,7 @@ async function run () {
     socket.once('secureConnect', () => { socket.end(); resolve() })
     socket.once('error', () => reject(new Error('诊断证书校验失败。')))
   })
-  const profiles = [null, getDefaultProfile(), getDefaultProfile(), getDefaultProfile(), getDefaultProfile(), getDefaultProfile()]
+  const profiles = [null, getDefaultProfile(), getDefaultProfile(), getDefaultProfile(), getDefaultProfile(), getDefaultProfile(), getDefaultProfile()]
   for (let index = 1; index < profiles.length; index++) {
     const profile = profiles[index]
     profile.id = `中文配置-${index}-😀-"引号"-\\-\n`
@@ -153,6 +156,15 @@ async function run () {
     profile.graphics.webglVendor = `测试厂商-${index}-😀`
     profile.locale = { language: 'en-US', languages: ['en-US', 'en'], timezone: 'America/New_York' }
     profile.browser.acceptLanguage = 'en-US,en;q=0.9'
+    if (index === 2) {
+      profile.locale = { language: 'fr-FR', languages: ['fr-FR', 'fr'], timezone: 'Europe/Paris' }
+      profile.browser.acceptLanguage = 'fr-FR,fr;q=0.9'
+    }
+    if (index === 6) {
+      profile.id = 'ascii-profile'
+      profile.noise.seed = 'ascii-seed'
+      profile.graphics.webglVendor = 'ASCII vendor'
+    }
     profile.modules.canvas = false
     profile.modules.audio = false
     profile.noise.canvas = false
@@ -178,7 +190,10 @@ async function run () {
     windows.push(window)
     await window.loadURL(siteA)
     const marker = `环境-${index}`
-    if (phase === 'initial') await window.webContents.executeJavaScript(`localStorage.setItem('context-marker', ${JSON.stringify(marker)})`)
+    if (phase === 'initial') {
+      assert.equal(await window.webContents.executeJavaScript("localStorage.getItem('context-marker')"), null, '新环境误用了其他环境的存储。')
+      await window.webContents.executeJavaScript(`localStorage.setItem('context-marker', ${JSON.stringify(marker)})`)
+    }
     assert.equal(await window.webContents.executeJavaScript("localStorage.getItem('context-marker')"), marker, '环境存储未恢复或串用。')
     const values = { page: await window.webContents.executeJavaScript(probe), ...await window.webContents.executeJavaScript(`(${collectRelatedContexts.toString()})(${JSON.stringify(siteB)}, ${phase === 'restore'})`) }
     report.samples.push({ index, values })
@@ -195,18 +210,34 @@ async function run () {
         assert.equal(value.headers.language.split(',')[0], values.page.language, '请求语言不一致。')
       })
       if (profile?.enabled) {
-        check(`环境 ${index} ${context} 中文配置生效`, () => {
-          if (profile.modules.navigator) assert.equal(value.hardwareConcurrency, profile.hardware.hardwareConcurrency, '中文配置的硬件值未生效。')
-          if (profile.modules.timezone) assert.equal(value.timezone, profile.locale.timezone, '中文配置的时区未生效。')
-          if (profile.modules.webgl && value.webglVendor !== null) assert.equal(value.webglVendor, profile.graphics.webglVendor, '中文图形名称未生效。')
+        check(`环境 ${index} ${context} 配置生效`, () => {
+          if (profile.modules.navigator) assert.equal(value.hardwareConcurrency, profile.hardware.hardwareConcurrency, '配置的硬件值未生效。')
+          if (profile.modules.timezone) assert.equal(value.timezone, profile.locale.timezone, '配置的时区未生效。')
+          if (profile.modules.webgl) assert.equal(value.webglVendor, profile.graphics.webglVendor, '图形名称未生效或本机不支持所需图形对照。')
         })
         if (profile.modules.webgl) check(`环境 ${index} ${context} WebGPU 限制`, () => assert.equal(value.webgpu.adapter, false, '受保护环境仍能取得 WebGPU 适配器。'))
       }
     }
     await profileSession.flushStorageData()
   }
-  const control = report.samples[0].values.page.webgpu
-  if (!control.adapter || !control.device) report.failures.push({ description: 'WebGPU 原生对照', message: '本机未完成适配器及设备对照，不能认定保护通过。' })
+  // 所有环境都已存在后重新创建页面和线程，检查后创建的配置是否污染已有环境。
+  for (const sample of report.samples) {
+    const window = windows[sample.index]
+    await window.loadURL(siteA)
+    sample.refreshed = { page: await window.webContents.executeJavaScript(probe), ...await window.webContents.executeJavaScript(`(${collectRelatedContexts.toString()})(${JSON.stringify(siteB)}, true)`) }
+    check(`环境 ${sample.index} 刷新后请求语言`, () => assert.equal(sample.refreshed.page.headers.language.split(',')[0], sample.values.page.language, '刷新后请求语言发生串用。'))
+    assert.equal(await window.webContents.executeJavaScript("localStorage.getItem('context-marker')"), `环境-${sample.index}`, '刷新后环境存储发生串用。')
+    for (const [context, value] of Object.entries(sample.refreshed)) {
+      check(`环境 ${sample.index} ${context} 刷新稳定`, () => {
+        for (const field of ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu']) assert.deepEqual(value[field], sample.values[context][field], '刷新后上下文身份或图形策略改变。')
+        assert.equal(value.headers.userAgent, sample.values[context].headers.userAgent, '刷新后请求用户代理改变。')
+        assert.equal(value.headers.language, sample.values[context].headers.language, '刷新后请求语言改变。')
+      })
+    }
+  }
+  for (const [context, value] of Object.entries(report.samples[0].values)) {
+    if (!value.webgpu.adapter || !value.webgpu.device) report.failures.push({ description: `${context} WebGPU 原生对照`, message: '本机未完成适配器及设备对照，本项未验证，不能认定保护通过。' })
+  }
   for (const index of [3, 4, 5]) {
     for (const [context, value] of Object.entries(report.samples[index].values)) check(`环境 ${index} ${context} WebGPU 回退`, () => assert.deepEqual(value.webgpu, report.samples[0].values[context].webgpu, '关闭模块或配置后没有保持原生行为。'))
   }
@@ -220,6 +251,8 @@ async function run () {
     if (request.url !== `a.localhost:${actualPort}`) { client.destroy(); return }
     const upstream = net.connect({ host: '127.0.0.1', port: actualPort }, () => {
       tunnelPorts.add(upstream.localPort)
+      const localPort = upstream.localPort
+      upstream.once('close', () => tunnelPorts.delete(localPort))
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n')
       if (head.length) upstream.write(head)
       upstream.pipe(client)
@@ -229,15 +262,17 @@ async function run () {
     client.on('error', () => upstream.destroy())
     upstream.on('error', () => client.destroy())
     client.once('close', () => upstream.destroy())
+    upstream.once('close', () => client.destroy())
   })
   await new Promise((resolve, reject) => { proxy.once('error', reject); proxy.listen(0, '127.0.0.1', resolve) })
   await applyProxyConfig(sessions[0], { mode: 'http', server: `http://127.0.0.1:${proxy.address().port}`, username: '', password: '' }, siteA)
   await sessions[0].closeAllConnections()
-  await windows[0].webContents.executeJavaScript("(async () => await (await fetch('/headers', { cache: 'no-store' })).json())()")
-  const directTLS = report.tls.find(sample => !sample.throughProxy)
-  const proxyTLS = report.tls.find(sample => sample.throughProxy)
+  const proxyHeaders = await windows[0].webContents.executeJavaScript("(async () => await (await fetch('/headers', { cache: 'no-store' })).json())()")
+  const directTLS = report.samples[0].values.page.headers.tls
+  const proxyTLS = proxyHeaders.tls
   check('TLS 隧道实测', () => {
-    assert.ok(proxyTLS, '缺少经过代理的 TLS 样本。')
+    assert.equal(directTLS.throughProxy, false, '直连对照路径不正确。')
+    assert.equal(proxyTLS.throughProxy, true, '缺少经过代理的 TLS 样本。')
     for (const field of ['protocol', 'cipher', 'alpn', 'httpVersion', 'userAgent']) assert.equal(proxyTLS[field], directTLS[field], '直连与透明隧道协商结果不一致。')
   })
   report.tlsComparison = { direct: directTLS, tunnel: proxyTLS, limitation: '服务端只提供 HTTP/1.1；未测 HTTP/2、TLS 终止代理及 ClientHello 指纹。' }

@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] fp: 增加会话级 TLS 套件顺序与扩展策略
+
+diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/public/mojom/ssl_config.mojom
+--- a/services/network/public/mojom/ssl_config.mojom
++++ b/services/network/public/mojom/ssl_config.mojom
+@@ -29,6 +29,10 @@
+   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
+   array<uint16> disabled_cipher_suites;
+
++  // 会话级 TLS 1.2 套件顺序；空列表保留原生策略。
++  array<uint16> fingerprint_cipher_suites;
++  bool fingerprint_permute_extensions = true;
++
+   // Patterns for matching hostnames to determine when to allow connection
+   // coalescing when client certificates are also in use. Patterns follow
+   // the rules for host matching from the URL Blocklist filter format:
+diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
+--- a/net/ssl/ssl_config_service.h
++++ b/net/ssl/ssl_config_service.h
+@@ -41,6 +41,10 @@
+   // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
+   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
+   std::vector<uint16_t> disabled_cipher_suites;
++
++  // 随所属网络上下文传递，禁止影响其他 Session 的握手策略。
++  std::vector<uint16_t> fingerprint_cipher_suites;
++  bool fingerprint_permute_extensions = true;
+
+   // Controls whether post-quantum key agreement in TLS connections is allowed.
+   bool post_quantum_key_agreement_enabled = true;
+diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ssl_config_type_converter.cc
+--- a/services/network/ssl_config_type_converter.cc
++++ b/services/network/ssl_config_type_converter.cc
+@@ -32,6 +32,9 @@
+   DCHECK_LE(net_config.version_min, net_config.version_max);
+
+   net_config.disabled_cipher_suites = mojo_config->disabled_cipher_suites;
++  net_config.fingerprint_cipher_suites = mojo_config->fingerprint_cipher_suites;
++  net_config.fingerprint_permute_extensions =
++      mojo_config->fingerprint_permute_extensions;
+   net_config.post_quantum_key_agreement_enabled =
+       mojo_config->post_quantum_key_agreement_enabled;
+   net_config.ech_enabled = mojo_config->ech_enabled;
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -735,6 +735,30 @@
+   // Use BoringSSL defaults, but disable 3DES and HMAC-SHA1 ciphers in ECDSA.
+   // These are the remaining CBC-mode ECDSA ciphers.
+   std::string command("ALL:!aPSK:!ECDSA+SHA1:!3DES");
++  const auto& fingerprint_ciphers = context_->config().fingerprint_cipher_suites;
++  if (!fingerprint_ciphers.empty()) {
++    // 接收侧再次限制为 Chromium 138 原生套件；TLS 1.3 使用原生安全策略。
++    constexpr uint16_t kAllowed[] = {0xc02b, 0xc02f, 0xc02c, 0xc030,
++                                     0xcca9, 0xcca8, 0xc013, 0xc014,
++                                     0x009c, 0x009d, 0x002f, 0x0035};
++    if (fingerprint_ciphers.size() > std::size(kAllowed))
++      return ERR_INVALID_ARGUMENT;
++    command.clear();
++    for (size_t index = 0; index < fingerprint_ciphers.size(); ++index) {
++      const uint16_t id = fingerprint_ciphers[index];
++      const SSL_CIPHER* cipher = SSL_get_cipher_by_value(id);
++      if (!cipher || std::ranges::find(kAllowed, id) == std::end(kAllowed) ||
++          std::find(fingerprint_ciphers.begin(),
++                    fingerprint_ciphers.begin() + index, id) !=
++              fingerprint_ciphers.begin() + index) {
++        return ERR_INVALID_ARGUMENT;
++      }
++      if (!command.empty())
++        command += ":";
++      command += SSL_CIPHER_get_name(cipher);
++    }
++    command += ":!aPSK:!ECDSA+SHA1:!3DES";
++  }
+
+   if (ssl_config_.require_ecdhe)
+     command.append(":!kRSA");
+@@ -829,7 +853,8 @@
+     }
+   }
+
+-  SSL_set_permute_extensions(ssl_.get(), 1);
++  SSL_set_permute_extensions(
++      ssl_.get(), context_->config().fingerprint_permute_extensions);
+
+   // Configure BoringSSL to send Trust Anchor IDs, if provided.
+   if (!ssl_config_.trust_anchor_ids.empty()) {
+diff --git a/services/network/ssl_config_service_mojo_unittest.cc b/services/network/ssl_config_service_mojo_unittest.cc
+--- a/services/network/ssl_config_service_mojo_unittest.cc
++++ b/services/network/ssl_config_service_mojo_unittest.cc
+@@ -359,6 +359,22 @@
+   }
+ }
+
++TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintCipherOrderAndExtensions) {
++  net::SSLContextConfig expected_net_config;
++  expected_net_config.fingerprint_cipher_suites = {0xc030, 0xc02f};
++  expected_net_config.fingerprint_permute_extensions = false;
++  expected_net_config.ech_enabled = false;
++  expected_net_config.post_quantum_key_agreement_enabled = false;
++
++  auto mojo_config = mojom::SSLConfig::New();
++  mojo_config->fingerprint_cipher_suites = {0xc030, 0xc02f};
++  mojo_config->fingerprint_permute_extensions = false;
++  mojo_config->ech_enabled = false;
++  mojo_config->post_quantum_key_agreement_enabled = false;
++  // 同时核验首次设置、恢复默认和再次设置时的通知与顺序保留。
++  RunConversionTests(*mojo_config, expected_net_config);
++}
++
+ TEST_F(NetworkServiceSSLConfigServiceTest, InitialConfigDisableCipherSuite) {
+   net::SSLContextConfig expected_net_config;
+   expected_net_config.disabled_cipher_suites.push_back(0x0004);

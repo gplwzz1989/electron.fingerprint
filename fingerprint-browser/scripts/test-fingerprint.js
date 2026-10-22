@@ -3,7 +3,7 @@ const fs = require('node:fs/promises')
 const { createReadStream } = require('node:fs')
 const { createHash, randomUUID } = require('node:crypto')
 const { spawn, execFile } = require('node:child_process')
-const { promisify } = require('node:util')
+const { promisify, isDeepStrictEqual } = require('node:util')
 const { getLaunchOptions } = require('./start')
 const { createDiagnosticTLS } = require('./fingerprint-tls')
 
@@ -22,8 +22,32 @@ async function hashFile (filename) {
   }
 }
 
+function validateContextReport (report, phase, previous) {
+  const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
+  if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
+  if (phase === 'restore' && !previous) throw new Error('指纹验证缺少首次运行对照。')
+  if (previous && !isDeepStrictEqual(report.runtime, previous.runtime)) throw new Error('指纹验证两阶段运行时不一致。')
+  for (let index = 0; index < report.samples.length; index++) {
+    const sample = report.samples[index]
+    if (sample.index !== index || contexts.some(context => !sample.values?.[context] || !sample.refreshed?.[context])) throw new Error('指纹验证缺少环境或上下文样本。')
+    if (!previous) continue
+    for (const context of contexts) {
+      const before = previous.samples[index].values[context]
+      const after = sample.values[context]
+      for (const field of ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu']) {
+        if (!isDeepStrictEqual(after[field], before[field])) throw new Error(`指纹验证重启后环境 ${index} 的 ${context} 身份或图形策略改变。`)
+      }
+      if (after.headers?.userAgent !== before.headers?.userAgent || after.headers?.language !== before.headers?.language) throw new Error(`指纹验证重启后环境 ${index} 请求身份改变。`)
+    }
+  }
+  if (report.tlsComparison?.direct?.throughProxy !== false || report.tlsComparison?.tunnel?.throughProxy !== true) throw new Error('指纹验证缺少直连与代理 TLS 对照。')
+}
+
 async function run () {
   const contexts = process.argv.includes('--contexts')
+  const tlsBaselineOnly = process.argv.includes('--tls-baseline')
+  const tls = tlsBaselineOnly || process.argv.includes('--tls')
+  if (contexts && tls) throw new Error('指纹验证请分别运行上下文与 TLS 入口。')
   const output = path.join(projectRoot, 'dist', 'electron-diagnostics', 'fingerprint', `${Date.now()}-${randomUUID().slice(0, 8)}`)
   const { executable, options, dataRoot } = getLaunchOptions({
     ...process.env,
@@ -40,6 +64,10 @@ async function run () {
     'fingerprint-browser/test/fingerprint-isolation.test.js', 'fingerprint-browser/test/fingerprint-probes.js',
     'fingerprint-browser/test/fingerprint-contexts.test.js',
     'shell/browser/electron_browser_client.cc', 'patches/chromium/fp_block_session_webgpu_adapter.patch',
+    'patches/chromium/fp_worker_session_languages.patch',
+    'patches/chromium/fp_session_tls_client_hello.patch', 'shell/browser/api/electron_api_session.cc',
+    'shell/browser/fingerprint/fingerprint_profile_parser.cc', 'fingerprint-browser/tls-fingerprint.js',
+    'fingerprint-browser/test/tls-client-hello.js', 'fingerprint-browser/test/fingerprint-tls.test.js',
     'fingerprint-browser/test/fingerprint-protection.test.js',
     'shell/browser/electron_browser_context.cc',
     'fingerprint-browser/scripts/fingerprint-tls.js', 'fingerprint-browser/test/fingerprint-network.js',
@@ -68,11 +96,12 @@ async function run () {
       note: '本次验证工作区与所选运行时，不代表发行包包含当前应用代码。'
     }
   } catch {}
-  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', contexts, debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(output, 'baseline.json'), `${JSON.stringify({ capturedAt: new Date().toISOString(), git, files, release, requireClientHints: options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1', contexts, tls, tlsBaselineOnly, debugConnection: false, note: '不采集用户环境、凭据和指纹种子。' }, null, 2)}\n`, 'utf8')
   console.log(`指纹验证记录目录：${output}`)
+  let initialReport
   for (const phase of contexts ? ['initial', 'restore'] : ['initial']) {
-    const testFile = contexts ? 'fingerprint-contexts.test.js' : 'fingerprint-isolation.test.js'
-    const child = spawn(executable, [path.join(__dirname, '..', 'test', testFile), `--user-data-dir=${dataRoot}`], { ...options, env: { ...options.env, FP_CONTEXT_PHASE: phase }, windowsHide: true })
+    const testFile = tls ? 'fingerprint-tls.test.js' : contexts ? 'fingerprint-contexts.test.js' : 'fingerprint-isolation.test.js'
+    const child = spawn(executable, [path.join(__dirname, '..', 'test', testFile), `--user-data-dir=${dataRoot}`], { ...options, env: { ...options.env, FP_CONTEXT_PHASE: phase, FP_TLS_BASELINE_ONLY: tlsBaselineOnly ? '1' : '0' }, windowsHide: true })
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; child.kill() }, 180000)
     try {
@@ -86,6 +115,15 @@ async function run () {
         console.error('指纹验证未完成，请查看该目录中的结果记录。')
         break
       }
+      if (contexts) {
+        const report = JSON.parse(await fs.readFile(path.join(output, `contexts-${phase}.json`), 'utf8'))
+        validateContextReport(report, phase, initialReport)
+        if (phase === 'initial') initialReport = report
+      }
+      if (tls) {
+        const report = JSON.parse(await fs.readFile(path.join(output, 'tls-result.json'), 'utf8'))
+        if (!report.ok || report.baselineOnly !== tlsBaselineOnly || (!tlsBaselineOnly && !report.implementationVerified)) throw new Error('指纹验证缺少有效的 TLS 策略结果。')
+      }
     } finally {
       clearTimeout(timer)
     }
@@ -97,4 +135,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile }
+module.exports = { hashFile, validateContextReport }

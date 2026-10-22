@@ -8,6 +8,8 @@
 #include <string_view>
 #include <utility>
 
+#include "components/version_info/version_info.h"
+
 namespace electron::fingerprint {
 namespace {
 
@@ -287,6 +289,33 @@ std::optional<FingerprintConfig> FingerprintProfileParser::Parse(
 
   if (!ParseModules(*modules, &config.modules, error_message))
     return std::nullopt;
+
+  // UA 与 TLS 使用同一内核生命周期，原生 API 调用方也不能绕过版本约束。
+  if (config.enabled && (config.modules.ua || config.modules.client_hints)) {
+    if (config.browser.chromium_major !=
+        version_info::GetMajorVersionNumberAsInt()) {
+      SetError(error_message, "浏览器主版本与当前 TLS 内核不一致");
+      return std::nullopt;
+    }
+    if (config.modules.ua && !config.browser.user_agent.empty()) {
+      const std::string& ua = config.browser.user_agent;
+      const size_t start = ua.find("Chrome/");
+      const size_t version_start = start == std::string::npos ? 0 : start + 7;
+      const size_t end = ua.find_first_not_of("0123456789.", version_start);
+      const std::string version = ua.substr(version_start, end - version_start);
+      const std::string reduced =
+          std::to_string(version_info::GetMajorVersionNumberAsInt()) + ".0.0.0";
+      if (start == std::string::npos ||
+          (start > 0 && ua[start - 1] != ' ') ||
+          ua.find("Chrome/", version_start) != std::string::npos ||
+          (end != std::string::npos && ua[end] != ' ' && ua[end] != ')') ||
+          (version != reduced && version != version_info::GetVersionNumber())) {
+        SetError(error_message,
+                 "用户代理版本必须为当前 TLS 内核完整版本或原生缩减版本");
+        return std::nullopt;
+      }
+    }
+  }
 
   return config;
 }

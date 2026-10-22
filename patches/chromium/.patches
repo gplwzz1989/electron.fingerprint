@@ -166,3 +166,4 @@ fix_webgl_fingerprint_release_buffer_checks.patch
 fp_edge_aware_natural_canvas_noise.patch
 fp_block_session_webgpu_adapter.patch
 fp_worker_session_languages.patch
+fp_session_tls_client_hello.patch

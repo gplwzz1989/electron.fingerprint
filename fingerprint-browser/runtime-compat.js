@@ -1,5 +1,6 @@
 const { ProfileValidationError } = require('./profile-store')
 const { isDeepStrictEqual } = require('node:util')
+const { assertTLSRuntimeIdentity } = require('./tls-fingerprint')
 
 function comparableFingerprint (fingerprint) {
   const copy = structuredClone(fingerprint)
@@ -8,6 +9,7 @@ function comparableFingerprint (fingerprint) {
 }
 
 function applyFingerprintConfig (profileSession, fingerprint) {
+  if (process.versions.chrome) assertTLSRuntimeIdentity(fingerprint, process.versions.chrome)
   if (typeof profileSession.setFingerprintConfig !== 'function') {
     throw new ProfileValidationError('当前运行时不包含指纹配置接口，请使用本项目编译的 Electron。')
   }

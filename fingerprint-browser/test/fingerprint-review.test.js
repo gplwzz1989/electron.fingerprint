@@ -36,6 +36,10 @@ weighted.locale.languages[0] = 'ZH-cn'
 assert.equal(previewFingerprintProfile(weighted, runtime).canSave, true)
 assert.deepEqual(previewFingerprintProfile(weighted, runtime).warnings, [], '语言标记大小写不应产生矛盾提示。')
 const disabled = structuredClone(profile)
+const tlsMismatch = structuredClone(profile)
+tlsMismatch.modules.clientHints = false
+tlsMismatch.browser.userAgent = 'Mozilla/5.0 Chrome/138.0.1.1'
+assert.match(previewFingerprintProfile(tlsMismatch, runtime).errors.join(''), /TLS 内核/)
 disabled.modules.locale = false
 disabled.locale.languages = ['en-US']
 disabled.browser.acceptLanguage = '自定义'

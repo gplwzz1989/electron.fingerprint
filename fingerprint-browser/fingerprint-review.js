@@ -22,8 +22,8 @@ function previewFingerprintProfile (input, runtime, proxy) {
       const version = browser.userAgent.match(/\bChrome\/(\d+\.\d+\.\d+\.\d+)\b/)?.[1]
       if (!version || Number(version.split('.')[0]) !== browser.chromiumMajor) {
         errors.push('用户代理必须包含与当前内核一致的 Chrome 主版本。')
-      } else if (modules.clientHints && version !== `${browser.chromiumMajor}.0.0.0` && version !== runtime.chromiumVersion) {
-        errors.push('用户代理完整版本与客户端提示不一致；请使用内核默认值、原生缩减版本或真实完整版本。')
+      } else if (version !== `${browser.chromiumMajor}.0.0.0` && version !== runtime.chromiumVersion) {
+        errors.push('用户代理完整版本与 TLS 内核不一致；请使用内核默认值、原生缩减版本或真实完整版本。')
       }
       const uaPlatform = /Windows NT/.test(browser.userAgent) ? 'Win32'
         : /Macintosh/.test(browser.userAgent) ? 'MacIntel'

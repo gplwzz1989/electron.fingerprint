@@ -31,6 +31,7 @@
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
+#include "components/version_info/version_info.h"
 #include "content/browser/code_cache/generated_code_cache_context.h"  // nogncheck
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -468,6 +469,63 @@ struct Converter<network::mojom::SSLConfigPtr> {
     }
     std::ranges::sort((*out)->disabled_cipher_suites);
 
+    if (options.Has("fingerprint")) {
+      auto invalid = [&] {
+        gin_helper::ErrorThrower(isolate).ThrowTypeError(
+            "TLS 指纹配置无效：请使用当前内核版本、有效的密码套件和布尔策略。");
+        return false;
+      };
+      base::Value::Dict fingerprint;
+      if (!options.Get("fingerprint", &fingerprint))
+        return invalid();
+      for (const auto entry : fingerprint) {
+        if (entry.first != "chromiumVersion" && entry.first != "cipherSuites" &&
+            entry.first != "permuteExtensions" && entry.first != "echEnabled" &&
+            entry.first != "postQuantumKeyAgreementEnabled") {
+          return invalid();
+        }
+      }
+      const auto* version = fingerprint.FindString("chromiumVersion");
+      if (!version || *version != version_info::GetVersionNumber() ||
+          version_info::GetMajorVersionNumberAsInt() != 138 ||
+          (*out)->version_min > (*out)->version_max) {
+        return invalid();
+      }
+      for (const auto* key : {"permuteExtensions", "echEnabled",
+                              "postQuantumKeyAgreementEnabled"}) {
+        if (const auto* value = fingerprint.Find(key); value && !value->is_bool())
+          return invalid();
+      }
+      (*out)->fingerprint_permute_extensions =
+          fingerprint.FindBool("permuteExtensions").value_or(true);
+      (*out)->ech_enabled = fingerprint.FindBool("echEnabled").value_or(true);
+      (*out)->post_quantum_key_agreement_enabled =
+          fingerprint.FindBool("postQuantumKeyAgreementEnabled").value_or(true);
+      if (const auto* value = fingerprint.Find("cipherSuites")) {
+        if (!value->is_list() || value->GetList().empty() ||
+            value->GetList().size() > 12) {
+          return invalid();
+        }
+        // 只允许当前 Chromium 已启用的 TLS 1.2 套件，保留调用方声明的顺序。
+        constexpr int kAllowed[] = {0xc02b, 0xc02f, 0xc02c, 0xc030,
+                                   0xcca9, 0xcca8, 0xc013, 0xc014,
+                                   0x009c, 0x009d, 0x002f, 0x0035};
+        std::set<int> seen;
+        for (const auto& item : value->GetList()) {
+          if (!item.is_int())
+            return invalid();
+          const int id = item.GetInt();
+          if (std::ranges::find(kAllowed, id) == std::end(kAllowed) ||
+              !seen.insert(id).second ||
+              std::ranges::find((*out)->disabled_cipher_suites, id) !=
+                  (*out)->disabled_cipher_suites.end()) {
+            return invalid();
+          }
+          (*out)->fingerprint_cipher_suites.push_back(id);
+        }
+      }
+    }
+
     // TODO(nornagon): also support other SSLConfig properties?
     return true;
   }
@@ -480,6 +538,18 @@ namespace electron::api {
 namespace {
 
 const char kPersistPrefix[] = "persist:";
+
+base::Value::Dict GetTLSFingerprintCapabilities() {
+  return base::Value::Dict()
+      .Set("schemaVersion", 1)
+      .Set("chromiumVersion", std::string(version_info::GetVersionNumber()))
+      .Set("cipherOrder", "tls1.2")
+      .Set("tls13CipherOrder", false)
+      .Set("arbitraryExtensionOrder", false)
+      .Set("extensionPermutation", true)
+      .Set("ech", true)
+      .Set("postQuantumKeyAgreement", true);
+}
 
 void DownloadIdCallback(content::DownloadManager* download_manager,
                         const base::FilePath& path,
@@ -977,6 +1047,18 @@ void Session::AllowNTLMCredentialsForDomains(const std::string& domains) {
 
 void Session::SetUserAgent(const std::string& user_agent,
                            gin::Arguments* args) {
+  const auto* fingerprint_config =
+      browser_context_->fingerprint_context()->GetConfig();
+  if (fingerprint_config && fingerprint_config->enabled &&
+      fingerprint_config->modules.ua) {
+    auto candidate = fingerprint_config->ToValue();
+    candidate.FindDict("browser")->Set("userAgent", user_agent);
+    std::string error_message;
+    if (!fingerprint::FingerprintProfileParser::Parse(candidate, &error_message)) {
+      args->ThrowError(error_message);
+      return;
+    }
+  }
   browser_context_->SetUserAgent(user_agent);
   auto* network_context =
       browser_context_->GetDefaultStoragePartition()->GetNetworkContext();
@@ -1812,6 +1894,7 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("getFingerprintConfig", &Session::GetFingerprintConfig)
       .SetMethod("clearFingerprintConfig", &Session::ClearFingerprintConfig)
       .SetMethod("setSSLConfig", &Session::SetSSLConfig)
+      .SetMethod("getTLSFingerprintCapabilities", &GetTLSFingerprintCapabilities)
       .SetMethod("getBlobData", &Session::GetBlobData)
       .SetMethod("downloadURL", &Session::DownloadURL)
       .SetMethod("createInterruptedDownload",

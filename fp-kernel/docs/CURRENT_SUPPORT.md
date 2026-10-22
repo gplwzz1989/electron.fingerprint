@@ -11,6 +11,8 @@
 - **基础设施已完成**：配置、校验、传输或 API 已存在，但尚未有对应的运行时消费逻辑。
 - **未实现**：当前只有规划、Schema 字段或参考补丁信息，没有接入本分支运行时。
 
+2026-10-22 更新：用户已确认 Pixelscan 通过、噪音问题解决；本轮不改噪音算法。新增 Unicode 配置传输、WebGPU 会话保护、Worker 语言列表与生命周期测试，并优先实现 Chrome 138 TLS 策略和 UA 版本绑定。新增源码与原生运行验收的区别见 [TLS 实现说明](TLS_CLIENT_HELLO.md)。
+
 ## 2. 结论摘要
 
 当前版本不是完整的 Electron 指纹浏览器，而是一个已经打通基础配置链路、并完成
@@ -27,7 +29,7 @@
 | 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
 | 仍未真正覆盖的主要项目 | WebGL 像素噪声的独立开关/格式覆盖、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
 | FP-16 默认行为 | `modules.runtimeInspector` 未设置或为 `false` 时保持原生 CDP Runtime；只有显式为 `true` 时收敛 Runtime Inspector 暴露 |
-| 编译状态 | Release 已复用现有缓存完成 Locale/Intl 相关增量编译和链接；本轮 Session 一致性改动已完成补丁登记和预演前准备，尚未执行本轮原生增量编译；FP-16～FP-18 的完整运行时验证仍待完成 |
+| 编译状态 | 2026-10-22 WebGPU/Worker/配置传输的 3 个编译单元及 2 个静态库已完成，随后按用户要求停止构建，最终 Electron 未链接；本轮 TLS 源码未同步构建树、未编译。已有运行时只完成受控 TLS 基线采集 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -164,6 +166,9 @@ WEBGL_debug_renderer_info vendor / renderer
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
 | Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
+| Unicode 配置传输 | 标准 JSON Unicode 转义 | 已实现，待运行验收 | 不改变配置字段与种子内容；覆盖中文、扩展字符、转义及 ASCII 对照 |
+| WebGPU 适配器访问 | `modules.webgl` | 已实现，待运行验收 | 开启时阻止所属 Session 的适配器访问；保留 API 本身，关闭/无配置回退原生 |
+| TLS ClientHello 策略 | Session `setSSLConfig().fingerprint` | 已实现，未编译 | 当前内核版本绑定、TLS 1.2 套件顺序、扩展排列/ECH/PQ 开关；原生 JA4 基线已测，新策略验收待执行 |
 | WebRTC 网络地址 | `modules.webrtc` | 已实现，待验证 | 启用时将 Session 的 RendererPreferences 设为 `disable_non_proxied_udp`；真实 ICE 候选和代理组合仍待验证 |
 
 ### 4.1 当前已生效的指纹点
