@@ -1875,6 +1875,18 @@ describe('session module', () => {
       modules: { ua: true, clientHints: true, locale: true, timezone: true, navigator: true, screen: true, webgl: true, canvas: false, audio: false, fonts: false, webrtc: false }
     };
 
+    it('声明运行时包含的指纹能力并保持会话配置不变', () => {
+      const ses = session.fromPartition(`fingerprint-capabilities-${Math.random()}`) as any;
+      expect(ses.getFingerprintCapabilities()).to.deep.equal({
+        schemaVersion: 1,
+        chromiumVersion: process.versions.chrome,
+        unicodeConfigTransport: true,
+        webgpuAdapterBlocking: true,
+        workerLanguageList: true
+      });
+      expect(ses.getFingerprintConfig()).to.equal(null);
+    });
+
     it('stores and clears a profile on one session', () => {
       const ses = session.fromPartition(`fingerprint-${Math.random()}`) as any;
       expect(ses.getFingerprintConfig()).to.equal(null);

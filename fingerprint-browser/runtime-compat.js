@@ -8,11 +8,31 @@ function comparableFingerprint (fingerprint) {
   return copy
 }
 
+function assertFingerprintCapabilities (profileSession, fingerprint) {
+  if (!fingerprint.enabled) return
+  let serialized
+  try { serialized = JSON.stringify(fingerprint) } catch { throw new ProfileValidationError('指纹配置无法序列化，请检查配置内容。') }
+  const required = [
+    ['unicodeConfigTransport', /[^\x00-\x7f]/.test(serialized), '中文及特殊字符配置传输'],
+    ['webgpuAdapterBlocking', fingerprint.modules.webgl, 'WebGPU 适配器访问限制'],
+    ['workerLanguageList', fingerprint.modules.locale, '工作线程完整语言列表']
+  ].filter(([, needed]) => needed)
+  if (!required.length) return
+  if (typeof profileSession.getFingerprintCapabilities !== 'function') throw new ProfileValidationError('当前运行时不包含所需的指纹能力查询接口，请更新匹配的运行时。')
+  let capabilities
+  try { capabilities = profileSession.getFingerprintCapabilities() } catch { throw new ProfileValidationError('无法读取当前运行时的指纹能力，请检查运行时是否完整。') }
+  if (capabilities?.schemaVersion !== 1 || typeof capabilities.chromiumVersion !== 'string' || capabilities.chromiumVersion !== process.versions.chrome) throw new ProfileValidationError('指纹能力声明与当前内核版本不一致，请更新匹配的运行时。')
+  for (const [key, , label] of required) {
+    if (capabilities[key] !== true) throw new ProfileValidationError(`当前运行时不支持${label}，无法加载该环境，请更新匹配的运行时。`)
+  }
+}
+
 function applyFingerprintConfig (profileSession, fingerprint) {
-  if (process.versions.chrome) assertTLSRuntimeIdentity(fingerprint, process.versions.chrome)
   if (typeof profileSession.setFingerprintConfig !== 'function') {
     throw new ProfileValidationError('当前运行时不包含指纹配置接口，请使用本项目编译的 Electron。')
   }
+  if (process.versions.chrome) assertTLSRuntimeIdentity(fingerprint, process.versions.chrome)
+  assertFingerprintCapabilities(profileSession, fingerprint)
   if (typeof profileSession.getFingerprintConfig === 'function') {
     const existing = profileSession.getFingerprintConfig()
     if (existing && isDeepStrictEqual(comparableFingerprint(existing), comparableFingerprint(fingerprint))) return ''

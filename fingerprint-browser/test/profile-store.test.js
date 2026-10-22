@@ -114,11 +114,13 @@ function run () {
   assert.equal(runtimeExecutable('内核', 'darwin'), path.join('内核', 'Electron.app', 'Contents', 'MacOS', 'Electron'))
   assert.equal(runtimeExecutable('内核', 'linux'), path.join('内核', 'electron'))
 
+  const capabilities = { schemaVersion: 1, chromiumVersion: process.versions.chrome, unicodeConfigTransport: true, webgpuAdapterBlocking: true, workerLanguageList: true }
+  const supportedRuntime = { getFingerprintCapabilities: () => capabilities }
   const source = getDefaultProfile()
   const original = structuredClone(source)
   let calls = 0
   let accepted
-  const oldRuntime = { setFingerprintConfig (config) {
+  const oldRuntime = { ...supportedRuntime, setFingerprintConfig (config) {
     calls++
     if (Object.hasOwn(config.modules, 'runtimeInspector')) throw new Error('Fingerprint 配置包含不支持字段: modules.runtimeInspector')
     accepted = config
@@ -131,20 +133,59 @@ function run () {
   source.modules.runtimeInspector = true
   assert.throws(() => applyFingerprintConfig(oldRuntime, source), /最新构建/)
   assert.equal(calls, 3)
-  assert.equal(applyFingerprintConfig({ setFingerprintConfig (config) { assert.equal(config.modules.runtimeInspector, true) } }, source), '')
+  assert.equal(applyFingerprintConfig({ ...supportedRuntime, setFingerprintConfig (config) { assert.equal(config.modules.runtimeInspector, true) } }, source), '')
   assert.equal(applyFingerprintConfig({
+    ...supportedRuntime,
     getFingerprintConfig: () => ({ ...original, modules: { ...original.modules, runtimeInspector: undefined } }),
     setFingerprintConfig () { throw new Error('不应重复设置已经锁定的配置。') }
   }, original), '')
   assert.throws(() => applyFingerprintConfig({
+    ...supportedRuntime,
     getFingerprintConfig: () => ({ ...original, hardware: { ...original.hardware, hardwareConcurrency: 2 } }),
     setFingerprintConfig () { throw new Error('不应更换已经锁定的配置。') }
   }, original), /已经锁定另一份/)
   assert.throws(() => applyFingerprintConfig({}, source), /不包含指纹配置接口/)
   let failedCalls = 0
-  assert.throws(() => applyFingerprintConfig({ setFingerprintConfig () { failedCalls++; throw new Error('其他错误') } }, original), /检查配置/)
+  assert.throws(() => applyFingerprintConfig({ ...supportedRuntime, setFingerprintConfig () { failedCalls++; throw new Error('其他错误') } }, original), /检查配置/)
   assert.equal(failedCalls, 1)
+  let nativeCalls = 0
+  let existingReads = 0
+  const capabilityRuntime = {
+    getFingerprintConfig () { existingReads++; return original },
+    setFingerprintConfig () { nativeCalls++ }
+  }
+  assert.throws(() => applyFingerprintConfig(capabilityRuntime, original), /指纹能力查询接口/)
+  assert.equal(existingReads, 0, '相同配置的早返回不能绕过运行时能力检查。')
+  for (const declared of [null, { ...capabilities, schemaVersion: 2 }, { ...capabilities, chromiumVersion: '138.0.7204.186' }]) {
+    assert.throws(() => applyFingerprintConfig({ ...capabilityRuntime, getFingerprintCapabilities: () => declared }, original), /内核版本不一致/)
+  }
+  for (const [key, message] of [['webgpuAdapterBlocking', /WebGPU/], ['workerLanguageList', /工作线程/]]) {
+    assert.throws(() => applyFingerprintConfig({ ...capabilityRuntime, getFingerprintCapabilities: () => ({ ...capabilities, [key]: false }) }, original), message)
+  }
+  assert.throws(() => applyFingerprintConfig({ ...capabilityRuntime, getFingerprintCapabilities () { throw new Error('底层错误') } }, original), error => /无法读取当前运行时/.test(error.message) && !error.message.includes('底层错误'))
+  assert.equal(nativeCalls, 0)
+  assert.equal(existingReads, 0)
+  const noNewFeatures = structuredClone(original)
+  noNewFeatures.modules.webgl = false
+  noNewFeatures.modules.locale = false
+  assert.equal(applyFingerprintConfig({ setFingerprintConfig () { nativeCalls++ } }, noNewFeatures), '')
+  const unicode = structuredClone(noNewFeatures)
+  unicode.id = '中文环境-😀'
+  assert.throws(() => applyFingerprintConfig({ setFingerprintConfig () { nativeCalls++ } }, unicode), /指纹能力查询接口/)
+  assert.throws(() => applyFingerprintConfig({ ...supportedRuntime, getFingerprintCapabilities: () => ({ ...capabilities, unicodeConfigTransport: false }), setFingerprintConfig () { nativeCalls++ } }, unicode), /中文及特殊字符/)
+  assert.equal(applyFingerprintConfig({ getFingerprintCapabilities: () => ({ schemaVersion: 1, chromiumVersion: process.versions.chrome, unicodeConfigTransport: true }), setFingerprintConfig () { nativeCalls++ } }, unicode), '')
+  const disabled = { ...unicode, enabled: false }
+  assert.equal(applyFingerprintConfig({ setFingerprintConfig () { nativeCalls++ } }, disabled), '')
+  assert.equal(nativeCalls, 3, '原生行为和关闭配置不得强制新能力接口。')
+  const invalidUA = structuredClone(original)
+  invalidUA.browser.userAgent = 'Chrome/120.0.0.0'
+  assert.throws(() => applyFingerprintConfig({}, invalidUA), /不包含指纹配置接口/)
   console.log('配置存储、启动参数和运行时兼容自检通过。')
 }
 
-run()
+const previousChrome = Object.getOwnPropertyDescriptor(process.versions, 'chrome')
+Object.defineProperty(process.versions, 'chrome', { value: '138.0.7204.185', configurable: true })
+try { run() } finally {
+  if (previousChrome) Object.defineProperty(process.versions, 'chrome', previousChrome)
+  else delete process.versions.chrome
+}

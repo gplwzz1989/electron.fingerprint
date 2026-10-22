@@ -83,6 +83,7 @@ let mockSessionInstance = {
   setProxy: async () => {},
   resolveProxy: async () => 'DIRECT',
   setFingerprintConfig: () => {},
+  getFingerprintCapabilities: () => ({ schemaVersion: 1, chromiumVersion: '138.0.7204.185', unicodeConfigTransport: true, webgpuAdapterBlocking: true, workerLanguageList: true }),
   cookies: {
     flushStore: async () => {}
   }
@@ -258,7 +259,14 @@ async function run () {
   console.log('OAuth 弹窗分流与生命周期管理自检通过。')
 }
 
-void run().catch(err => {
-  console.error('测试失败:', err)
-  process.exit(1)
-})
+void (async () => {
+  const previousChrome = Object.getOwnPropertyDescriptor(process.versions, 'chrome')
+  Object.defineProperty(process.versions, 'chrome', { value: '138.0.7204.185', configurable: true })
+  try { await run() } catch (err) {
+    console.error('测试失败:', err)
+    process.exitCode = 1
+  } finally {
+    if (previousChrome) Object.defineProperty(process.versions, 'chrome', previousChrome)
+    else delete process.versions.chrome
+  }
+})()

@@ -582,6 +582,16 @@ namespace {
 
 const char kPersistPrefix[] = "persist:";
 
+base::Value::Dict GetFingerprintCapabilities() {
+  // 声明运行时集成的能力；实际行为仍由对应诊断验收。
+  return base::Value::Dict()
+      .Set("schemaVersion", 1)
+      .Set("chromiumVersion", std::string(version_info::GetVersionNumber()))
+      .Set("unicodeConfigTransport", true)
+      .Set("webgpuAdapterBlocking", true)
+      .Set("workerLanguageList", true);
+}
+
 base::Value::Dict GetTLSFingerprintCapabilities() {
   base::Value::List supported_group_ids;
   for (const int group : {23, 24, 29, 4588, 25497})
@@ -1949,6 +1959,7 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("getUserAgent", &Session::GetUserAgent)
       .SetMethod("setFingerprintConfig", &Session::SetFingerprintConfig)
       .SetMethod("getFingerprintConfig", &Session::GetFingerprintConfig)
+      .SetMethod("getFingerprintCapabilities", &GetFingerprintCapabilities)
       .SetMethod("clearFingerprintConfig", &Session::ClearFingerprintConfig)
       .SetMethod("setSSLConfig", &Session::SetSSLConfig)
       .SetMethod("getTLSFingerprintCapabilities", &GetTLSFingerprintCapabilities)
