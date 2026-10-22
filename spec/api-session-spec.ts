@@ -2503,6 +2503,10 @@ describe('session module', () => {
       expect(capabilities.quic).to.equal(false);
       expect(capabilities.supportedGroups).to.equal(true);
       expect(capabilities.signatureAlgorithms).to.equal(true);
+      expect(capabilities.alpsCodepoints).to.deep.equal([17513, 17613]);
+      for (const alpsCodepoint of capabilities.alpsCodepoints) {
+        ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, alpsCodepoint } });
+      }
       ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, cipherSuites: [0xc030, 0xc02f], supportedGroups: [29, 23], signatureAlgorithms: [0x0804, 0x0403], permuteExtensions: false } });
       for (const policy of [
         { chromiumVersion: '139.0.0.0' }, { cipherSuites: [] }, { cipherSuites: [0x1301] },
@@ -2513,7 +2517,9 @@ describe('session module', () => {
         { supportedGroups: [4588, 29], postQuantumKeyAgreementEnabled: false },
         { signatureAlgorithms: [] }, { signatureAlgorithms: [0x0201] },
         { signatureAlgorithms: [0x0804, 0x0804] }, { signatureAlgorithms: [0x0804 + 0.5] },
-        { signatureAlgorithms: null }
+        { signatureAlgorithms: null },
+        { alpsCodepoint: 0 }, { alpsCodepoint: 17513.5 }, { alpsCodepoint: '17513' },
+        { alpsCodepoint: null }, { alpsCodepoint: 17514 }
       ]) {
         expect(() => ses.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, ...policy } })).to.throw('TLS 指纹配置无效');
       }

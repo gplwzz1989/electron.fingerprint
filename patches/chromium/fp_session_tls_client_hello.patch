@@ -4,7 +4,7 @@ Subject: [PATCH] fp: 增加会话级 TLS 套件、曲线、签名顺序与扩展
 diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/public/mojom/ssl_config.mojom
 --- a/services/network/public/mojom/ssl_config.mojom
 +++ b/services/network/public/mojom/ssl_config.mojom
-@@ -29,6 +29,12 @@
+@@ -29,6 +29,14 @@
    // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
    array<uint16> disabled_cipher_suites;
 
@@ -12,6 +12,8 @@ diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/p
 +  array<uint16> fingerprint_cipher_suites;
 +  array<uint16> fingerprint_supported_groups;
 +  array<uint16> fingerprint_signature_algorithms;
++  // 0 沿用原生 ALPS 编号，17513 和 17613 分别选择旧版和新版。
++  uint16 fingerprint_alps_codepoint = 0;
 +  bool fingerprint_permute_extensions = true;
 +
    // Patterns for matching hostnames to determine when to allow connection
@@ -20,7 +22,7 @@ diff --git a/services/network/public/mojom/ssl_config.mojom b/services/network/p
 diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
 --- a/net/ssl/ssl_config_service.h
 +++ b/net/ssl/ssl_config_service.h
-@@ -41,6 +41,12 @@
+@@ -41,6 +41,13 @@
    // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
    // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
    std::vector<uint16_t> disabled_cipher_suites;
@@ -29,6 +31,7 @@ diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
 +  std::vector<uint16_t> fingerprint_cipher_suites;
 +  std::vector<uint16_t> fingerprint_supported_groups;
 +  std::vector<uint16_t> fingerprint_signature_algorithms;
++  uint16_t fingerprint_alps_codepoint = 0;
 +  bool fingerprint_permute_extensions = true;
 
    // Controls whether post-quantum key agreement in TLS connections is allowed.
@@ -36,7 +39,7 @@ diff --git a/net/ssl/ssl_config_service.h b/net/ssl/ssl_config_service.h
 diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ssl_config_type_converter.cc
 --- a/services/network/ssl_config_type_converter.cc
 +++ b/services/network/ssl_config_type_converter.cc
-@@ -32,6 +32,13 @@
+@@ -32,6 +32,14 @@
    DCHECK_LE(net_config.version_min, net_config.version_max);
 
    net_config.disabled_cipher_suites = mojo_config->disabled_cipher_suites;
@@ -45,6 +48,7 @@ diff --git a/services/network/ssl_config_type_converter.cc b/services/network/ss
 +      mojo_config->fingerprint_supported_groups;
 +  net_config.fingerprint_signature_algorithms =
 +      mojo_config->fingerprint_signature_algorithms;
++  net_config.fingerprint_alps_codepoint = mojo_config->fingerprint_alps_codepoint;
 +  net_config.fingerprint_permute_extensions =
 +      mojo_config->fingerprint_permute_extensions;
    net_config.post_quantum_key_agreement_enabled =
@@ -140,7 +144,19 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 +                                      verify_prefs.size())) {
      return ERR_UNEXPECTED;
    }
-@@ -829,7 +890,8 @@
+@@ -770,5 +831,10 @@
++  const uint16_t alps_codepoint = context_->config().fingerprint_alps_codepoint;
++  if (alps_codepoint != 0 && alps_codepoint != 17513 && alps_codepoint != 17613)
++    return ERR_INVALID_ARGUMENT;
+   SSL_set_alps_use_new_codepoint(
+       ssl_.get(),
+-      base::FeatureList::IsEnabled(features::kUseNewAlpsCodepointHttp2));
++      alps_codepoint == 0
++          ? base::FeatureList::IsEnabled(features::kUseNewAlpsCodepointHttp2)
++          : alps_codepoint == 17613);
+
+   if (!ssl_config_.alpn_protos.empty()) {
+@@ -829,7 +895,8 @@
      }
    }
 
@@ -153,10 +169,20 @@ diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket
 diff --git a/services/network/ssl_config_service_mojo_unittest.cc b/services/network/ssl_config_service_mojo_unittest.cc
 --- a/services/network/ssl_config_service_mojo_unittest.cc
 +++ b/services/network/ssl_config_service_mojo_unittest.cc
-@@ -359,6 +359,26 @@
+@@ -359,6 +359,36 @@
    }
  }
 
++TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintAlpsCodepoints) {
++  for (uint16_t codepoint : {0, 17513, 17613}) {
++    net::SSLContextConfig expected_net_config;
++    expected_net_config.fingerprint_alps_codepoint = codepoint;
++    auto mojo_config = mojom::SSLConfig::New();
++    mojo_config->fingerprint_alps_codepoint = codepoint;
++    RunConversionTests(*mojo_config, expected_net_config);
++  }
++}
++
 +TEST_F(NetworkServiceSSLConfigServiceTest, FingerprintCipherOrderAndExtensions) {
 +  net::SSLContextConfig expected_net_config;
 +  expected_net_config.fingerprint_cipher_suites = {0xc030, 0xc02f};

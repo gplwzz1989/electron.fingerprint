@@ -472,7 +472,7 @@ struct Converter<network::mojom::SSLConfigPtr> {
     if (options.Has("fingerprint")) {
       auto invalid = [&] {
         gin_helper::ErrorThrower(isolate).ThrowTypeError(
-            "TLS 指纹配置无效：请使用当前内核版本、有效的密码套件和布尔策略。");
+            "TLS 指纹配置无效：请使用当前内核版本及支持的 TLS 算法、顺序和扩展策略。");
         return false;
       };
       base::Value::Dict fingerprint;
@@ -483,7 +483,8 @@ struct Converter<network::mojom::SSLConfigPtr> {
             entry.first != "permuteExtensions" && entry.first != "echEnabled" &&
             entry.first != "postQuantumKeyAgreementEnabled" &&
             entry.first != "supportedGroups" &&
-            entry.first != "signatureAlgorithms") {
+            entry.first != "signatureAlgorithms" &&
+            entry.first != "alpsCodepoint") {
           return invalid();
         }
       }
@@ -497,6 +498,11 @@ struct Converter<network::mojom::SSLConfigPtr> {
                               "postQuantumKeyAgreementEnabled"}) {
         if (const auto* value = fingerprint.Find(key); value && !value->is_bool())
           return invalid();
+      }
+      if (const auto* alps = fingerprint.Find("alpsCodepoint")) {
+        if (!alps->is_int() || (alps->GetInt() != 17513 && alps->GetInt() != 17613))
+          return invalid();
+        (*out)->fingerprint_alps_codepoint = alps->GetInt();
       }
       (*out)->fingerprint_permute_extensions =
           fingerprint.FindBool("permuteExtensions").value_or(true);
@@ -575,6 +581,9 @@ namespace {
 const char kPersistPrefix[] = "persist:";
 
 base::Value::Dict GetTLSFingerprintCapabilities() {
+  base::Value::List alps_codepoints;
+  alps_codepoints.Append(17513);
+  alps_codepoints.Append(17613);
   return base::Value::Dict()
       .Set("schemaVersion", 1)
       .Set("transport", "tcp")
@@ -586,6 +595,7 @@ base::Value::Dict GetTLSFingerprintCapabilities() {
       .Set("extensionPermutation", true)
       .Set("supportedGroups", true)
       .Set("signatureAlgorithms", true)
+      .Set("alpsCodepoints", std::move(alps_codepoints))
       .Set("ech", true)
       .Set("postQuantumKeyAgreement", true);
 }

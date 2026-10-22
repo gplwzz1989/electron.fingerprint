@@ -171,12 +171,18 @@ async function run () {
         await capture('reset', route, current)
       } else await capture(name, route, current)
     }
+    if (name === 'native' && !baselineOnly) {
+      const nativeALPS = report.samples[0].hello.extensions.filter(id => [17513, 17613].includes(id))
+      if (nativeALPS.length !== 1) throw new Error('原生握手未提供唯一的 ALPS 扩展，无法验证码点切换。')
+      custom.alpsCodepoint = nativeALPS[0] === 17513 ? 17613 : 17513
+    }
   }
   const original = report.samples[0].hello
   for (const sample of report.samples) {
     const customized = ['custom', 'update-custom'].includes(sample.name)
     check(`${sample.name} ${sample.route} 握手策略`, () => {
       const hello = sample.hello
+      assert.deepEqual(hello.extensions.filter(id => [17513, 17613].includes(id)), customized ? [custom.alpsCodepoint] : original.extensions.filter(id => [17513, 17613].includes(id)))
       if (customized) {
         assert.deepEqual(hello.ciphers.filter(id => !isGrease(id) && ![0x1301, 0x1302, 0x1303].includes(id)), custom.cipherSuites)
         assert.deepEqual(hello.ciphers.filter(id => [0x1301, 0x1302, 0x1303].includes(id)), original.ciphers.filter(id => [0x1301, 0x1302, 0x1303].includes(id)))
@@ -216,7 +222,8 @@ async function run () {
   }
   if (!baselineOnly) {
     const validation = session.fromPartition('tls-validation')
-    for (const invalid of [{ chromiumVersion: '139.0.0.0' }, { cipherSuites: [0x1301] }, { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] }, { supportedGroups: [] }, { supportedGroups: [29, 29] }, { supportedGroups: [4588], postQuantumKeyAgreementEnabled: false }, { signatureAlgorithms: [0x0201] }, { signatureAlgorithms: [0x0804, 0x0804] }, { permuteExtensions: 'false' }, { unknown: true }]) {
+    check('ALPS 码点能力声明', () => assert.deepEqual(validation.getTLSFingerprintCapabilities().alpsCodepoints, [17513, 17613]))
+    for (const invalid of [{ chromiumVersion: '139.0.0.0' }, { cipherSuites: [0x1301] }, { cipherSuites: [0xc02f, 0xc02f] }, { cipherSuites: [0xc02f + 0.5] }, { supportedGroups: [] }, { supportedGroups: [29, 29] }, { supportedGroups: [4588], postQuantumKeyAgreementEnabled: false }, { signatureAlgorithms: [0x0201] }, { signatureAlgorithms: [0x0804, 0x0804] }, { alpsCodepoint: 0 }, { alpsCodepoint: null }, { alpsCodepoint: 17513.5 }, { alpsCodepoint: '17513' }, { permuteExtensions: 'false' }, { unknown: true }]) {
       check('非法 TLS 策略拒绝', () => assert.throws(() => validation.setSSLConfig({ fingerprint: { chromiumVersion: process.versions.chrome, ...invalid } })))
     }
     const profile = getDefaultProfile()

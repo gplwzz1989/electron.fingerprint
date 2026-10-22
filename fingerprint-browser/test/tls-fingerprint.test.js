@@ -79,6 +79,22 @@ for (const field of ['cipherSuites', 'supportedGroups', 'signatureAlgorithms']) 
 for (const field of ['supportedGroups', 'signatureAlgorithms']) {
   assert.throws(() => applyTLSFingerprintConfig({ ...fakeSession, getTLSFingerprintCapabilities: () => ({ ...capabilities, [field]: false }) }, storedPolicy, version), /不支持 TLS 策略字段/)
 }
+const alpsSession = { ...fakeSession, getTLSFingerprintCapabilities: () => ({ ...capabilities, alpsCodepoints: [17513, 17613] }) }
+for (const alpsCodepoint of [17513, 17613]) {
+  const alpsPolicy = { ...storedPolicy, alpsCodepoint }
+  assert.equal(createProfileRecord({ fingerprint: getDefaultProfile(), tlsFingerprint: alpsPolicy }).tlsFingerprint.alpsCodepoint, alpsCodepoint)
+  applyTLSFingerprintConfig(alpsSession, alpsPolicy, version)
+  assert.equal(applied.fingerprint.alpsCodepoint, alpsCodepoint)
+  assert.throws(() => applyTLSFingerprintConfig(fakeSession, alpsPolicy, version), /不支持所选的 ALPS/)
+}
+for (const alpsCodepoint of [0, null, undefined, 17513.5, '17513', [], 65535]) {
+  assert.throws(() => createTLSFingerprintConfig({ ...storedPolicy, alpsCodepoint }), /ALPS/)
+}
+for (const alpsCodepoints of [[17513], ['17613'], true, null]) {
+  assert.throws(() => applyTLSFingerprintConfig({ ...alpsSession, getTLSFingerprintCapabilities: () => ({ ...capabilities, alpsCodepoints }) }, { ...storedPolicy, alpsCodepoint: 17613 }, version), /不支持所选的 ALPS/)
+}
+applyTLSFingerprintConfig(fakeSession, storedPolicy, version)
+assert.equal(Object.hasOwn(applied.fingerprint, 'alpsCodepoint'), false, '未声明 ALPS 标识时应保持原生默认。')
 let firstCalls = 0
 let secondCalls = 0
 const firstSession = { ...fakeSession, setSSLConfig () { firstCalls++ } }

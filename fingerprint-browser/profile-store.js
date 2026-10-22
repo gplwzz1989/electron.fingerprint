@@ -258,12 +258,15 @@ function createProxyConfig (input) {
 function createTLSFingerprintConfig (input) {
   if (input === undefined || input === null) return undefined
   ensureObject(input, 'TLS 策略')
-  ensureOnlyKeys(input, ['chromiumVersion', 'cipherSuites', 'permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled', 'supportedGroups', 'signatureAlgorithms'], 'TLS 策略')
+  ensureOnlyKeys(input, ['chromiumVersion', 'cipherSuites', 'permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled', 'supportedGroups', 'signatureAlgorithms', 'alpsCodepoint'], 'TLS 策略')
   if (typeof input.chromiumVersion !== 'string' || !/^138\.\d+\.\d+\.\d+$/.test(input.chromiumVersion)) {
     fail('TLS 策略必须声明当前 Chrome 138 内核的完整版本。')
   }
   for (const key of ['permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled']) {
     if (Object.hasOwn(input, key)) ensureBoolean(input[key], `TLS 策略 ${key}`)
+  }
+  if (Object.hasOwn(input, 'alpsCodepoint') && ![17513, 17613].includes(input.alpsCodepoint)) {
+    fail('TLS 策略的 ALPS 扩展标识必须为整数 17513 或 17613。')
   }
   const supported = {
     cipherSuites: [0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035],
