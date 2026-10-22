@@ -36,12 +36,16 @@ void ApplyClientHintsOverride(const FingerprintConfig& config,
 
   const std::string major_version =
       base::NumberToString(config.browser.chromium_major);
-  const std::string full_version = major_version + ".0.0.0";
-  for (auto& brand : metadata->brand_version_list)
-    brand.version = major_version;
-  for (auto& brand : metadata->brand_full_version_list)
-    brand.version = full_version;
-  metadata->full_version = full_version;
+  for (auto& brand : metadata->brand_version_list) {
+    if (brand.brand == "Chromium" || brand.brand == "Google Chrome")
+      brand.version = major_version;
+  }
+  for (auto& brand : metadata->brand_full_version_list) {
+    if ((brand.brand == "Chromium" || brand.brand == "Google Chrome") &&
+        !metadata->full_version.empty()) {
+      brand.version = metadata->full_version;
+    }
+  }
 }
 
 base::Value::Dict FingerprintConfig::ToValue() const {

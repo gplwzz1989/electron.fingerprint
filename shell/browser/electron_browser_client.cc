@@ -25,6 +25,8 @@
 #include "base/process/process_metrics.h"
 #include "base/strings/escape.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -128,6 +130,7 @@
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/badging/badging.mojom.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_switches.h"
 #include "ui/native_theme/native_theme.h"
 #include "v8/include/v8.h"
 
@@ -609,11 +612,30 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
       const auto* fingerprint_config =
           electron_browser_context->fingerprint_context()->GetConfig();
       if (fingerprint_config && fingerprint_config->enabled) {
+        if (fingerprint_config->modules.locale &&
+            !fingerprint_config->locale.language.empty()) {
+          command_line->AppendSwitchASCII(::switches::kLang,
+                                          fingerprint_config->locale.language);
+        }
+        if (fingerprint_config->modules.webgl) {
+          command_line->AppendSwitch("disable-webgpu");
+        }
         std::string serialized_config;
         if (base::JSONWriter::Write(base::Value(fingerprint_config->ToValue()),
                                     &serialized_config)) {
+          // 标准 JSON 转义保留 Unicode 内容，兼容既有 ASCII 配置消费者。
+          std::string ascii_config;
+          ascii_config.reserve(serialized_config.size());
+          for (char16_t code_unit : base::UTF8ToUTF16(serialized_config)) {
+            if (code_unit <= 0x7f) {
+              ascii_config.push_back(static_cast<char>(code_unit));
+            } else {
+              base::StringAppendF(&ascii_config, "\\u%04x",
+                                  static_cast<unsigned>(code_unit));
+            }
+          }
           command_line->AppendSwitchASCII(switches::kFingerprintConfig,
-                                          serialized_config);
+                                          ascii_config);
         }
       }
 
@@ -971,6 +993,10 @@ bool ElectronBrowserClient::HandleExternalProtocol(
     content::RenderFrameHost* initiator_document,
     const net::IsolationInfo& isolation_info,
     mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) {
+  if (!is_primary_main_frame && !has_user_gesture) {
+    // 与 Chrome、Edge 一致，阻止网页隐藏 iframe 在没有用户操作时唤起外部协议。
+    return true;
+  }
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&HandleExternalProtocolInUI, url,
