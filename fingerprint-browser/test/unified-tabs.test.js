@@ -246,6 +246,15 @@ async function run () {
   await record('环境详情概览、指纹快照和本地活动面板通过')
 
   const tooltipFor = async () => await dashboard.webContents.executeJavaScript("document.querySelector('#unified-fingerprint').title")
+  const inactiveUA = await dashboard.webContents.executeJavaScript(`(() => {
+    const tab = activeUnifiedTab()
+    const fingerprint = structuredClone(tab.fingerprint)
+    fingerprint.browser.userAgent = 'Mozilla/5.0 Chrome/120.0.0.0'
+    fingerprint.modules.ua = false
+    return { userAgent: tab.userAgent, tooltip: fingerprintTooltip({ ...tab, fingerprint }) }
+  })()`)
+  assert.ok(inactiveUA.tooltip.includes(`用户代理：${inactiveUA.userAgent}`), '关闭用户代理模块时应显示当前实际值。')
+  assert.ok(inactiveUA.tooltip.includes('保存配置未生效：Mozilla/5.0 Chrome/120.0.0.0'), '未生效的保存用户代理应明确标注。')
   assert.match(await tooltipFor(), /环境二 · 纽约.*配置版本 1/)
   assert.match(await tooltipFor(), /12 线程/)
   assert.match(await tooltipFor(), /代理：网页代理/)

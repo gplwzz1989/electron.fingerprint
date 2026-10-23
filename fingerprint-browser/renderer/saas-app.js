@@ -1132,7 +1132,7 @@ function fingerprintTooltip (tab) {
     `代理：${{ direct: '直连（不使用代理）', http: '网页代理', socks5: '套接字代理' }[proxy.mode]}`,
     ...(proxy.mode === 'direct' ? [] : [`代理地址：${proxy.server}`, `代理账户：${proxy.username || '未配置'}`, `代理密码：${proxy.hasPassword ? '已配置（已隐藏）' : '未配置'}`]),
     `浏览器：${browser.family} · 内核主版本 ${browser.chromiumMajor}`,
-    `用户代理：${browser.userAgent || tab.userAgent || '使用内核默认值'}`,
+    `用户代理：${tab.userAgent || '使用内核默认值'}${browser.userAgent && (!tab.fingerprint.enabled || !modules.ua) ? `（保存配置未生效：${browser.userAgent}）` : ''}`,
     `平台：${hardware.platform}`,
     `语言：${locale.language} · 语言列表：${locale.languages.join('、')}`,
     `请求语言：${browser.acceptLanguage || '使用内核默认值'}`,
