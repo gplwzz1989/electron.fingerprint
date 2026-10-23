@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const { getDefaultProfile, createProfileRecord, createTLSFingerprintConfig } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
-const { assertTLSRuntimeIdentity, applyTLSFingerprintConfig, applyEnvironmentTLSFingerprintConfig } = require('../tls-fingerprint')
+const { assertTLSRuntimeIdentity, assertTLSFingerprintRuntimeVersion, applyTLSFingerprintConfig, applyEnvironmentTLSFingerprintConfig } = require('../tls-fingerprint')
 
 const version = '138.0.7204.185'
 const profile = getDefaultProfile()
@@ -62,6 +62,9 @@ assert.throws(() => applyTLSFingerprintConfig(fakeSession, { chromiumVersion: '1
 assert.throws(() => applyTLSFingerprintConfig({ ...fakeSession, getTLSFingerprintCapabilities: () => null }, policy, version), /不一致/)
 assert.throws(() => applyTLSFingerprintConfig({ ...fakeSession, getTLSFingerprintCapabilities () { throw new Error('底层错误') } }, policy, version), /无法读取当前运行时/)
 const storedPolicy = { chromiumVersion: version, ...policy, supportedGroups: [29, 23], signatureAlgorithms: [0x0403, 0x0804], postQuantumKeyAgreementEnabled: false }
+assert.deepEqual(assertTLSFingerprintRuntimeVersion(storedPolicy, version), createTLSFingerprintConfig(storedPolicy))
+assert.equal(assertTLSFingerprintRuntimeVersion(null, version), undefined, '显式清除 TLS 策略应通过版本校验。')
+assert.throws(() => assertTLSFingerprintRuntimeVersion({ ...storedPolicy, chromiumVersion: '138.0.7204.186' }, version), /当前内核版本不一致/)
 const record = createProfileRecord({ fingerprint: getDefaultProfile(), tlsFingerprint: storedPolicy })
 assert.deepEqual(record.tlsFingerprint, storedPolicy)
 record.tlsFingerprint.cipherSuites.reverse()

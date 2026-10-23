@@ -14,6 +14,12 @@ function chromeVersionFromUserAgent (userAgent) {
   return version
 }
 
+function assertTLSFingerprintRuntimeVersion (policy, chromiumVersion = process.versions.chrome, message = 'TLS 策略与当前内核版本不一致，请使用匹配的运行时。') {
+  const normalized = createTLSFingerprintConfig(policy)
+  if (normalized && normalized.chromiumVersion !== chromiumVersion) throw new ProfileValidationError(message)
+  return normalized
+}
+
 function assertTLSRuntimeIdentity (fingerprint, chromiumVersion) {
   if (!fingerprint.enabled || !(fingerprint.modules.ua || fingerprint.modules.clientHints)) return
   const major = Number(chromiumVersion?.split('.')[0])
@@ -46,8 +52,7 @@ function applyTLSFingerprintConfig (profileSession, policy, chromiumVersion = pr
 }
 
 function applyEnvironmentTLSFingerprintConfig (profileSession, policy, chromiumVersion = process.versions.chrome) {
-  const normalized = createTLSFingerprintConfig(policy)
-  if (normalized && normalized.chromiumVersion !== chromiumVersion) throw new ProfileValidationError('环境 TLS 策略与当前内核版本不一致，请使用匹配的运行时。')
+  const normalized = assertTLSFingerprintRuntimeVersion(policy, chromiumVersion, '环境 TLS 策略与当前内核版本不一致，请使用匹配的运行时。')
   if (environmentPolicies.has(profileSession)) {
     if (!isDeepStrictEqual(environmentPolicies.get(profileSession), normalized)) throw new ProfileValidationError('该环境会话已经锁定另一份 TLS 策略，请重启客户端后重新打开以生效。')
     return
@@ -57,4 +62,4 @@ function applyEnvironmentTLSFingerprintConfig (profileSession, policy, chromiumV
   environmentPolicies.set(profileSession, normalized)
 }
 
-module.exports = { chromeVersionFromUserAgent, assertTLSRuntimeIdentity, applyTLSFingerprintConfig, applyEnvironmentTLSFingerprintConfig }
+module.exports = { chromeVersionFromUserAgent, assertTLSRuntimeIdentity, assertTLSFingerprintRuntimeVersion, applyTLSFingerprintConfig, applyEnvironmentTLSFingerprintConfig }

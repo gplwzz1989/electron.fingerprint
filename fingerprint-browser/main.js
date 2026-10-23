@@ -7,6 +7,7 @@ const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
 const { ProfileRepository } = require('./profile-repository')
 const { previewFingerprintProfile, assertFingerprintSave } = require('./fingerprint-review')
+const { assertTLSFingerprintRuntimeVersion } = require('./tls-fingerprint')
 const { dataRoot: resolveDataRoot } = require('./data-directory')
 const {
   DEFAULT_URL,
@@ -299,6 +300,7 @@ function registerIpc () {
         if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
       }
       if (Object.hasOwn(update, 'fingerprint')) assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy)
+      if (Object.hasOwn(update, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(update.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const environment = await environmentRepository.updateProfile(payload?.id, update)
       tabBrowser.updateEnvironmentProfile(environment)
       dashboardWindow?.webContents.send('environments:changed')
@@ -406,6 +408,7 @@ function registerIpc () {
     try {
       assertTrusted(event)
       assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy)
+      if (Object.hasOwn(payload || {}, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(payload.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const nextProfile = await profileRepository.save(payload)
       tabBrowser.window?.webContents.send('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }
