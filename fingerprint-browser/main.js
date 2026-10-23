@@ -26,7 +26,8 @@ const {
 const { AutomationServer } = require('./automation-server')
 const { MediaHub } = require('./media-hub')
 const { CreatorHub } = require('./creator-hub')
-const { detectExitIp } = require('./geo-ip')
+const { detectExitIp, alignFingerprintWithGeo } = require('./geo-ip')
+const { generateRandomHardwareProfile, getRecommendedGPUList } = require('./webgl-topology')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -222,6 +223,29 @@ function registerIpc () {
       return { ok: true, data }
     } catch (error) {
       return errorResult('探测出口IP', error, error?.message || '探测公网出口 IP 失败。')
+    }
+  })
+
+  ipcMain.handle('proxy:align-geo', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const { profile, proxy, timeout } = payload || {}
+      const geoInfo = await detectExitIp({ proxy, timeout })
+      const aligned = alignFingerprintWithGeo(profile, geoInfo)
+      return { ok: true, geoInfo, aligned }
+    } catch (error) {
+      return errorResult('对齐代理地理环境', error, error?.message || '探测代理或对齐地理环境失败。')
+    }
+  })
+
+  ipcMain.handle('profiles:randomHardware', async (event, options) => {
+    try {
+      assertTrusted(event)
+      const platform = options?.platform || (process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32')
+      const hardware = generateRandomHardwareProfile({ platform })
+      return { ok: true, hardware }
+    } catch (error) {
+      return errorResult('生成自洽硬件指纹', error, '生成自洽硬件指纹失败。')
     }
   })
 

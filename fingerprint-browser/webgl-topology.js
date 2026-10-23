@@ -3,6 +3,8 @@
  * 为商业指纹浏览器提供物理级显卡参数对齐（规避 CreepJS / PixelScan 深度显卡拓扑探测）
  */
 
+const crypto = require('node:crypto')
+
 const GPU_HARDWARE_TOPOLOGY = {
   'nvidia-rtx-modern': {
     family: 'NVIDIA RTX (Ampere / Ada Lovelace)',
@@ -307,10 +309,141 @@ function auditGPUProfileConsistency (fingerprint, options = {}) {
   }
 }
 
+const HARDWARE_TOPOLOGY_POOLS = {
+  Win32: [
+    {
+      vendor: 'Google Inc. (NVIDIA)',
+      renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      cpus: [16, 24, 32],
+      screens: [
+        { width: 2560, height: 1440, availWidth: 2560, availHeight: 1400, deviceScaleFactor: 1.25 },
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
+        { width: 3840, height: 2160, availWidth: 3840, availHeight: 2110, deviceScaleFactor: 1.5 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (NVIDIA)',
+      renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      cpus: [12, 16],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
+        { width: 2560, height: 1440, availWidth: 2560, availHeight: 1400, deviceScaleFactor: 1.25 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (NVIDIA)',
+      renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      cpus: [8, 12, 16],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (Intel)',
+      renderer: 'ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      cpus: [8, 12, 16],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 },
+        { width: 1536, height: 864, availWidth: 1536, availHeight: 824, deviceScaleFactor: 1.25 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (Intel)',
+      renderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      cpus: [8, 12],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1.25 }
+      ]
+    }
+  ],
+  MacIntel: [
+    {
+      vendor: 'Google Inc. (Apple)',
+      renderer: 'ANGLE (Apple, Apple M2, OpenGL 4.1 Metal - 88)',
+      cpus: [8],
+      screens: [
+        { width: 1440, height: 900, availWidth: 1440, availHeight: 870, deviceScaleFactor: 2 },
+        { width: 2560, height: 1600, availWidth: 2560, availHeight: 1570, deviceScaleFactor: 2 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (Apple)',
+      renderer: 'ANGLE (Apple, Apple M3 Pro, OpenGL 4.1 Metal - 89)',
+      cpus: [11, 12, 14],
+      screens: [
+        { width: 1512, height: 982, availWidth: 1512, availHeight: 952, deviceScaleFactor: 2 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (Intel Inc.)',
+      renderer: 'ANGLE (Intel Inc., Intel Iris Plus Graphics OpenGL Engine, OpenGL 4.1)',
+      cpus: [4, 8],
+      screens: [
+        { width: 1440, height: 900, availWidth: 1440, availHeight: 870, deviceScaleFactor: 2 }
+      ]
+    }
+  ],
+  'Linux x86_64': [
+    {
+      vendor: 'Google Inc. (Intel Open Source Technology Center)',
+      renderer: 'ANGLE (Intel Open Source Technology Center, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)',
+      cpus: [4, 8],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 }
+      ]
+    },
+    {
+      vendor: 'Google Inc. (NVIDIA Corporation)',
+      renderer: 'ANGLE (NVIDIA Corporation, NVIDIA GeForce GTX 1660 SUPER/PCIe/SSE2, OpenGL 4.5.0)',
+      cpus: [8, 12],
+      screens: [
+        { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, deviceScaleFactor: 1 }
+      ]
+    }
+  ]
+}
+
+/**
+ * 随机生成一套物理级绝对自洽的真实硬件参数组合
+ * @param {object} [options]
+ * @param {'Win32'|'MacIntel'|'Linux x86_64'} [options.platform='Win32'] 目标操作系统平台
+ * @returns {object} 自洽硬件配置包 (hardware, graphics, screen, noise)
+ */
+function generateRandomHardwareProfile (options = {}) {
+  const platform = options.platform || 'Win32'
+  const pool = HARDWARE_TOPOLOGY_POOLS[platform] || HARDWARE_TOPOLOGY_POOLS.Win32
+  const chosenDevice = pool[Math.floor(Math.random() * pool.length)]
+
+  const chosenCpu = chosenDevice.cpus[Math.floor(Math.random() * chosenDevice.cpus.length)]
+  const chosenScreen = chosenDevice.screens[Math.floor(Math.random() * chosenDevice.screens.length)]
+  const seed = crypto.randomUUID().replace(/-/g, '')
+
+  return {
+    hardware: {
+      platform,
+      hardwareConcurrency: chosenCpu,
+      deviceMemory: 8
+    },
+    graphics: {
+      webglVendor: chosenDevice.vendor,
+      webglRenderer: chosenDevice.renderer
+    },
+    screen: { ...chosenScreen },
+    noise: {
+      seed,
+      canvas: true,
+      audio: true,
+      rects: true
+    }
+  }
+}
+
 module.exports = {
   GPU_HARDWARE_TOPOLOGY,
   RECOMMENDED_GPU_CONFIGS,
+  HARDWARE_TOPOLOGY_POOLS,
   getRecommendedGPUList,
   getGPUHardwareTopology,
-  auditGPUProfileConsistency
+  auditGPUProfileConsistency,
+  generateRandomHardwareProfile
 }

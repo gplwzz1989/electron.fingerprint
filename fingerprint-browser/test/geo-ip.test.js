@@ -9,6 +9,9 @@ test('COUNTRY_LOCALE_MAP: 覆盖主要国家和地区语系配置', () => {
   assert.equal(COUNTRY_LOCALE_MAP.CN.language, 'zh-CN')
   assert.ok(COUNTRY_LOCALE_MAP.JP, '必须包含日本配置')
   assert.equal(COUNTRY_LOCALE_MAP.JP.language, 'ja-JP')
+  assert.ok(COUNTRY_LOCALE_MAP.MY, '必须包含马来西亚配置')
+  assert.ok(COUNTRY_LOCALE_MAP.VN, '必须包含越南配置')
+  assert.ok(COUNTRY_LOCALE_MAP.TR, '必须包含土耳其配置')
 })
 
 test('alignFingerprintWithGeo: 正确将 IP 归属地时区与语言对齐到指纹配置', () => {
@@ -22,6 +25,9 @@ test('alignFingerprintWithGeo: 正确将 IP 归属地时区与语言对齐到指
       language: 'zh-CN',
       languages: ['zh-CN', 'zh'],
       timezone: 'Asia/Shanghai'
+    },
+    modules: {
+      webrtc: false
     }
   }
 
@@ -44,7 +50,9 @@ test('alignFingerprintWithGeo: 正确将 IP 归属地时区与语言对齐到指
   assert.equal(aligned.locale.language, 'en-US', '系统语言必须对齐为 en-US')
   assert.deepEqual(aligned.locale.languages, ['en-US', 'en'], '语言偏好列表必须对齐')
   assert.equal(aligned.browser.acceptLanguage, 'en-US,en;q=0.9', 'HTTP Accept-Language 必须对齐')
+  assert.equal(aligned.modules.webrtc, true, '对齐时必须自动开启 WebRTC 代理隔离')
 
   // 保证原始对象不可变性
   assert.equal(baseProfile.locale.timezone, 'Asia/Shanghai', '原对象不得被污染')
+  assert.equal(baseProfile.modules.webrtc, false, '原对象开关不得被污染')
 })

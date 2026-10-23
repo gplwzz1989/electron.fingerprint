@@ -144,6 +144,14 @@ async function run () {
     const gpuAuditJson = await gpuAuditRes.json()
     assert.equal(gpuAuditJson.audit.consistent, true)
 
+    // 测试一键随机物理自洽硬件接口
+    const randomHwRes = await fetch(`${baseUrl}/api/v1/fingerprint/random-hardware?platform=Win32`)
+    assert.equal(randomHwRes.status, 200)
+    const randomHwJson = await randomHwRes.json()
+    assert.equal(randomHwJson.ok, true)
+    assert.equal(randomHwJson.hardware.hardware.platform, 'Win32')
+    assert.ok(randomHwJson.hardware.graphics.webglRenderer.length > 0)
+
     // 9. 拟人化行为动作接口测试 (actions: click, type, scroll, drag)
     const actionEvents = []
     mockTabBrowser.getTab = () => ({

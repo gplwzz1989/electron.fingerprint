@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('browserApi', {
   newPageTab: payload => ipcRenderer.invoke('tabs:new-page', payload),
   showDashboard: () => ipcRenderer.invoke('tabs:dashboard'),
   detectExitIp: options => ipcRenderer.invoke('proxy:detect-ip', options),
+  alignProxyGeo: payload => ipcRenderer.invoke('proxy:align-geo', payload),
+  randomHardware: options => ipcRenderer.invoke('profiles:randomHardware', options),
   getTLSPresets: () => ipcRenderer.invoke('tls:presets'),
   resolveTLSConfig: payload => ipcRenderer.invoke('tls:resolve', payload),
   toggleMediaPopover: bounds => ipcRenderer.invoke('media:toggle-popover', bounds),

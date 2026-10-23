@@ -26,7 +26,14 @@ const COUNTRY_LOCALE_MAP = {
   IT: { language: 'it-IT', languages: ['it-IT', 'it', 'en'], acceptLanguage: 'it-IT,it;q=0.9,en;q=0.8' },
   BR: { language: 'pt-BR', languages: ['pt-BR', 'pt', 'en'], acceptLanguage: 'pt-BR,pt;q=0.9,en;q=0.8' },
   IN: { language: 'en-IN', languages: ['en-IN', 'en', 'hi'], acceptLanguage: 'en-IN,en;q=0.9,hi;q=0.8' },
-  NL: { language: 'nl-NL', languages: ['nl-NL', 'nl', 'en'], acceptLanguage: 'nl-NL,nl;q=0.9,en;q=0.8' }
+  NL: { language: 'nl-NL', languages: ['nl-NL', 'nl', 'en'], acceptLanguage: 'nl-NL,nl;q=0.9,en;q=0.8' },
+  MY: { language: 'ms-MY', languages: ['ms-MY', 'en-US', 'zh-CN'], acceptLanguage: 'ms-MY,ms;q=0.9,en;q=0.8' },
+  TH: { language: 'th-TH', languages: ['th-TH', 'en-US'], acceptLanguage: 'th-TH,th;q=0.9,en;q=0.8' },
+  VN: { language: 'vi-VN', languages: ['vi-VN', 'en-US'], acceptLanguage: 'vi-VN,vi;q=0.9,en;q=0.8' },
+  PH: { language: 'en-PH', languages: ['en-PH', 'tl', 'en'], acceptLanguage: 'en-PH,en;q=0.9,tl;q=0.8' },
+  ID: { language: 'id-ID', languages: ['id-ID', 'en-US'], acceptLanguage: 'id-ID,id;q=0.9,en;q=0.8' },
+  TR: { language: 'tr-TR', languages: ['tr-TR', 'en-US'], acceptLanguage: 'tr-TR,tr;q=0.9,en;q=0.8' },
+  PL: { language: 'pl-PL', languages: ['pl-PL', 'en-US'], acceptLanguage: 'pl-PL,pl;q=0.9,en;q=0.8' }
 }
 
 const DEFAULT_FALLBACK_LOCALE = {
@@ -68,17 +75,67 @@ function fetchJson (url, timeoutMs = 5000) {
 }
 
 /**
- * 探测出口 IP 信息（内置多源容灾）
- * @param {object} options
+ * 通过 HTTP 代理发起 JSON 请求
+ */
+function fetchJsonViaHttpProxy (proxyUrl, targetUrl, timeoutMs = 6000) {
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedProxy = new URL(proxyUrl)
+      const parsedTarget = new URL(targetUrl)
+      const options = {
+        host: parsedProxy.hostname,
+        port: Number(parsedProxy.port) || 80,
+        path: targetUrl,
+        headers: {
+          Host: parsedTarget.host,
+          'User-Agent': 'curl/8.0'
+        }
+      }
+      if (parsedProxy.username || parsedProxy.password) {
+        const auth = Buffer.from(`${decodeURIComponent(parsedProxy.username)}:${decodeURIComponent(parsedProxy.password)}`).toString('base64')
+        options.headers['Proxy-Authorization'] = `Basic ${auth}`
+      }
+      const req = http.get(options, res => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`代理请求失败，状态码: ${res.statusCode}`))
+        }
+        let rawData = ''
+        res.on('data', chunk => { rawData += chunk })
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(rawData))
+          } catch (e) {
+            reject(new Error(`JSON 解析失败: ${e.message}`))
+          }
+        })
+      })
+      req.setTimeout(timeoutMs, () => req.destroy(new Error(`代理请求超时 (${timeoutMs}ms)`)))
+      req.on('error', reject)
+    } catch (err) {
+      reject(err)
+    }
+  })
+}
+
+/**
+ * 探测出口 IP 信息（内置多源容灾与 HTTP 代理通道穿透）
+ * @param {object} [options]
+ * @param {object} [options.proxy] 代理配置 ({ mode: 'http', server: 'http://host:port' })
  * @param {number} [options.timeout=5000] 超时时间
  * @returns {Promise<{ip: string, country: string, countryCode: string, city: string, timezone: string, locale: object}>}
  */
 async function detectExitIp (options = {}) {
   const timeout = options.timeout || 5000
+  const proxy = options.proxy
+  const isHttpProxy = Boolean(proxy && proxy.mode === 'http' && proxy.server)
 
   // 接口 1: ip-api.com
   try {
-    const data = await fetchJson('http://ip-api.com/json/?fields=status,message,country,countryCode,city,timezone,query', timeout)
+    const targetUrl = 'http://ip-api.com/json/?fields=status,message,country,countryCode,city,timezone,query'
+    const data = isHttpProxy
+      ? await fetchJsonViaHttpProxy(proxy.server, targetUrl, timeout)
+      : await fetchJson(targetUrl, timeout)
+
     if (data && data.status === 'success') {
       const countryCode = String(data.countryCode || 'US').toUpperCase()
       const locale = COUNTRY_LOCALE_MAP[countryCode] || DEFAULT_FALLBACK_LOCALE
@@ -97,7 +154,11 @@ async function detectExitIp (options = {}) {
 
   // 接口 2: ipwho.is (备用)
   try {
-    const data = await fetchJson('https://ipwho.is/', timeout)
+    const targetUrl = 'https://ipwho.is/'
+    const data = isHttpProxy
+      ? await fetchJsonViaHttpProxy(proxy.server, targetUrl, timeout)
+      : await fetchJson(targetUrl, timeout)
+
     if (data && data.success) {
       const countryCode = String(data.country_code || 'US').toUpperCase()
       const locale = COUNTRY_LOCALE_MAP[countryCode] || DEFAULT_FALLBACK_LOCALE
@@ -142,6 +203,11 @@ function alignFingerprintWithGeo (profile, geoInfo) {
   // 3. 对齐浏览器 HTTP Accept-Language
   if (geoInfo.locale?.acceptLanguage && updated.browser) {
     updated.browser.acceptLanguage = geoInfo.locale.acceptLanguage
+  }
+
+  // 4. 确保在代理环境下锁定 WebRTC 非代理 UDP 防护
+  if (updated.modules) {
+    updated.modules.webrtc = true
   }
 
   return updated

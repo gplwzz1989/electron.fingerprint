@@ -73,10 +73,33 @@ const auditCore = auditGPUProfileConsistency(weirdCoreProfile)
 assert.ok(auditCore.issues.some(i => i.severity === 'warning' && i.message.includes('偏离主流桌面常见硬件规格')))
 
 // 场景 F: 推荐列表
-const { getRecommendedGPUList } = require('../webgl-topology')
+const { getRecommendedGPUList, generateRandomHardwareProfile } = require('../webgl-topology')
 const winGpus = getRecommendedGPUList('Win32')
 assert.ok(winGpus.length >= 2, 'Win32 应至少提供主流显卡推荐')
 const macGpus = getRecommendedGPUList('MacIntel')
 assert.ok(macGpus.some(g => g.label.includes('Metal')), 'MacIntel 应提供 Metal 显卡推荐')
+
+// 场景 G: 一键随机物理自洽硬件指纹生成器
+for (const plat of ['Win32', 'MacIntel', 'Linux x86_64']) {
+  for (let i = 0; i < 5; i++) {
+    const randomHw = generateRandomHardwareProfile({ platform: plat })
+    assert.equal(randomHw.hardware.platform, plat)
+    assert.ok(randomHw.hardware.hardwareConcurrency >= 4)
+    assert.equal(randomHw.hardware.deviceMemory, 8)
+    assert.ok(randomHw.graphics.webglVendor.length > 0)
+    assert.ok(randomHw.graphics.webglRenderer.length > 0)
+    assert.ok(randomHw.screen.width >= 1280)
+    assert.ok(randomHw.screen.height >= 720)
+    assert.ok(randomHw.noise.seed.length >= 16)
+
+    // 严苛验证生成的随机硬件自身 100% 物理互洽
+    const audit = auditGPUProfileConsistency({
+      enabled: true,
+      modules: { webgl: true, navigator: true },
+      ...randomHw
+    })
+    assert.equal(audit.consistent, true, `${plat} 随机生成的硬件必须自洽`)
+  }
+}
 
 console.log('WebGL 深度物理参数拓扑与自洽性核验自检通过。')

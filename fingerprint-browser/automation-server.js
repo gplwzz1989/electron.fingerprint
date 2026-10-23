@@ -16,7 +16,8 @@ const {
 } = require('./humanoid-actions')
 const {
   getRecommendedGPUList,
-  auditGPUProfileConsistency
+  auditGPUProfileConsistency,
+  generateRandomHardwareProfile
 } = require('./webgl-topology')
 
 const DEFAULT_PORT = 39898
@@ -363,6 +364,13 @@ class AutomationServer {
     if (method === 'POST' && pathname === '/api/v1/gpu/audit') {
       const audit = auditGPUProfileConsistency(body.fingerprint || body)
       return { ok: true, audit }
+    }
+
+    // 一键生成物理自洽硬件指纹
+    if (method === 'GET' && pathname === '/api/v1/fingerprint/random-hardware') {
+      const platform = query.get('platform') || (process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32')
+      const hardware = generateRandomHardwareProfile({ platform })
+      return { ok: true, platform, hardware }
     }
 
     // 媒体解析提取与下载测试
