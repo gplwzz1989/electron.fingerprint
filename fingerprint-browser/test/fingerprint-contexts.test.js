@@ -10,6 +10,7 @@ const { app, BrowserWindow, session } = require('electron/main')
 const { getDefaultProfile } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
 const { applyProxyConfig } = require('../browser-tabs')
+const { getContextFallbackFields } = require('../scripts/test-fingerprint')
 
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
@@ -169,7 +170,10 @@ async function run () {
     profile.modules.audio = false
     profile.noise.canvas = false
     profile.noise.audio = false
-    if (index === 3) profile.modules.webgl = false
+    if (index === 3) {
+      profile.modules.webgl = false
+      profile.modules.clientHints = false
+    }
     if (index === 4) profile.enabled = false
     if (index === 5) for (const module of Object.keys(profile.modules)) profile.modules[module] = false
   }
@@ -198,21 +202,34 @@ async function run () {
     const values = { page: await window.webContents.executeJavaScript(probe), ...await window.webContents.executeJavaScript(`(${collectRelatedContexts.toString()})(${JSON.stringify(siteB)}, ${phase === 'restore'})`) }
     report.samples.push({ index, values })
     for (const [context, value] of Object.entries(values)) {
+      const native = report.samples[0].values[context]
       for (const field of ['userAgent', 'platform', 'language', 'hardwareConcurrency', 'deviceMemory', 'timezone']) {
         check(`环境 ${index} ${context} ${field}`, () => assert.deepEqual(value[field], values.page[field], '上下文配置不一致。'))
       }
+      check(`环境 ${index} ${context} 语言列表一致`, () => assert.deepEqual(value.languages, values.page.languages, '上下文语言列表不一致。'))
       if (profile?.enabled && profile.modules.locale) check(`环境 ${index} ${context} 完整语言列表`, () => assert.deepEqual(value.languages, profile.locale.languages, '工作线程语言列表未完整应用。'))
-      else if (index > 0) check(`环境 ${index} ${context} 语言回退`, () => assert.deepEqual(value.languages, report.samples[0].values[context].languages, '关闭配置或语言模块未保持原生行为。'))
-      if (values.page.hints && value.hints) check(`环境 ${index} ${context} 客户端提示`, () => assert.deepEqual(value.hints, values.page.hints, '客户端提示在上下文之间不一致。'))
+      if (profile?.enabled && profile.modules.clientHints) {
+        check(`环境 ${index} ${context} 高熵提示可用`, () => assert.ok(value.hints && typeof value.hints === 'object' && values.page.hints && typeof values.page.hints === 'object', '已启用客户端提示，但该上下文未返回高熵值。'))
+        check(`环境 ${index} ${context} 客户端提示一致`, () => assert.deepEqual(value.hints, values.page.hints, '客户端提示在上下文之间不一致。'))
+      }
+      for (const field of getContextFallbackFields(profile)) {
+        const actual = field.split('.').reduce((target, key) => target?.[key], value)
+        const expected = field.split('.').reduce((target, key) => target?.[key], native)
+        check(`环境 ${index} ${context} ${field} 原生回退`, () => assert.deepEqual(actual, expected, '关闭配置或模块后未保持该上下文的原生值。'))
+      }
       if (profile?.enabled && profile.modules.clientHints && !value.headers.hints['sec-ch-ua-full-version-list']) report.unverified.push(`环境 ${index} ${context} 请求未携带高熵提示；本项仅记录，尚未验证线程请求的协商支持。`)
       check(`环境 ${index} ${context} 请求身份`, () => {
         assert.equal(value.headers.userAgent, values.page.userAgent, '请求用户代理不一致。')
         assert.equal(value.headers.language.split(',')[0], values.page.language, '请求语言不一致。')
+        const expectedLanguage = profile?.enabled && profile.modules.locale ? profile.browser.acceptLanguage : native.headers.language
+        assert.equal(value.headers.language, expectedLanguage, '请求语言列表或优先级与环境配置不一致。')
       })
       if (profile?.enabled) {
         check(`环境 ${index} ${context} 配置生效`, () => {
+          if (profile.modules.navigator) assert.equal(value.platform, profile.hardware.platform, '配置的平台值未生效。')
           if (profile.modules.navigator) assert.equal(value.hardwareConcurrency, profile.hardware.hardwareConcurrency, '配置的硬件值未生效。')
           if (profile.modules.timezone) assert.equal(value.timezone, profile.locale.timezone, '配置的时区未生效。')
+          if (profile.modules.locale) assert.equal(value.language, profile.locale.language, '配置的主要语言未生效。')
           if (profile.modules.webgl) assert.equal(value.webglVendor, profile.graphics.webglVendor, '图形名称未生效或本机不支持所需图形对照。')
         })
         if (profile.modules.webgl) check(`环境 ${index} ${context} WebGPU 限制`, () => assert.equal(value.webgpu.adapter, false, '受保护环境仍能取得 WebGPU 适配器。'))
@@ -237,9 +254,6 @@ async function run () {
   }
   for (const [context, value] of Object.entries(report.samples[0].values)) {
     if (!value.webgpu.adapter || !value.webgpu.device) report.failures.push({ description: `${context} WebGPU 原生对照`, message: '本机未完成适配器及设备对照，本项未验证，不能认定保护通过。' })
-  }
-  for (const index of [3, 4, 5]) {
-    for (const [context, value] of Object.entries(report.samples[index].values)) check(`环境 ${index} ${context} WebGPU 回退`, () => assert.deepEqual(value.webgpu, report.samples[0].values[context].webgpu, '关闭模块或配置后没有保持原生行为。'))
   }
   const invalid = session.fromPartition(`invalid-${phase}`)
   const invalidProfile = structuredClone(profiles[1])

@@ -39,12 +39,28 @@ async function readTLSReference (filename) {
 
 function validateContextReport (report, phase, previous) {
   const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
-  if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
+  if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.unverified) || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
   if (phase === 'restore' && !previous) throw new Error('指纹验证缺少首次运行对照。')
   if (previous && !isDeepStrictEqual(report.runtime, previous.runtime)) throw new Error('指纹验证两阶段运行时不一致。')
   for (let index = 0; index < report.samples.length; index++) {
     const sample = report.samples[index]
     if (sample.index !== index || contexts.some(context => !sample.values?.[context] || !sample.refreshed?.[context])) throw new Error('指纹验证缺少环境或上下文样本。')
+    for (const context of contexts) {
+      for (const value of [sample.values[context], sample.refreshed[context]]) {
+        if (['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu', 'headers'].some(field => !Object.hasOwn(value, field)) || !value.webgpu || !value.headers || !value.headers.hints) throw new Error('指纹验证缺少上下文信号字段。')
+      }
+      const current = sample.values[context]
+      const page = sample.values.page
+      const refreshed = sample.refreshed[context]
+      for (const field of ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints']) {
+        if (!isDeepStrictEqual(current[field], page[field])) throw new Error(`指纹验证环境 ${index} 的 ${context} 与页面配置不一致。`)
+      }
+      if (current.headers.userAgent !== page.headers.userAgent || current.headers.language !== page.headers.language) throw new Error(`指纹验证环境 ${index} 的 ${context} 请求身份与页面不一致。`)
+      for (const field of ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu']) {
+        if (!isDeepStrictEqual(current[field], refreshed[field])) throw new Error(`指纹验证环境 ${index} 的 ${context} 刷新后信号改变。`)
+      }
+      if (current.headers.userAgent !== refreshed.headers.userAgent || current.headers.language !== refreshed.headers.language) throw new Error(`指纹验证环境 ${index} 的 ${context} 刷新后请求身份改变。`)
+    }
     if (!previous) continue
     for (const context of contexts) {
       const before = previous.samples[index].values[context]
@@ -56,6 +72,18 @@ function validateContextReport (report, phase, previous) {
     }
   }
   if (report.tlsComparison?.direct?.throughProxy !== false || report.tlsComparison?.tunnel?.throughProxy !== true) throw new Error('指纹验证缺少直连与代理 TLS 对照。')
+}
+
+function getContextFallbackFields (profile) {
+  if (!profile?.enabled) return ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu', 'headers.userAgent', 'headers.language', 'headers.hints']
+  const fields = []
+  if (!profile.modules.ua) fields.push('userAgent', 'headers.userAgent')
+  if (!profile.modules.clientHints) fields.push('hints', 'headers.hints')
+  if (!profile.modules.locale) fields.push('language', 'languages', 'headers.language')
+  if (!profile.modules.timezone) fields.push('timezone')
+  if (!profile.modules.navigator) fields.push('platform', 'hardwareConcurrency', 'deviceMemory')
+  if (!profile.modules.webgl) fields.push('webglVendor', 'webgpu')
+  return fields
 }
 
 function validateTLSReport (report, baselineOnly, reference) {
@@ -176,4 +204,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport, readTLSReference, validateTLSReport }
+module.exports = { hashFile, validateContextReport, getContextFallbackFields, readTLSReference, validateTLSReport }
