@@ -7,6 +7,17 @@ const {
   normalizeUrl,
   ProfileValidationError
 } = require('./profile-store')
+const {
+  humanoidMouseMove,
+  humanoidClick,
+  humanoidType,
+  humanoidDrag,
+  humanoidScroll
+} = require('./humanoid-actions')
+const {
+  getRecommendedGPUList,
+  auditGPUProfileConsistency
+} = require('./webgl-topology')
 
 const DEFAULT_PORT = 39898
 const DEFAULT_HOST = '127.0.0.1'
@@ -273,6 +284,85 @@ class AutomationServer {
       } catch (err) {
         return { ok: false, error: err.message }
       }
+    }
+
+    // 拟人化行为引擎 API: 点击
+    if (method === 'POST' && pathname === '/api/v1/actions/click') {
+      const tabId = body.tabId || this.tabBrowser?.activeId
+      const tab = this.tabBrowser?.getTab(tabId)
+      if (!tab) {
+        const error = new Error('未找到指定或处于激活状态的标签页。')
+        error.statusCode = 404
+        throw error
+      }
+      const target = body.selector || { x: Number(body.x), y: Number(body.y) }
+      await humanoidClick(tab.view.webContents, target, body.options)
+      return { ok: true, message: '拟人化点击已执行。' }
+    }
+
+    // 拟人化行为引擎 API: 打字输入
+    if (method === 'POST' && pathname === '/api/v1/actions/type') {
+      const tabId = body.tabId || this.tabBrowser?.activeId
+      const tab = this.tabBrowser?.getTab(tabId)
+      if (!tab) {
+        const error = new Error('未找到指定或处于激活状态的标签页。')
+        error.statusCode = 404
+        throw error
+      }
+      if (typeof body.text !== 'string') {
+        const error = new Error('必须提供待输入的文本 (text)。')
+        error.statusCode = 400
+        throw error
+      }
+      await humanoidType(tab.view.webContents, body.text, body.options)
+      return { ok: true, message: '拟人化文本输入已执行。' }
+    }
+
+    // 拟人化行为引擎 API: 滚动
+    if (method === 'POST' && pathname === '/api/v1/actions/scroll') {
+      const tabId = body.tabId || this.tabBrowser?.activeId
+      const tab = this.tabBrowser?.getTab(tabId)
+      if (!tab) {
+        const error = new Error('未找到指定或处于激活状态的标签页。')
+        error.statusCode = 404
+        throw error
+      }
+      await humanoidScroll(tab.view.webContents, body)
+      return { ok: true, message: '拟人化惯性滚动已执行。' }
+    }
+
+    // 拟人化行为引擎 API: 拖拽/滑块
+    if (method === 'POST' && pathname === '/api/v1/actions/drag') {
+      const tabId = body.tabId || this.tabBrowser?.activeId
+      const tab = this.tabBrowser?.getTab(tabId)
+      if (!tab) {
+        const error = new Error('未找到指定或处于激活状态的标签页。')
+        error.statusCode = 404
+        throw error
+      }
+      if (!body.start || !body.end) {
+        const error = new Error('必须提供拖拽起点 (start) 与终点 (end)。')
+        error.statusCode = 400
+        throw error
+      }
+      await humanoidDrag(tab.view.webContents, body.start, body.end, body.options)
+      return { ok: true, message: '拟人化滑块拖拽已执行。' }
+    }
+
+    // GPU 硬件拓扑推荐
+    if (method === 'GET' && pathname === '/api/v1/gpu/recommend') {
+      const platform = query.get('platform') || 'Win32'
+      return {
+        ok: true,
+        platform,
+        recommendations: getRecommendedGPUList(platform)
+      }
+    }
+
+    // GPU 硬件拓扑自洽性审计
+    if (method === 'POST' && pathname === '/api/v1/gpu/audit') {
+      const audit = auditGPUProfileConsistency(body.fingerprint || body)
+      return { ok: true, audit }
     }
 
     // 媒体解析提取与下载测试

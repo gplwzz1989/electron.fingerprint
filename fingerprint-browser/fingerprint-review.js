@@ -1,6 +1,7 @@
 const { createFingerprintProfile, ProfileValidationError } = require('./profile-store')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
 const { chromeVersionFromUserAgent, auditTLSVersionConsistency } = require('./tls-fingerprint')
+const { auditGPUProfileConsistency } = require('./webgl-topology')
 
 function previewFingerprintProfile (input, runtime, proxy, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProfileValidationError('指纹配置必须是对象。')
@@ -104,6 +105,18 @@ function previewFingerprintProfile (input, runtime, proxy, options = {}) {
       }
       if (/D3D|Direct3D/i.test(graphics.webglRenderer) && runtime.platform !== 'win32') {
         errors.push('当前宿主不支持 Windows 图形后端，请使用本机图形参数。')
+      }
+      const gpuAudit = auditGPUProfileConsistency(fingerprint, { runtime })
+      for (const issue of gpuAudit.issues) {
+        if (issue.severity === 'error') {
+          if (!errors.includes(issue.message)) {
+            errors.push(issue.message)
+          }
+        } else if (issue.severity === 'warning') {
+          if (!warnings.includes(issue.message)) {
+            warnings.push(issue.message)
+          }
+        }
       }
     }
   }

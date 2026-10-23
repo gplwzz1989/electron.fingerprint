@@ -120,7 +120,66 @@ async function run () {
     assert.equal(createJson.ok, true)
     assert.equal(createJson.environment.fingerprint.graphics.webglVendor, 'Google Inc. (NVIDIA)')
 
-    // 8. 404 路由验证
+    // 8. GPU 推荐与审计接口测试
+    const gpuRecRes = await fetch(`${baseUrl}/api/v1/gpu/recommend?platform=Win32`)
+    assert.equal(gpuRecRes.status, 200)
+    const gpuRec = await gpuRecRes.json()
+    assert.ok(gpuRec.recommendations.length >= 2)
+
+    const gpuAuditRes = await fetch(`${baseUrl}/api/v1/gpu/audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: true,
+        modules: { webgl: true, navigator: true },
+        hardware: { platform: 'Win32', concurrency: 8 },
+        graphics: {
+          webglVendor: 'Google Inc. (NVIDIA)',
+          webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+        },
+        screen: { width: 1920, height: 1080 }
+      })
+    })
+    assert.equal(gpuAuditRes.status, 200)
+    const gpuAuditJson = await gpuAuditRes.json()
+    assert.equal(gpuAuditJson.audit.consistent, true)
+
+    // 9. 拟人化行为动作接口测试 (actions: click, type, scroll, drag)
+    const actionEvents = []
+    mockTabBrowser.getTab = () => ({
+      view: {
+        webContents: {
+          sendInputEvent: evt => actionEvents.push(evt)
+        }
+      }
+    })
+    mockTabBrowser.activeId = 'tab-1'
+
+    const clickRes = await fetch(`${baseUrl}/api/v1/actions/click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x: 150, y: 150 })
+    })
+    assert.equal(clickRes.status, 200)
+    assert.ok(actionEvents.some(e => e.type === 'mouseDown'))
+
+    const scrollRes = await fetch(`${baseUrl}/api/v1/actions/scroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deltaY: 200 })
+    })
+    assert.equal(scrollRes.status, 200)
+    assert.ok(actionEvents.some(e => e.type === 'mouseWheel'))
+
+    const typeRes = await fetch(`${baseUrl}/api/v1/actions/type`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'ok', options: { typoRate: 0, baseInterval: 10 } })
+    })
+    assert.equal(typeRes.status, 200)
+    assert.ok(actionEvents.some(e => e.type === 'char' && e.keyCode === 'o'))
+
+    // 10. 404 路由验证
     const notFoundRes = await fetch(`${baseUrl}/api/v1/unknown-endpoint`)
     assert.equal(notFoundRes.status, 404)
 

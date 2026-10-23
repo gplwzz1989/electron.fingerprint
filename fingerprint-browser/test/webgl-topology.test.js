@@ -59,4 +59,24 @@ const errorIssue = auditBadRes.issues.find(i => i.severity === 'error')
 assert.ok(errorIssue, '必须报告 error 级别的纹理尺寸违规')
 assert.match(errorIssue.message, /超出了该显卡支持的最大纹理/)
 
+// 场景 D: 移动端显卡在桌面端声明拦截
+const mobileGpuProfile = structuredClone(goodProfile)
+mobileGpuProfile.graphics.webglRenderer = 'ANGLE (Qualcomm, Adreno (TM) 650, OpenGL ES 3.2)'
+const auditMobile = auditGPUProfileConsistency(mobileGpuProfile)
+assert.equal(auditMobile.consistent, false)
+assert.match(auditMobile.issues[0].message, /移动端 GPU 架构/)
+
+// 场景 E: 核心数异常与 Apple Silicon 特征警告
+const weirdCoreProfile = structuredClone(goodProfile)
+weirdCoreProfile.hardware.concurrency = 128
+const auditCore = auditGPUProfileConsistency(weirdCoreProfile)
+assert.ok(auditCore.issues.some(i => i.severity === 'warning' && i.message.includes('偏离主流桌面常见硬件规格')))
+
+// 场景 F: 推荐列表
+const { getRecommendedGPUList } = require('../webgl-topology')
+const winGpus = getRecommendedGPUList('Win32')
+assert.ok(winGpus.length >= 2, 'Win32 应至少提供主流显卡推荐')
+const macGpus = getRecommendedGPUList('MacIntel')
+assert.ok(macGpus.some(g => g.label.includes('Metal')), 'MacIntel 应提供 Metal 显卡推荐')
+
 console.log('WebGL 深度物理参数拓扑与自洽性核验自检通过。')

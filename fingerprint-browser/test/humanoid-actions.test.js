@@ -1,6 +1,16 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { randomGaussian, generateHumanoidPath } = require('../humanoid-actions')
+const {
+  randomGaussian,
+  generateHumanoidPath,
+  generateHumanoidDragPath,
+  humanoidMouseMove,
+  humanoidClick,
+  humanoidType,
+  humanoidDrag,
+  humanoidScroll,
+  KEY_NEIGHBORS
+} = require('../humanoid-actions')
 
 test('randomGaussian: 产生的随机数符合正态分布特征', () => {
   const samples = []
@@ -27,4 +37,46 @@ test('generateHumanoidPath: 生成平滑贝塞尔轨迹与符合菲茨定律的�
     assert.ok(stepDist < 120, `单帧步长不应突变瞬移，实际为: ${stepDist}`)
     assert.ok(path[i].waitMs >= 5, '每帧时延必须大于 0')
   }
+})
+
+test('generateHumanoidDragPath: 滑动验证码轨迹具备起手加速、减速与过冲回弹特征', () => {
+  const start = { x: 100, y: 300 }
+  const end = { x: 380, y: 300 }
+
+  const dragPath = generateHumanoidDragPath(start, end)
+  assert.ok(dragPath.length >= 15, '滑块轨迹点数必须充足')
+  assert.equal(dragPath[dragPath.length - 1].x, end.x, '滑块终点 X 必须对齐')
+  assert.equal(dragPath[dragPath.length - 1].y, end.y, '滑块终点 Y 必须对齐')
+
+  // 验证 Y 轴存在微幅生理抖动 (不可是绝对水平机械死线)
+  const hasYVariance = dragPath.some(p => p.y !== 300)
+  assert.ok(hasYVariance, '真实人类滑动滑块必定伴随微幅手颤或握持抖动')
+})
+
+test('KEY_NEIGHBORS: 覆盖 QWERTY 键盘常用临近按键', () => {
+  assert.ok(KEY_NEIGHBORS.a.includes('s'))
+  assert.ok(KEY_NEIGHBORS.w.includes('e'))
+  assert.ok(KEY_NEIGHBORS.m.includes('n'))
+})
+
+test('humanoidClick & humanoidScroll & humanoidDrag: mock webContents 派发正常', async () => {
+  const events = []
+  const mockWebContents = {
+    sendInputEvent: event => events.push(event)
+  }
+
+  // 测试拟人化滚动
+  await humanoidScroll(mockWebContents, { deltaY: 200, steps: 5 })
+  const wheelEvents = events.filter(e => e.type === 'mouseWheel')
+  assert.ok(wheelEvents.length >= 3, '必须派发多帧平滑滚动事件')
+
+  // 测试拟人化点击
+  await humanoidClick(mockWebContents, { x: 200, y: 200 })
+  assert.ok(events.some(e => e.type === 'mouseDown'))
+  assert.ok(events.some(e => e.type === 'mouseUp'))
+
+  // 测试拟人化拖拽
+  await humanoidDrag(mockWebContents, { x: 50, y: 100 }, { x: 250, y: 100 })
+  const dragMoves = events.filter(e => e.type === 'mouseMove' && e.button === 'left')
+  assert.ok(dragMoves.length >= 10, '拖拽过程必须持续派发带左键的 mouseMove')
 })
