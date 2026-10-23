@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const {
   validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures,
-  getContextHintMismatches, getWebGPUBaselineStatus
+  getMissingContextHintHeaders, getContextHintMismatches, getWebGPUBaselineStatus
 } = require('../scripts/test-fingerprint')
 
 const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
@@ -63,10 +63,18 @@ assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { a
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: true } } }), 'ready')
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: false, deviceError: true } } }), 'unverified')
 const contextHints = {
-  hints: { fullVersionList: [{ brand: 'Chromium', version: '138.0.0.0' }], platform: 'Windows', architecture: 'x86', bitness: '64' },
+  hints: {
+    fullVersionList: [
+      { brand: 'Chromium', version: '138.0.0.0' },
+      { brand: 'Google Chrome', version: '138.0.0.0' }
+    ],
+    platform: 'Windows',
+    architecture: 'x86',
+    bitness: '64'
+  },
   headers: {
     hints: {
-      'sec-ch-ua-full-version-list': '"Chromium";v="138.0.0.0"',
+      'sec-ch-ua-full-version-list': '"Chromium";v="138.0.0.0", "Google Chrome";v="138.0.0.0"',
       'sec-ch-ua-platform': '"Windows"',
       'sec-ch-ua-arch': '"x86"',
       'sec-ch-ua-bitness': '"64"'
@@ -74,9 +82,25 @@ const contextHints = {
   }
 }
 assert.deepEqual(getContextHintMismatches(contextHints), [])
+assert.deepEqual(getMissingContextHintHeaders(contextHints), [])
+const reorderedContextHints = structuredClone(contextHints)
+reorderedContextHints.headers.hints['sec-ch-ua-full-version-list'] = '"Google Chrome";v="138.0.0.0", "Chromium";v="138.0.0.0"'
+assert.deepEqual(getContextHintMismatches(reorderedContextHints), [])
+const extraContextHint = structuredClone(contextHints)
+extraContextHint.headers.hints['sec-ch-ua-full-version-list'] += ', "Rogue Browser";v="1.0.0.0"'
+assert.deepEqual(getContextHintMismatches(extraContextHint), ['sec-ch-ua-full-version-list'])
 const inconsistentContextHints = structuredClone(contextHints)
 inconsistentContextHints.headers.hints['sec-ch-ua-platform'] = '"Linux"'
 assert.deepEqual(getContextHintMismatches(inconsistentContextHints), ['sec-ch-ua-platform'])
+const incompleteContextHints = structuredClone(contextHints)
+incompleteContextHints.headers.hints['sec-ch-ua-full-version-list'] += ','
+assert.deepEqual(getContextHintMismatches(incompleteContextHints), ['sec-ch-ua-full-version-list'])
+assert.deepEqual(getMissingContextHintHeaders({ headers: { hints: {} } }), [
+  'sec-ch-ua-full-version-list', 'sec-ch-ua-platform', 'sec-ch-ua-arch', 'sec-ch-ua-bitness'
+])
+const mismatchedContextReport = structuredClone(initial)
+mismatchedContextReport.samples[1].refreshed.shared.headers.hints['sec-ch-ua-platform'] = '"Linux"'
+assert.throws(() => validateContextReport(mismatchedContextReport, 'initial'), /请求值与高熵值不一致/)
 for (const change of [
   report => { report.runtime.chrome = '139.0.0.0' },
   report => { report.samples[1].values.serviceWorker.languages = ['en-US'] },

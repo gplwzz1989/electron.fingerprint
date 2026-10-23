@@ -50,6 +50,7 @@ function validateContextReport (report, phase, previous, requireClientHints = fa
     for (const context of contexts) {
       for (const value of [sample.values[context], sample.refreshed[context]]) {
         if (['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu', 'headers'].some(field => !Object.hasOwn(value, field)) || typeof value.webgpu?.supported !== 'boolean' || !value.headers || !value.headers.hints) throw new Error('指纹验证缺少上下文信号字段。')
+        if (getContextHintMismatches(value).length) throw new Error('指纹验证客户端提示请求值与高熵值不一致。')
         for (const mode of webgpuModes) {
           const request = value.webgpu.requests?.[mode]
           if (!request || ['adapter', 'device', 'adapterError', 'deviceError'].some(field => typeof request[field] !== 'boolean')) throw new Error('指纹验证缺少 WebGPU 请求模式结果。')
@@ -102,6 +103,50 @@ function getWebGPUProtectionFailures (webgpu) {
   return failures
 }
 
+function readStructuredHeaderString (value, offset) {
+  if (value[offset] !== '"') return null
+  let decoded = ''
+  for (offset++; offset < value.length; offset++) {
+    let character = value[offset]
+    if (character === '"') return { value: decoded, next: offset + 1 }
+    if (character === '\\') {
+      character = value[++offset]
+      if (character !== '"' && character !== '\\') return null
+    } else if (character < ' ' || character > '~') return null
+    decoded += character
+  }
+  return null
+}
+
+function parseContextHintFullVersionList (header) {
+  if (typeof header !== 'string') return null
+  const entries = []
+  let offset = 0
+  while (offset < header.length) {
+    while (header[offset] === ' ' || header[offset] === '\t') offset++
+    if (offset === header.length) break
+    if (entries.length) {
+      if (header[offset++] !== ',') return null
+      while (header[offset] === ' ' || header[offset] === '\t') offset++
+      if (offset === header.length) return null
+    }
+    const brand = readStructuredHeaderString(header, offset)
+    if (!brand) return null
+    const versionParameter = header.slice(brand.next).match(/^;v=/)
+    if (!versionParameter) return null
+    const version = readStructuredHeaderString(header, brand.next + versionParameter[0].length)
+    if (!version) return null
+    entries.push([brand.value, version.value])
+    offset = version.next
+  }
+  return entries.length ? entries : null
+}
+
+function getMissingContextHintHeaders (value) {
+  const headers = value?.headers?.hints
+  return ['sec-ch-ua-full-version-list', 'sec-ch-ua-platform', 'sec-ch-ua-arch', 'sec-ch-ua-bitness'].filter(header => !headers || !Object.hasOwn(headers, header))
+}
+
 function getContextHintMismatches (value) {
   const hints = value?.hints
   const headers = value?.headers?.hints
@@ -114,10 +159,11 @@ function getContextHintMismatches (value) {
       } catch { mismatches.push(header) }
     }
   }
-  if (Object.hasOwn(headers, 'sec-ch-ua-full-version-list')) {
-    for (const item of hints.fullVersionList || []) {
-      if (!headers['sec-ch-ua-full-version-list'].includes(`${JSON.stringify(item.brand)};v=${JSON.stringify(item.version)}`)) mismatches.push('sec-ch-ua-full-version-list')
-    }
+  const fullVersionListHeader = 'sec-ch-ua-full-version-list'
+  if (Object.hasOwn(headers, fullVersionListHeader)) {
+    const actual = parseContextHintFullVersionList(headers[fullVersionListHeader])?.map(item => JSON.stringify(item)).sort()
+    const expected = (hints.fullVersionList || []).map(item => JSON.stringify([item.brand, item.version])).sort()
+    if (!actual || !isDeepStrictEqual(actual, expected)) mismatches.push(fullVersionListHeader)
   }
   return mismatches
 }
@@ -248,4 +294,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getContextHintMismatches, getWebGPUBaselineStatus, readTLSReference, validateTLSReport }
+module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getMissingContextHintHeaders, getContextHintMismatches, getWebGPUBaselineStatus, readTLSReference, validateTLSReport }

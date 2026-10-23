@@ -10,7 +10,7 @@ const { app, BrowserWindow, session } = require('electron/main')
 const { getDefaultProfile } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
 const { applyProxyConfig } = require('../browser-tabs')
-const { getContextFallbackFields, getWebGPUProtectionFailures, getContextHintMismatches, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
+const { getContextFallbackFields, getWebGPUProtectionFailures, getMissingContextHintHeaders, getContextHintMismatches, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
 
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
@@ -228,7 +228,7 @@ async function run () {
         const expected = field.split('.').reduce((target, key) => target?.[key], native)
         check(`环境 ${index} ${context} ${field} 原生回退`, () => assert.deepEqual(actual, expected, '关闭配置或模块后未保持该上下文的原生值。'))
       }
-      const missingHintHeaders = ['sec-ch-ua-full-version-list', 'sec-ch-ua-platform', 'sec-ch-ua-arch', 'sec-ch-ua-bitness'].filter(header => !Object.hasOwn(value.headers.hints, header))
+      const missingHintHeaders = getMissingContextHintHeaders(value)
       if (profile?.enabled && profile.modules.clientHints && missingHintHeaders.length) {
         const description = `环境 ${index} ${context} 高熵提示请求头`
         report.unverified.push(`${description}缺少 ${missingHintHeaders.join('、')}；本项尚未完成线程协商验证。`)
@@ -262,9 +262,19 @@ async function run () {
     const window = windows[sample.index]
     await window.loadURL(siteA)
     sample.refreshed = { page: await window.webContents.executeJavaScript(probe), ...await window.webContents.executeJavaScript(`(${collectRelatedContexts.toString()})(${JSON.stringify(siteB)}, true)`) }
+    const profile = profiles[sample.index]
     check(`环境 ${sample.index} 刷新后请求语言`, () => assert.equal(sample.refreshed.page.headers.language.split(',')[0], sample.values.page.language, '刷新后请求语言发生串用。'))
     assert.equal(await window.webContents.executeJavaScript("localStorage.getItem('context-marker')"), `环境-${sample.index}`, '刷新后环境存储发生串用。')
     for (const [context, value] of Object.entries(sample.refreshed)) {
+      if (profile?.enabled && profile.modules.clientHints) {
+        check(`环境 ${sample.index} ${context} 刷新后请求提示一致`, () => assert.deepEqual(getContextHintMismatches(value), [], '刷新后的请求提示与高熵值不一致。'))
+        const missingHintHeaders = getMissingContextHintHeaders(value)
+        if (missingHintHeaders.length) {
+          const description = `环境 ${sample.index} ${context} 刷新后高熵提示请求头`
+          report.unverified.push(`${description}缺少 ${missingHintHeaders.join('、')}；本项尚未完成线程协商验证。`)
+          if (process.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1') report.failures.push({ description, message: '已要求严格验证，但刷新后的上下文缺少部分高熵用户代理提示请求头。' })
+        }
+      }
       check(`环境 ${sample.index} ${context} 刷新稳定`, () => {
         for (const field of ['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu']) assert.deepEqual(value[field], sample.values[context][field], '刷新后上下文身份或图形策略改变。')
         assert.equal(value.headers.userAgent, sample.values[context].headers.userAgent, '刷新后请求用户代理改变。')
