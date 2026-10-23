@@ -39,6 +39,7 @@ async function readTLSReference (filename) {
 
 function validateContextReport (report, phase, previous, requireClientHints = false) {
   const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
+  const webgpuModes = ['default', 'low-power', 'high-performance', 'force-fallback']
   if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.unverified) || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
   if (requireClientHints && report.unverified.length) throw new Error('指纹验证的高熵客户端提示仍有未验证项。')
   if (phase === 'restore' && !previous) throw new Error('指纹验证缺少首次运行对照。')
@@ -48,7 +49,11 @@ function validateContextReport (report, phase, previous, requireClientHints = fa
     if (sample.index !== index || contexts.some(context => !sample.values?.[context] || !sample.refreshed?.[context])) throw new Error('指纹验证缺少环境或上下文样本。')
     for (const context of contexts) {
       for (const value of [sample.values[context], sample.refreshed[context]]) {
-        if (['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu', 'headers'].some(field => !Object.hasOwn(value, field)) || !value.webgpu || !value.headers || !value.headers.hints) throw new Error('指纹验证缺少上下文信号字段。')
+        if (['userAgent', 'platform', 'language', 'languages', 'hardwareConcurrency', 'deviceMemory', 'timezone', 'hints', 'webglVendor', 'webgpu', 'headers'].some(field => !Object.hasOwn(value, field)) || typeof value.webgpu?.supported !== 'boolean' || !value.headers || !value.headers.hints) throw new Error('指纹验证缺少上下文信号字段。')
+        for (const mode of webgpuModes) {
+          const request = value.webgpu.requests?.[mode]
+          if (!request || ['adapter', 'device', 'adapterError', 'deviceError'].some(field => typeof request[field] !== 'boolean')) throw new Error('指纹验证缺少 WebGPU 请求模式结果。')
+        }
       }
       const current = sample.values[context]
       const page = sample.values.page
@@ -85,6 +90,16 @@ function getContextFallbackFields (profile) {
   if (!profile.modules.navigator) fields.push('platform', 'hardwareConcurrency', 'deviceMemory')
   if (!profile.modules.webgl) fields.push('webglVendor', 'webgpu')
   return fields
+}
+
+function getWebGPUProtectionFailures (webgpu) {
+  const failures = []
+  for (const [mode, request] of Object.entries(webgpu?.requests || {})) {
+    for (const field of ['adapter', 'device', 'adapterError', 'deviceError']) {
+      if (request?.[field]) failures.push(`${mode}.${field}`)
+    }
+  }
+  return failures
 }
 
 function validateTLSReport (report, baselineOnly, reference) {
@@ -205,4 +220,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport, getContextFallbackFields, readTLSReference, validateTLSReport }
+module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, readTLSReference, validateTLSReport }

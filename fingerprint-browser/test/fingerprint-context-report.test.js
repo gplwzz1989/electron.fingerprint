@@ -1,11 +1,15 @@
 const assert = require('node:assert/strict')
-const { validateContextReport, getContextFallbackFields } = require('../scripts/test-fingerprint')
+const { validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures } = require('../scripts/test-fingerprint')
 
 const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
+const webgpuModes = ['default', 'low-power', 'high-performance', 'force-fallback']
 const values = Object.fromEntries(contexts.map(context => [context, {
   userAgent: '诊断用户代理', platform: 'Win32', language: 'en-US', languages: ['en-US', 'en'],
   hardwareConcurrency: 4, deviceMemory: 8, timezone: 'America/New_York',
-  hints: { platform: 'Windows' }, webglVendor: '测试厂商', webgpu: { adapter: false, device: false },
+  hints: { platform: 'Windows' }, webglVendor: '测试厂商', webgpu: {
+    supported: true,
+    requests: Object.fromEntries(webgpuModes.map(mode => [mode, { adapter: false, device: false, adapterError: false, deviceError: false }]))
+  },
   headers: { userAgent: '诊断用户代理', language: 'en-US,en;q=0.9', hints: {} }
 }]))
 const initial = {
@@ -31,7 +35,7 @@ for (const change of [
   report => { delete report.samples[1].values.shared.headers.hints },
   report => { report.samples[1].values.crossOriginFrame.hints = null },
   report => { report.samples[1].values.dedicated.languages = ['fr-FR'] },
-  report => { report.samples[1].refreshed.sameOriginFrame.webgpu.device = true },
+  report => { delete report.samples[1].refreshed.sameOriginFrame.webgpu.requests['high-performance'] },
   report => { report.tlsComparison.tunnel.throughProxy = false }
 ]) {
   const incomplete = structuredClone(initial)
@@ -43,10 +47,17 @@ assert.deepEqual(getContextFallbackFields({
   enabled: true,
   modules: { ua: true, clientHints: false, locale: true, timezone: true, navigator: true, webgl: false }
 }), ['hints', 'headers.hints', 'webglVendor', 'webgpu'])
+assert.deepEqual(getWebGPUProtectionFailures(values.page.webgpu), [])
+const webgpuLeak = structuredClone(values.page.webgpu)
+webgpuLeak.requests['force-fallback'].adapter = true
+assert.deepEqual(getWebGPUProtectionFailures(webgpuLeak), ['force-fallback.adapter'])
+const webgpuError = structuredClone(values.page.webgpu)
+webgpuError.requests['high-performance'].adapterError = true
+assert.deepEqual(getWebGPUProtectionFailures(webgpuError), ['high-performance.adapterError'])
 for (const change of [
   report => { report.runtime.chrome = '139.0.0.0' },
   report => { report.samples[1].values.serviceWorker.languages = ['en-US'] },
-  report => { report.samples[2].values.crossOriginFrame.webgpu.adapter = true },
+  report => { report.samples[2].values.crossOriginFrame.webgpu.requests.default.adapter = true },
   report => { report.samples[1].values.page.headers.language = 'zh-CN' }
 ]) {
   const changed = structuredClone(restored)

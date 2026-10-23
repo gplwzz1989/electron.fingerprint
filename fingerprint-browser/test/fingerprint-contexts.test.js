@@ -10,7 +10,7 @@ const { app, BrowserWindow, session } = require('electron/main')
 const { getDefaultProfile } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
 const { applyProxyConfig } = require('../browser-tabs')
-const { getContextFallbackFields } = require('../scripts/test-fingerprint')
+const { getContextFallbackFields, getWebGPUProtectionFailures } = require('../scripts/test-fingerprint')
 
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
@@ -35,19 +35,31 @@ async function collectContextSignals () {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     hints: navigator.userAgentData ? await navigator.userAgentData.getHighEntropyValues(['fullVersionList', 'platform', 'architecture', 'bitness']) : null,
     webglVendor: extension ? graphics.getParameter(extension.UNMASKED_VENDOR_WEBGL) : null,
-    webgpu: { supported: Boolean(navigator.gpu), adapter: false, device: false },
+    webgpu: { supported: Boolean(navigator.gpu), requests: {} },
     headers: await (await fetch('/headers', { cache: 'no-store' })).json()
   }
   graphics?.getExtension('WEBGL_lose_context')?.loseContext()
-  if (navigator.gpu) {
-    const adapter = await navigator.gpu.requestAdapter()
-    result.webgpu.adapter = Boolean(adapter)
-    if (adapter) {
-      result.webgpu.vendor = adapter.info.vendor
-      const device = await adapter.requestDevice()
-      result.webgpu.device = Boolean(device)
-      device.destroy()
+  for (const [name, options] of [
+    ['default', {}], ['low-power', { powerPreference: 'low-power' }],
+    ['high-performance', { powerPreference: 'high-performance' }], ['force-fallback', { forceFallbackAdapter: true }]
+  ]) {
+    const attempt = { adapter: false, device: false, adapterError: false, deviceError: false }
+    if (navigator.gpu) {
+      let adapter
+      try {
+        adapter = await navigator.gpu.requestAdapter(options)
+        attempt.adapter = Boolean(adapter)
+      } catch { attempt.adapterError = true }
+      if (adapter) {
+        if (name === 'default') result.webgpu.vendor = adapter.info.vendor
+        try {
+          const device = await adapter.requestDevice()
+          attempt.device = Boolean(device)
+          device?.destroy()
+        } catch { attempt.deviceError = true }
+      }
     }
+    result.webgpu.requests[name] = attempt
   }
   return result
 }
@@ -237,7 +249,7 @@ async function run () {
           if (profile.modules.locale) assert.equal(value.language, profile.locale.language, '配置的主要语言未生效。')
           if (profile.modules.webgl) assert.equal(value.webglVendor, profile.graphics.webglVendor, '图形名称未生效或本机不支持所需图形对照。')
         })
-        if (profile.modules.webgl) check(`环境 ${index} ${context} WebGPU 限制`, () => assert.equal(value.webgpu.adapter, false, '受保护环境仍能取得 WebGPU 适配器。'))
+        if (profile.modules.webgl) check(`环境 ${index} ${context} WebGPU 限制`, () => assert.deepEqual(getWebGPUProtectionFailures(value.webgpu), [], '受保护环境的某种 WebGPU 请求取得了适配器、设备或发生错误。'))
       }
     }
     await profileSession.flushStorageData()
@@ -258,7 +270,8 @@ async function run () {
     }
   }
   for (const [context, value] of Object.entries(report.samples[0].values)) {
-    if (!value.webgpu.adapter || !value.webgpu.device) report.failures.push({ description: `${context} WebGPU 原生对照`, message: '本机未完成适配器及设备对照，本项未验证，不能认定保护通过。' })
+    const baseline = value.webgpu.requests.default
+    if (!baseline.adapter || !baseline.device || baseline.adapterError || baseline.deviceError) report.failures.push({ description: `${context} WebGPU 原生对照`, message: '本机未完成默认模式适配器及设备对照，本项未验证，不能认定保护通过。' })
   }
   const invalid = session.fromPartition(`invalid-${phase}`)
   const invalidProfile = structuredClone(profiles[1])
