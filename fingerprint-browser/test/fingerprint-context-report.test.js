@@ -64,10 +64,14 @@ assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { a
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: false, deviceError: true } } }), 'unverified')
 const contextHints = {
   hints: { fullVersionList: [{ brand: 'Chromium', version: '138.0.0.0' }], platform: 'Windows', architecture: 'x86', bitness: '64' },
-  headers: { hints: {
-    'sec-ch-ua-full-version-list': '"Chromium";v="138.0.0.0"',
-    'sec-ch-ua-platform': '"Windows"', 'sec-ch-ua-arch': '"x86"', 'sec-ch-ua-bitness': '"64"'
-  } }
+  headers: {
+    hints: {
+      'sec-ch-ua-full-version-list': '"Chromium";v="138.0.0.0"',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-ch-ua-arch': '"x86"',
+      'sec-ch-ua-bitness': '"64"'
+    }
+  }
 }
 assert.deepEqual(getContextHintMismatches(contextHints), [])
 const inconsistentContextHints = structuredClone(contextHints)
