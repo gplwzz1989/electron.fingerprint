@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('browserApi', {
   newPageTab: payload => ipcRenderer.invoke('tabs:new-page', payload),
   showDashboard: () => ipcRenderer.invoke('tabs:dashboard'),
   detectExitIp: options => ipcRenderer.invoke('proxy:detect-ip', options),
+  getTLSPresets: () => ipcRenderer.invoke('tls:presets'),
+  resolveTLSConfig: payload => ipcRenderer.invoke('tls:resolve', payload),
   toggleMediaPopover: bounds => ipcRenderer.invoke('media:toggle-popover', bounds),
   onMediaCountChanged: callback => {
     const listener = (_event, payload) => callback(payload)

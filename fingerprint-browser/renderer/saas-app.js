@@ -439,6 +439,8 @@ const FINGERPRINT_PRESETS = [
 const USER_AGENT_OPTIONS = [
   { value: '', label: '内核原生（留空使用当前内核原生 User-Agent）' },
   { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 138 (推荐)' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 126 (后量子 Kyber 版)' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.109 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 120 (经典稳定版 · 纯经典 TLS)' },
   { value: 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 10 · 32 位兼容模式 · Chrome 138' },
   { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS · Intel / Sonoma · Chrome 138' },
   { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS 14.4 Sonoma · Chrome 138' },
@@ -1104,7 +1106,17 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
 
 async function reviewFingerprint (targetDraft, proxy, forSave = false) {
   const source = cloneValue(targetDraft.fingerprint)
-  const preview = await window.browserApi.previewFingerprint({ fingerprint: source, proxy })
+  let tlsFingerprint = targetDraft.tlsFingerprint
+  if (!tlsFingerprint && window.browserApi?.resolveTLSConfig && targetDraft.fingerprint?.browser?.userAgent) {
+    try {
+      const resolved = await window.browserApi.resolveTLSConfig({ target: targetDraft.fingerprint.browser.userAgent })
+      if (resolved?.ok && resolved.config) {
+        tlsFingerprint = resolved.config
+        targetDraft.tlsFingerprint = tlsFingerprint
+      }
+    } catch {}
+  }
+  const preview = await window.browserApi.previewFingerprint({ fingerprint: source, proxy, tlsFingerprint })
   if (!preview?.ok) throw new Error(preview?.error || '无法检查指纹配置，请重试。')
   if (JSON.stringify(source) !== JSON.stringify(targetDraft.fingerprint)) throw new Error('检查期间配置已修改，请重新检查。')
   const node = document.querySelector(`[data-fingerprint-review="${targetDraft === draft ? 'wizard' : 'environment'}"]`)
@@ -1950,6 +1962,9 @@ document.addEventListener('submit', async event => {
           const fingerprint = await reviewFingerprint(environmentEditDraft, update.proxy, true)
           if (!fingerprint) return
           update.fingerprint = fingerprint
+          if (environmentEditDraft?.tlsFingerprint) {
+            update.tlsFingerprint = environmentEditDraft.tlsFingerprint
+          }
         }
       } else {
         if (JSON.stringify(environmentEditDraft?.fingerprint) !== JSON.stringify(environment.raw.fingerprint)) {
@@ -1994,6 +2009,9 @@ document.addEventListener('submit', async event => {
       const fingerprint = await reviewFingerprint(draft, profile.proxy, true)
       if (!fingerprint) return
       profile.fingerprint = fingerprint
+      if (draft.tlsFingerprint) {
+        profile.tlsFingerprint = draft.tlsFingerprint
+      }
       const operationId = crypto.randomUUID()
       const saveResponse = await window.browserApi.saveProfile(profile)
       if (!saveResponse?.ok) throw new Error(saveResponse?.error || '保存浏览器配置失败。')

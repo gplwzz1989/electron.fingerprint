@@ -7,7 +7,12 @@ const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
 const { ProfileRepository } = require('./profile-repository')
 const { previewFingerprintProfile, assertFingerprintSave } = require('./fingerprint-review')
-const { assertTLSFingerprintRuntimeVersion } = require('./tls-fingerprint')
+const {
+  assertTLSFingerprintRuntimeVersion,
+  resolveTLSConfigForBrowser,
+  getTLSVersionPreset,
+  CHROME_TLS_VERSION_PRESETS
+} = require('./tls-fingerprint')
 const { dataRoot: resolveDataRoot } = require('./data-directory')
 const {
   DEFAULT_URL,
@@ -299,7 +304,13 @@ function registerIpc () {
       for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint', 'tlsFingerprint']) {
         if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
       }
-      if (Object.hasOwn(update, 'fingerprint')) assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy)
+      if (Object.hasOwn(update, 'fingerprint')) {
+        const options = {
+          tlsFingerprint: update.tlsFingerprint,
+          allowCrossVersion: Boolean(update.tlsFingerprint?.emulationMode === 'cross-version')
+        }
+        assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy, options)
+      }
       if (Object.hasOwn(update, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(update.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const environment = await environmentRepository.updateProfile(payload?.id, update)
       tabBrowser.updateEnvironmentProfile(environment)
@@ -398,7 +409,11 @@ function registerIpc () {
   ipcMain.handle('profiles:preview', async (event, payload) => {
     try {
       assertTrusted(event)
-      return { ok: true, ...previewFingerprintProfile(payload?.fingerprint, fingerprintRuntime, payload?.proxy) }
+      const options = {
+        tlsFingerprint: payload?.tlsFingerprint,
+        allowCrossVersion: Boolean(payload?.tlsFingerprint?.emulationMode === 'cross-version')
+      }
+      return { ok: true, ...previewFingerprintProfile(payload?.fingerprint, fingerprintRuntime, payload?.proxy, options) }
     } catch (error) {
       return errorResult('预览指纹配置', error, '无法检查指纹配置，请检查填写内容。')
     }
@@ -407,13 +422,36 @@ function registerIpc () {
   ipcMain.handle('profiles:save', async (event, payload) => {
     try {
       assertTrusted(event)
-      assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy)
+      const options = {
+        tlsFingerprint: payload?.tlsFingerprint,
+        allowCrossVersion: Boolean(payload?.tlsFingerprint?.emulationMode === 'cross-version')
+      }
+      assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy, options)
       if (Object.hasOwn(payload || {}, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(payload.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const nextProfile = await profileRepository.save(payload)
       tabBrowser.window?.webContents.send('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }
     } catch (error) {
       return errorResult('保存配置', error, '保存浏览器配置失败。')
+    }
+  })
+
+  ipcMain.handle('tls:presets', async event => {
+    try {
+      assertTrusted(event)
+      return { ok: true, presets: CHROME_TLS_VERSION_PRESETS }
+    } catch (error) {
+      return errorResult('获取 TLS 预设', error, '获取 TLS 预设失败。')
+    }
+  })
+
+  ipcMain.handle('tls:resolve', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const config = resolveTLSConfigForBrowser(payload?.target, { runtimeVersion: fingerprintRuntime.chromiumVersion })
+      return { ok: true, config }
+    } catch (error) {
+      return errorResult('解析 TLS 策略', error, '解析 TLS 策略失败。')
     }
   })
 
