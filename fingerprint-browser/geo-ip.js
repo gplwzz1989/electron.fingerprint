@@ -188,26 +188,27 @@ function alignFingerprintWithGeo (profile, geoInfo) {
   if (!profile || typeof profile !== 'object' || !geoInfo) return profile
 
   const updated = structuredClone(profile)
+  const target = (updated.fingerprint && typeof updated.fingerprint === 'object') ? updated.fingerprint : updated
 
   // 1. 对齐时区
-  if (geoInfo.timezone && updated.locale) {
-    updated.locale.timezone = geoInfo.timezone
+  if (geoInfo.timezone && target.locale) {
+    target.locale.timezone = geoInfo.timezone
   }
 
   // 2. 对齐语言偏好
-  if (geoInfo.locale && updated.locale) {
-    updated.locale.language = geoInfo.locale.language
-    updated.locale.languages = [...geoInfo.locale.languages]
+  if (geoInfo.locale && target.locale) {
+    target.locale.language = geoInfo.locale.language
+    target.locale.languages = [...geoInfo.locale.languages]
   }
 
   // 3. 对齐浏览器 HTTP Accept-Language
-  if (geoInfo.locale?.acceptLanguage && updated.browser) {
-    updated.browser.acceptLanguage = geoInfo.locale.acceptLanguage
+  if (geoInfo.locale?.acceptLanguage && target.browser) {
+    target.browser.acceptLanguage = geoInfo.locale.acceptLanguage
   }
 
   // 4. 确保在代理环境下锁定 WebRTC 非代理 UDP 防护
-  if (updated.modules) {
-    updated.modules.webrtc = true
+  if (target.modules) {
+    target.modules.webrtc = true
   }
 
   return updated

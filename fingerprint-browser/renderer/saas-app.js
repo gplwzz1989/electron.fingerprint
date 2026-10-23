@@ -1067,7 +1067,10 @@ function renderFingerprintFields (targetDraft = draft, options = {}) {
         </div>
         <p>已自动过滤异构系统高危指纹参数，仅展示与当前 ${hostLabel} 物理宿主相容的安全推荐组合方案。</p>
       </div>
-      ${options.hideTemplateActions ? '' : `<div>${btn('重新生成', 'regenerate-fingerprint', 'small', 'type="button"')} ${btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}</div>`}
+      <div style="display:flex;align-items:center;gap:8px">
+        ${btn('🎲 随机自洽硬件', 'random-hardware-fingerprint', 'small', `type="button"${scope}`)}
+        ${options.scope === 'environment' ? '' : btn('恢复推荐值', 'restore-fingerprint', 'text small', 'type="button"')}
+      </div>
     </div>
     <select${scope}${disabled} data-action="fingerprint-preset-change" style="width:100%;height:38px;padding:0 10px;border-radius:6px;border:1px solid #c9d5fa;background:#fff;color:#2c3e50;font-size:12px">
       <option value="">-- 选择推荐指纹组合方案（一键应用 · 仅限 ${hostLabel}） --</option>
@@ -1524,10 +1527,10 @@ function environmentEditDialog (environment) {
   const closeAndEditBtn = `<button class="button small" type="button" data-action="close-env-and-edit" data-id="${escapeHTML(environment.id)}" style="margin-left:12px">关闭环境并编辑</button>`
   const proxyFields = running
     ? `<div class="notice warning">${icon('lock')}当前环境正在运行，代理配置已锁定。关闭环境后可编辑代理，修改将在下次启动时生效。${closeAndEditBtn}</div>`
-    : `<h3>代理配置</h3><div class="form-row"><label class="field"><span>网络方式</span><select name="proxyMode" id="environment-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>代理地址</span><input name="proxyServer" type="url" value="${escapeHTML(proxy.server)}" placeholder="http://服务器地址:端口" spellcheck="false"></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0"><small>修改代理后需要重新打开环境，连接失败时不会自动切换为直连。</small><button type="button" class="button small soft" data-action="detect-and-align-ip">探测出口并对齐时区</button></div>`
+    : `<h3>代理配置</h3><div class="form-row"><label class="field"><span>网络方式</span><select name="proxyMode" id="environment-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field"><span>代理地址</span><input name="proxyServer" type="url" value="${escapeHTML(proxy.server)}" placeholder="http://服务器地址:端口" spellcheck="false"></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0"><small>修改代理后需要重新打开环境，连接失败时不会自动切换为直连。</small><button type="button" class="button small soft" data-action="detect-and-align-ip" data-scope="environment">🌐 探测代理并对齐地理</button></div><div id="env-geo-status" role="status" aria-live="polite"></div>`
   const fingerprint = running
     ? `<h3>指纹参数</h3><div class="notice warning">${icon('lock')}当前环境正在运行，指纹参数已锁定。关闭环境后可编辑，修改将在下次启动时生效。${closeAndEditBtn}</div>`
-    : `<h3>指纹参数</h3>${renderFingerprintFields(environmentEditDraft, { scope: 'environment', hideTemplateActions: true, hideSeed: true })}`
+    : `<h3>指纹参数</h3>${renderFingerprintFields(environmentEditDraft, { scope: 'environment', hideSeed: true })}`
   const editUrlFields = `<div class="form-row"><label class="field"><span>启动网址预设</span><select data-action="preset-edit-url"><option value="">-- 选择常用网址 --</option>${URL_PRESETS.map(u => `<option value="${u.value}" ${raw.creationUrl === u.value ? 'selected' : ''}>${escapeHTML(u.label)}</option>`).join('')}</select></label><label class="field"><span>启动网址<span class="required">*</span></span><input type="url" name="creationUrl" id="environment-edit-url-input" required value="${escapeHTML(raw.creationUrl)}"><small>只修改下次启动地址；最近访问地址由浏览器自动记录。</small></label></div>`
   return `<form id="environment-edit-form" novalidate><input type="hidden" name="id" value="${escapeHTML(environment.id)}"><input type="hidden" name="metadataRevision" value="${escapeHTML(raw.metadataRevision)}"><input type="hidden" name="profileRevision" value="${escapeHTML(raw.profileRevision)}"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" required maxlength="80" value="${escapeHTML(raw.profileName)}"></label><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupOptions}</select></label><label class="field"><span>保存方式</span><input value="${raw.storage === 'cloud' ? '云同步（当前未接通）' : '仅本地'}" disabled></label></div>${editUrlFields}<div class="form-divider"></div>${proxyFields}<div class="form-divider"></div>${fingerprint}<div class="form-divider"></div><div class="notice">${icon('lock')}环境 ID、数据目录、创建时间、来源配置 ID、配置版本、最近访问地址和稳定指纹种子不可编辑。</div></form>`
 }
@@ -1546,7 +1549,7 @@ function createPage() {
   const proxyLabel = proxy.mode === 'direct' ? '直连（不使用代理）' : proxy.server || '待填写代理地址'
   let fields = ''
   if (wizardStep === 1) fields = `<div class="form-row"><label class="field"><span>环境名称<span class="required">*</span></span><input name="name" id="wizard-name-input" required maxlength="80" value="${escapeHTML(draft.name)}" placeholder="例如：美国旗舰店 · 运营"><small>用业务和用途命名，便于团队快速识别环境。</small></label><label class="field"><span>常用环境名称模板</span><select data-action="preset-name"><option value="">-- 选择快速填充环境名称 --</option>${NAME_PRESETS.map(n => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}</select><small>点击下拉选项快速填充左侧环境名称，也可继续编辑。</small></label></div><div class="form-row"><label class="field"><span>业务分组</span><select name="group">${groupNames().map(g => `<option ${g === draft.group ? 'selected' : ''}>${escapeHTML(g)}</option>`).join('')}</select></label><label class="field"><span>负责人</span><select><option>林沐（我）</option><option>陈悦</option><option>王宁</option></select></label></div><div class="form-row"><label class="field"><span>启动网址预设</span><select data-action="preset-url"><option value="">-- 选择常用业务或检测网址 --</option>${URL_PRESETS.map(u => `<option value="${u.value}" ${draft.url === u.value ? 'selected' : ''}>${escapeHTML(u.label)}</option>`).join('')}</select><small>下拉快速选取常用网址，支持在右侧输入框自定义。</small></label><label class="field"><span>启动网址（确认地址）<span class="required">*</span></span><input type="url" id="wizard-url-input" value="${escapeHTML(draft.url)}" name="url" required><small>示例网址，创建后可在环境中随时调整。</small></label></div><div class="form-divider"></div><label class="field"><span>环境数据保存方式</span></label><div class="radio-cards"><label class="radio-card"><input name="storage" type="radio" value="local" ${draft.storage === 'local' ? 'checked' : ''}><span>仅本地<small>数据保存在这台设备上，不上传登录会话。</small></span></label><label class="radio-card"><input name="storage" type="radio" value="cloud" ${draft.storage === 'cloud' ? 'checked' : ''}><span>启用云同步<small>供授权成员交接；跨系统恢复需要兼容性检查。</small></span></label></div><div class="notice">${icon('shield')}新环境默认仅负责人和管理员可以访问，可在创建后调整授权。</div>`
-  if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<div class="form-row"><label class="field"><span>常用代理资源预设</span><select data-action="preset-proxy"><option value="">-- 选择预设代理快捷填入 --</option>${PROXY_PRESETS.filter(p => p.mode === proxy.mode).map(p => `<option value="${escapeHTML(p.server)}">${escapeHTML(p.label)}</option>`).join('')}</select><small>可直接从常用资源下拉选取，或在右侧输入框填写真实代理。</small></label><label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" id="wizard-proxy-server-input" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div class="form-divider"></div><div class="notice">${icon('fingerprint')}语言与时区沿用默认指纹模板，不会根据代理地址自动推断。</div><div class="notice warning">${icon('alert')}网络出口位置尚未验证。创建后请在同一环境中检查公网 IP 地理位置，并将语言、地区和时区作为一组校验；代理地址本身不能证明出口所在地区。</div>`
+  if (wizardStep === 2) fields = `<label class="field"><span>网络方式（代理可选）</span><select name="proxyMode" id="wizard-proxy-mode">${[['direct', '不使用代理（默认）'], ['http', 'HTTP / HTTPS 代理'], ['socks5', 'SOCKS5 代理']].map(([value, label]) => `<option value="${value}" ${proxy.mode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${proxy.mode === 'direct' ? `<div class="notice">${icon('globe')}使用本机网络，无需选择代理或检查代理连接。</div>` : `<div class="form-row"><label class="field"><span>常用代理资源预设</span><select data-action="preset-proxy"><option value="">-- 选择预设代理快捷填入 --</option>${PROXY_PRESETS.filter(p => p.mode === proxy.mode).map(p => `<option value="${escapeHTML(p.server)}">${escapeHTML(p.label)}</option>`).join('')}</select><small>可直接从常用资源下拉选取，或在右侧输入框填写真实代理。</small></label><label class="field"><span>代理地址<span class="required">*</span></span><input name="proxyServer" id="wizard-proxy-server-input" type="url" required value="${escapeHTML(proxy.server)}" placeholder="${proxy.mode === 'socks5' ? 'socks5://服务器地址:端口' : 'http://服务器地址:端口'}" spellcheck="false"><small>填写真实代理地址和端口，不在地址中填写账户或密码。</small></label></div><div class="form-row"><label class="field"><span>代理账户（可选）</span><input name="proxyUsername" value="${escapeHTML(proxy.username)}" autocomplete="off"></label><label class="field"><span>代理密码（可选）</span><input name="proxyPassword" type="password" value="${escapeHTML(proxy.password)}" autocomplete="new-password"></label></div><div class="notice warning">${icon('alert')}代理会保存在环境快照中并用于真实网页请求。连接失败时不会自动使用本机网络。</div>`}<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 8px 0"><small style="color:var(--text-secondary)">通过所选代理网络探测出口公网 IP，并将时区、语言、请求标头与 WebRTC 隔离四维对齐。</small><button type="button" class="button small soft" data-action="detect-and-align-ip" data-scope="wizard">🌐 探测代理并对齐地理</button></div><div id="wizard-geo-status" role="status" aria-live="polite"></div><div class="form-divider"></div><div class="notice">${icon('fingerprint')}点击上方“探测代理并对齐地理”可自动匹配时区与语言；也可在下一步手动调整详细指纹参数。</div>`
   if (wizardStep === 3) fields = renderFingerprintFields()
   return `${heading('新建浏览器环境', '三步完成创建。先明确业务，再确认网络与指纹配置。', btn('取消创建', 'cancel-create'))}<div class="steps">${['基本信息', '网络与代理', '指纹配置'].map((label, i) => `${i ? '<div class="step-line"></div>' : ''}<div class="step ${wizardStep === i + 1 ? 'active' : wizardStep > i + 1 ? 'done' : ''}"><i>${wizardStep > i + 1 ? icon('check') : i + 1}</i>${label}</div>`).join('')}</div><div class="form-layout"><form class="card" id="wizard-form"><div class="form-content"><div class="form-intro"><h2>${title}</h2><p>${subtitle}</p></div>${fields}</div><div class="form-footer">${wizardStep > 1 ? btn('上一步', 'wizard-back', '', 'type="button"', 'left') : '<small>必填项已标注 *</small>'}<button class="button primary" type="submit">${wizardStep === 3 ? '创建环境' : '保存并继续'}${icon('arrow')}</button></div></form><aside class="card summary-card"><h3>创建预览</h3><div class="summary-item"><span>环境名称</span><b id="preview-name">${escapeHTML(draft.name)}</b></div><div class="summary-item"><span>所属分组</span><b>${draft.group}</b></div><div class="summary-item"><span>保存方式</span><b>${draft.storage === 'cloud' ? '云同步（用户启用）' : '仅本地'}</b></div><div class="summary-item"><span>网络方式</span><b id="preview-proxy">${escapeHTML(proxyLabel)}</b></div><div class="summary-item"><span>指纹摘要</span><b id="preview-fingerprint">${draft.fingerprint ? `${draft.fingerprint.locale.language} · ${draft.fingerprint.hardware.platform} · ${draft.fingerprint.screen.width} × ${draft.fingerprint.screen.height}` : '正在生成'}</b></div><div class="summary-feature"><span>${icon('browser')}</span><div><b>独立登录会话</b><p>Cookie、缓存与业务数据归属于当前环境。</p></div></div><div class="summary-feature"><span>${icon('fingerprint')}</span><div><b>稳定的指纹快照</b><p>重新打开继续使用原快照，不因模板更新而变化。</p></div></div><div class="summary-feature"><span>${icon('users')}</span><div><b>按需授权成员</b><p>仅获授权成员可访问，敏感导出权限单独管理。</p></div></div><p class="summary-note">创建时保存并应用所选网络和指纹设置；代理连接失败时不会自动改为直连。</p></aside></div>`
 }
@@ -1770,6 +1773,74 @@ document.addEventListener('click', event => {
     case 'bulk-close': void updateSelected('close'); break
     case 'wizard-back': wizardStep--; render(); break
     case 'regenerate-fingerprint': void regenerateFingerprint(); break
+    case 'random-hardware-fingerprint': {
+      void (async () => {
+        try {
+          const isEnv = target.dataset.fingerprintScope === 'environment'
+          const targetDraft = isEnv ? environmentEditDraft : draft
+          if (!targetDraft?.fingerprint) return
+          const hostPlatform = getHostPlatform()
+          const platform = targetDraft.fingerprint.hardware?.platform || (hostPlatform === 'darwin' ? 'MacIntel' : hostPlatform === 'linux' ? 'Linux x86_64' : 'Win32')
+          const res = await window.browserApi.randomHardware({ platform })
+          if (!res?.ok || !res?.hardware) throw new Error(res?.error || '随机生成自洽硬件指纹失败')
+          const hw = res.hardware
+          const fp = targetDraft.fingerprint
+          if (hw.hardware) {
+            if (hw.hardware.hardwareConcurrency) fp.hardware.hardwareConcurrency = hw.hardware.hardwareConcurrency
+            if (hw.hardware.deviceMemory) fp.hardware.deviceMemory = hw.hardware.deviceMemory
+          }
+          if (hw.graphics) {
+            if (hw.graphics.webglVendor) fp.graphics.webglVendor = hw.graphics.webglVendor
+            if (hw.graphics.webglRenderer) fp.graphics.webglRenderer = hw.graphics.webglRenderer
+          }
+          if (hw.screen) {
+            fp.screen.width = hw.screen.width
+            fp.screen.height = hw.screen.height
+            fp.screen.availWidth = hw.screen.availWidth
+            fp.screen.availHeight = hw.screen.availHeight
+            fp.screen.deviceScaleFactor = hw.screen.deviceScaleFactor
+          }
+          if (hw.noise?.seed) {
+            fp.noise.seed = hw.noise.seed
+          }
+          if (isEnv) {
+            if (currentEnvironment) {
+              const currentForm = document.getElementById('environment-edit-form')
+              const savedVals = currentForm ? {
+                name: currentForm.querySelector('[name="name"]')?.value,
+                group: currentForm.querySelector('[name="group"]')?.value,
+                creationUrl: currentForm.querySelector('[name="creationUrl"]')?.value,
+                proxyMode: currentForm.querySelector('[name="proxyMode"]')?.value,
+                proxyServer: currentForm.querySelector('[name="proxyServer"]')?.value,
+                proxyUsername: currentForm.querySelector('[name="proxyUsername"]')?.value,
+                proxyPassword: currentForm.querySelector('[name="proxyPassword"]')?.value
+              } : null
+              const dialogBody = document.querySelector('.dialog.environment-edit .card-body')
+              if (dialogBody) {
+                dialogBody.innerHTML = environmentEditDialog(currentEnvironment)
+                const newForm = document.getElementById('environment-edit-form')
+                if (newForm && savedVals) {
+                  if (savedVals.name !== undefined) newForm.querySelector('[name="name"]').value = savedVals.name
+                  if (savedVals.group !== undefined) newForm.querySelector('[name="group"]').value = savedVals.group
+                  if (savedVals.creationUrl !== undefined) newForm.querySelector('[name="creationUrl"]').value = savedVals.creationUrl
+                  if (savedVals.proxyMode !== undefined) newForm.querySelector('[name="proxyMode"]').value = savedVals.proxyMode
+                  if (savedVals.proxyServer !== undefined) newForm.querySelector('[name="proxyServer"]').value = savedVals.proxyServer
+                  if (savedVals.proxyUsername !== undefined) newForm.querySelector('[name="proxyUsername"]').value = savedVals.proxyUsername
+                  if (savedVals.proxyPassword !== undefined) newForm.querySelector('[name="proxyPassword"]').value = savedVals.proxyPassword
+                }
+              }
+            }
+          } else {
+            render()
+          }
+          const gpuName = fp.graphics.webglRenderer.includes(',') ? fp.graphics.webglRenderer.split(',')[1].trim() : fp.graphics.webglRenderer
+          toast(`🎲 已生成自洽硬件：${gpuName} · ${fp.hardware.hardwareConcurrency}核 · ${fp.screen.width}×${fp.screen.height}`)
+        } catch (error) {
+          toast(error?.message || '生成自洽硬件指纹失败，请重试。')
+        }
+      })()
+      break
+    }
     case 'restore-fingerprint': restoreFingerprint(); break
     case 'preview-fingerprint': {
       const targetDraft = target.dataset.fingerprintScope === 'environment' ? environmentEditDraft : draft
@@ -1784,25 +1855,64 @@ document.addEventListener('click', event => {
     case 'detect-and-align-ip': {
       void (async () => {
         try {
-          toast('正在探测出口网络 IP 与地理时区...')
-          const res = await window.browserApi.detectExitIp()
-          if (!res?.ok || !res?.data) throw new Error(res?.error || '无法解析出口 IP')
-          const geo = res.data
-          const timezoneSelect = document.getElementById('field-environment-timezone') || document.querySelector('select[name="timezone"]')
-          if (timezoneSelect && geo.timezone) {
-            timezoneSelect.value = geo.timezone
+          const isEnv = target.dataset.scope === 'environment' || Boolean(document.getElementById('environment-edit-form'))
+          const targetDraft = isEnv ? environmentEditDraft : draft
+          if (!targetDraft?.fingerprint) {
+            toast('当前环境指纹配置未就绪，请稍后重试。')
+            return
           }
-          if (typeof environmentEditDraft === 'object' && environmentEditDraft) {
-            if (!environmentEditDraft.locale) environmentEditDraft.locale = {}
-            if (geo.timezone) environmentEditDraft.locale.timezone = geo.timezone
-            if (geo.locale) {
-              environmentEditDraft.locale.language = geo.locale.language
-              environmentEditDraft.locale.languages = [...geo.locale.languages]
+          const form = isEnv ? document.getElementById('environment-edit-form') : document.getElementById('wizard-form')
+          let proxy = { mode: 'direct', server: '', username: '', password: '' }
+          if (form) {
+            const formData = new FormData(form)
+            const mode = formData.get('proxyMode') || (isEnv ? 'direct' : (draft.proxy?.mode || 'direct'))
+            proxy = {
+              mode,
+              server: mode === 'direct' ? '' : String(formData.get('proxyServer') || '').trim(),
+              username: mode !== 'direct' ? String(formData.get('proxyUsername') || '') : '',
+              password: mode !== 'direct' ? String(formData.get('proxyPassword') || '') : ''
             }
+          } else {
+            proxy = isEnv ? (currentEnvironment?.raw?.proxy || proxy) : (draft.proxy || proxy)
           }
-          toast(`出口 IP 探测成功: ${geo.ip} (${geo.country} · ${geo.city})，已自动对齐为 ${geo.timezone} 时区！`)
+
+          if (proxy.mode !== 'direct' && !proxy.server) {
+            toast('请先填写有效的代理服务器地址（如 http://ip:port 或 socks5://ip:port）')
+            return
+          }
+
+          if (!isEnv) {
+            draft.proxy = proxy
+          }
+
+          toast('正在通过网络探测出口 IP 并四维对齐地理环境...')
+          const res = await window.browserApi.alignProxyGeo({ proxy, profile: targetDraft.fingerprint })
+          if (!res?.ok) throw new Error(res?.error || '探测代理或对齐地理环境失败')
+          const { geoInfo, aligned } = res
+
+          targetDraft.fingerprint = aligned
+
+          const statusContainer = document.getElementById(isEnv ? 'env-geo-status' : 'wizard-geo-status')
+          if (statusContainer) {
+            statusContainer.innerHTML = `<div class="notice success" style="margin-top:8px">${icon('checkCircle')} 出口 IP 探测成功：<b>${escapeHTML(geoInfo.ip)}</b>（${escapeHTML(geoInfo.country || '未知')} · ${escapeHTML(geoInfo.city || '未知')}）<br>时区已对齐为 <b>${escapeHTML(geoInfo.timezone)}</b>，主要语言为 <b>${escapeHTML(geoInfo.locale?.language || '')}</b>，WebRTC 已锁定代理隔离防护。</div>`
+          }
+
+          if (isEnv) {
+            const tzEl = document.querySelector('[data-fingerprint-path="locale.timezone"]')
+            if (tzEl && geoInfo.timezone) tzEl.value = geoInfo.timezone
+            const langEl = document.querySelector('[data-fingerprint-path="locale.language"]')
+            if (langEl && geoInfo.locale?.language) langEl.value = geoInfo.locale.language
+            const acceptEl = document.querySelector('[data-fingerprint-path="browser.acceptLanguage"]')
+            if (acceptEl && geoInfo.locale?.acceptLanguage) acceptEl.value = geoInfo.locale.acceptLanguage
+            const langsEl = document.querySelector('[data-fingerprint-path="locale.languages"]')
+            if (langsEl && geoInfo.locale?.languages) langsEl.value = geoInfo.locale.languages.join(', ')
+            const webrtcEl = document.querySelector('[data-fingerprint-path="modules.webrtc"]')
+            if (webrtcEl) webrtcEl.checked = true
+          }
+
+          toast(`🌐 出口 IP 探测成功：${geoInfo.ip}（${geoInfo.country || '未知'} · ${geoInfo.city || '未知'}），已完成四维对齐！`)
         } catch (err) {
-          toast(err?.message || '探测出口 IP 失败，请检查网络。')
+          toast(err?.message || '探测出口 IP 失败，请检查网络或代理连通性。')
         }
       })()
       break

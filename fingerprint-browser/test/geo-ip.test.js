@@ -56,3 +56,32 @@ test('alignFingerprintWithGeo: 正确将 IP 归属地时区与语言对齐到指
   assert.equal(baseProfile.locale.timezone, 'Asia/Shanghai', '原对象不得被污染')
   assert.equal(baseProfile.modules.webrtc, false, '原对象开关不得被污染')
 })
+
+test('alignFingerprintWithGeo: 支持嵌套 profile.fingerprint 结构的自动对齐', () => {
+  const nestedProfile = {
+    id: 'nested-profile',
+    fingerprint: {
+      browser: { acceptLanguage: 'zh-CN' },
+      locale: { language: 'zh-CN', languages: ['zh-CN'], timezone: 'Asia/Shanghai' },
+      modules: { webrtc: false }
+    }
+  }
+
+  const jpGeoInfo = {
+    ip: '133.242.18.2',
+    country: 'Japan',
+    countryCode: 'JP',
+    city: 'Tokyo',
+    timezone: 'Asia/Tokyo',
+    locale: {
+      language: 'ja-JP',
+      languages: ['ja-JP', 'ja'],
+      acceptLanguage: 'ja-JP,ja;q=0.9'
+    }
+  }
+
+  const aligned = alignFingerprintWithGeo(nestedProfile, jpGeoInfo)
+  assert.equal(aligned.fingerprint.locale.timezone, 'Asia/Tokyo')
+  assert.equal(aligned.fingerprint.locale.language, 'ja-JP')
+  assert.equal(aligned.fingerprint.modules.webrtc, true)
+})

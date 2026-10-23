@@ -140,4 +140,12 @@ for (const preset of FINGERPRINT_PRESETS) {
   assert.equal(preview.canSave, true, `预设 ${preset.name} 应该允许保存`)
 }
 
-console.log('创建环境下拉选择所有参数与指纹方案预设校验自检通过。')
+// 7. 测试向导与编辑抽屉中的交互动作按钮完整性
+assert.ok(saasAppCode.includes('random-hardware-fingerprint'), '必须包含随机自洽硬件按钮动作')
+assert.ok(saasAppCode.includes('detect-and-align-ip'), '必须包含探测代理并对齐地理按钮动作')
+assert.ok(saasAppCode.includes('data-scope="wizard"'), '向导代理步骤必须包含向导 scope 代理对齐按钮')
+assert.ok(saasAppCode.includes('data-scope="environment"'), '编辑抽屉代理步骤必须包含环境 scope 代理对齐按钮')
+assert.ok(saasAppCode.includes('window.browserApi.randomHardware'), '事件处理必须调用 browserApi.randomHardware')
+assert.ok(saasAppCode.includes('window.browserApi.alignProxyGeo'), '事件处理必须调用 browserApi.alignProxyGeo')
+
+console.log('创建环境下拉选择所有参数、指纹预设及向导自洽硬件与代理对齐交互校验自检通过。')
