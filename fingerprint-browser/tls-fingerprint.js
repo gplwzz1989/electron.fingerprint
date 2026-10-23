@@ -116,8 +116,14 @@ function resolveTLSConfigForBrowser (target, options = {}) {
     targetMajor = target
     targetVersion = `${target}.0.0.0`
   } else if (typeof target === 'string') {
-    targetVersion = target
-    targetMajor = Number(target.split('.')[0])
+    const extracted = chromeVersionFromUserAgent(target)
+    if (extracted) {
+      targetVersion = extracted
+      targetMajor = Number(extracted.split('.')[0])
+    } else {
+      targetVersion = target
+      targetMajor = Number(target.split('.')[0])
+    }
   } else if (target && typeof target === 'object') {
     if (target.version) {
       targetVersion = target.version

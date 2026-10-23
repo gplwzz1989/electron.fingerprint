@@ -204,6 +204,48 @@ const FINGERPRINT_PRESETS = [
     }
   },
   {
+    id: 'win11-us-chrome120-nvidia',
+    name: 'Windows 11 · 英语美国 · Chrome 120 经典稳定版 · 纯经典 TLS (出海稳健)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.109 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/New_York',
+      cpu: 16,
+      memory: 8,
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (NVIDIA)',
+      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
+    id: 'win11-us-chrome126-nvidia',
+    name: 'Windows 11 · 英语美国 · Chrome 126 Kyber 版 · 2K分辨率 (后量子过渡期)',
+    data: {
+      platform: 'Win32',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36',
+      language: 'en-US',
+      languages: ['en-US', 'en'],
+      acceptLanguage: 'en-US,en;q=0.9',
+      timezone: 'America/Los_Angeles',
+      cpu: 16,
+      memory: 8,
+      width: 2560,
+      height: 1440,
+      availWidth: 2560,
+      availHeight: 1400,
+      scale: 1.25,
+      webglVendor: 'Google Inc. (NVIDIA)',
+      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+    }
+  },
+  {
     id: 'win10-us-intel-chicago',
     name: 'Windows 10 · 英语美国 · Intel UHD 630 · 1080p · 芝加哥时区 (稳健办公)',
     data: {

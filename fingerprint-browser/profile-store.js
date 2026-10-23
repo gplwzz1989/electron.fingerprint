@@ -312,6 +312,14 @@ const PRESET_METADATA = {
   'win11-ja-intel': {
     name: 'Windows 11 · 日本 · Intel Iris Xe',
     description: 'Windows 11 / 日语(东京时区) / Intel Iris Xe Graphics / 16核 8G / 1.25 缩放'
+  },
+  'win11-us-chrome120-nvidia': {
+    name: 'Windows 11 · 美东 · Chrome 120 经典稳定版',
+    description: 'Windows 11 / 英语(美东时区) / Chrome 120 (纯传统 TLS 曲线) / RTX 3060 / 16核 8G / 1080P'
+  },
+  'win11-us-chrome126-nvidia': {
+    name: 'Windows 11 · 美西 · Chrome 126 Kyber 版',
+    description: 'Windows 11 / 英语(美西时区) / Chrome 126 (草案后量子) / RTX 4070 / 16核 8G / 2K 分辨率'
   }
 }
 

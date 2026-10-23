@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createFingerprintProfile } = require('../profile-store')
 const { previewFingerprintProfile } = require('../fingerprint-review')
+const { resolveTLSConfigForBrowser } = require('../tls-fingerprint')
 
 // 从 saas-app.js 提取定义的预设与选项常量
 const saasAppCode = fs.readFileSync(path.join(__dirname, '../renderer/saas-app.js'), 'utf8')
@@ -132,7 +133,9 @@ for (const preset of FINGERPRINT_PRESETS) {
   const hostPlatformMap = { Win32: 'win32', MacIntel: 'darwin', 'Linux x86_64': 'linux' }
   const targetPlatform = hostPlatformMap[preset.data.platform] || 'win32'
   const runtime = { platform: targetPlatform, chromiumVersion: '138.0.0.0' }
-  const preview = previewFingerprintProfile(profile, runtime)
+  const isCrossVersion = !preset.data.userAgent.includes('Chrome/138.')
+  const tlsFingerprint = isCrossVersion ? resolveTLSConfigForBrowser(preset.data.userAgent, { runtimeVersion: '138.0.0.0' }) : null
+  const preview = previewFingerprintProfile(profile, runtime, null, { tlsFingerprint, allowCrossVersion: isCrossVersion })
   assert.equal(preview.errors.length, 0, `预设 ${preset.name} 存在配置校验错误: ${preview.errors.join('; ')}`)
   assert.equal(preview.canSave, true, `预设 ${preset.name} 应该允许保存`)
 }
