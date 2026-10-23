@@ -40,7 +40,7 @@ async function readTLSReference (filename) {
 function validateContextReport (report, phase, previous, requireClientHints = false) {
   const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
   const webgpuModes = ['default', 'low-power', 'high-performance', 'force-fallback']
-  if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.unverified) || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
+  if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.unverified) || !Array.isArray(report.notApplicable) || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
   if (requireClientHints && report.unverified.length) throw new Error('指纹验证的高熵客户端提示仍有未验证项。')
   if (phase === 'restore' && !previous) throw new Error('指纹验证缺少首次运行对照。')
   if (previous && !isDeepStrictEqual(report.runtime, previous.runtime)) throw new Error('指纹验证两阶段运行时不一致。')
@@ -100,6 +100,14 @@ function getWebGPUProtectionFailures (webgpu) {
     }
   }
   return failures
+}
+
+function getWebGPUBaselineStatus (webgpu) {
+  if (webgpu?.supported !== true) return 'not-applicable'
+  const attempts = Object.values(webgpu.requests || {})
+  if (attempts.some(attempt => attempt?.adapter && attempt?.device && !attempt.adapterError && !attempt.deviceError)) return 'ready'
+  if (attempts.some(attempt => attempt?.adapter || attempt?.adapterError || attempt?.deviceError)) return 'unverified'
+  return 'not-applicable'
 }
 
 function validateTLSReport (report, baselineOnly, reference) {
@@ -220,4 +228,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, readTLSReference, validateTLSReport }
+module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus, readTLSReference, validateTLSReport }

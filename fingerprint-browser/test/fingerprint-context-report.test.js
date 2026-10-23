@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures } = require('../scripts/test-fingerprint')
+const { validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
 
 const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
 const webgpuModes = ['default', 'low-power', 'high-performance', 'force-fallback']
@@ -13,7 +13,7 @@ const values = Object.fromEntries(contexts.map(context => [context, {
   headers: { userAgent: '诊断用户代理', language: 'en-US,en;q=0.9', hints: {} }
 }]))
 const initial = {
-  phase: 'initial', ok: true, failures: [], unverified: [], runtime: { electron: '37.2.6', chrome: '138.0.7204.185' },
+  phase: 'initial', ok: true, failures: [], unverified: [], notApplicable: [], runtime: { electron: '37.2.6', chrome: '138.0.7204.185' },
   samples: Array.from({ length: 7 }, (_, index) => ({ index, values: structuredClone(values), refreshed: structuredClone(values) })),
   tlsComparison: { direct: { throughProxy: false }, tunnel: { throughProxy: true } }
 }
@@ -29,6 +29,7 @@ for (const change of [
   report => { report.ok = false },
   report => { report.failures.push({ message: '测试失败。' }) },
   report => { report.samples.pop() },
+  report => { delete report.notApplicable },
   report => { report.samples[2].index = 1 },
   report => { delete report.samples[1].values.shared },
   report => { delete report.samples[1].refreshed.crossOriginFrame },
@@ -54,6 +55,10 @@ assert.deepEqual(getWebGPUProtectionFailures(webgpuLeak), ['force-fallback.adapt
 const webgpuError = structuredClone(values.page.webgpu)
 webgpuError.requests['high-performance'].adapterError = true
 assert.deepEqual(getWebGPUProtectionFailures(webgpuError), ['high-performance.adapterError'])
+assert.equal(getWebGPUBaselineStatus({ supported: false, requests: {} }), 'not-applicable')
+assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: false, device: false } } }), 'not-applicable')
+assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: true } } }), 'ready')
+assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: false, deviceError: true } } }), 'unverified')
 for (const change of [
   report => { report.runtime.chrome = '139.0.0.0' },
   report => { report.samples[1].values.serviceWorker.languages = ['en-US'] },

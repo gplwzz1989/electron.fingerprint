@@ -10,14 +10,14 @@ const { app, BrowserWindow, session } = require('electron/main')
 const { getDefaultProfile } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
 const { applyProxyConfig } = require('../browser-tabs')
-const { getContextFallbackFields, getWebGPUProtectionFailures } = require('../scripts/test-fingerprint')
+const { getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
 
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
 if (!output || !path.resolve(output).startsWith(`${path.resolve(__dirname, '../../dist/electron-diagnostics/fingerprint')}${path.sep}`)) throw new Error('上下文验证必须使用独立诊断目录。')
 if (!['initial', 'restore'].includes(phase)) throw new Error('上下文验证阶段无效。')
 app.setPath('userData', path.join(output, 'data'))
-const report = { ok: false, phase, runtime: process.versions, samples: [], failures: [], tls: [], unverified: [], scope: '本地受控 HTTPS；记录协商协议和密码套件，不将其称为 JA3/JA4 或公网验收。' }
+const report = { ok: false, phase, runtime: process.versions, samples: [], failures: [], tls: [], unverified: [], notApplicable: [], scope: '本地受控 HTTPS；记录协商协议和密码套件，不将其称为 JA3/JA4 或公网验收。' }
 const windows = []
 const sessions = []
 const sockets = new Set()
@@ -248,7 +248,10 @@ async function run () {
           if (profile.modules.locale) assert.equal(value.language, profile.locale.language, '配置的主要语言未生效。')
           if (profile.modules.webgl) assert.equal(value.webglVendor, profile.graphics.webglVendor, '图形名称未生效或本机不支持所需图形对照。')
         })
-        if (profile.modules.webgl) check(`环境 ${index} ${context} WebGPU 限制`, () => assert.deepEqual(getWebGPUProtectionFailures(value.webgpu), [], '受保护环境的某种 WebGPU 请求取得了适配器、设备或发生错误。'))
+        if (profile.modules.webgl) {
+          check(`环境 ${index} ${context} WebGPU 支持状态`, () => assert.equal(value.webgpu.supported, native.webgpu.supported, '保护配置改变了该上下文的 WebGPU API 支持状态。'))
+          check(`环境 ${index} ${context} WebGPU 限制`, () => assert.deepEqual(getWebGPUProtectionFailures(value.webgpu), [], '受保护环境的某种 WebGPU 请求取得了适配器、设备或发生错误。'))
+        }
       }
     }
     await profileSession.flushStorageData()
@@ -269,8 +272,9 @@ async function run () {
     }
   }
   for (const [context, value] of Object.entries(report.samples[0].values)) {
-    const baseline = value.webgpu.requests.default
-    if (!baseline.adapter || !baseline.device || baseline.adapterError || baseline.deviceError) report.failures.push({ description: `${context} WebGPU 原生对照`, message: '本机未完成默认模式适配器及设备对照，本项未验证，不能认定保护通过。' })
+    const status = getWebGPUBaselineStatus(value.webgpu)
+    if (status === 'not-applicable') report.notApplicable.push(`${context} WebGPU：当前运行环境未提供可用的原生适配器及设备，本项不适用。`)
+    else if (status === 'unverified') report.failures.push({ description: `${context} WebGPU 原生对照`, message: '默认模式未完成适配器及设备对照，本项未验证。' })
   }
   const invalid = session.fromPartition(`invalid-${phase}`)
   const invalidProfile = structuredClone(profiles[1])
