@@ -102,6 +102,26 @@ function getWebGPUProtectionFailures (webgpu) {
   return failures
 }
 
+function getContextHintMismatches (value) {
+  const hints = value?.hints
+  const headers = value?.headers?.hints
+  if (!hints || !headers) return []
+  const mismatches = []
+  for (const [header, field] of [['sec-ch-ua-platform', 'platform'], ['sec-ch-ua-arch', 'architecture'], ['sec-ch-ua-bitness', 'bitness']]) {
+    if (Object.hasOwn(headers, header)) {
+      try {
+        if (JSON.parse(headers[header]) !== hints[field]) mismatches.push(header)
+      } catch { mismatches.push(header) }
+    }
+  }
+  if (Object.hasOwn(headers, 'sec-ch-ua-full-version-list')) {
+    for (const item of hints.fullVersionList || []) {
+      if (!headers['sec-ch-ua-full-version-list'].includes(`${JSON.stringify(item.brand)};v=${JSON.stringify(item.version)}`)) mismatches.push('sec-ch-ua-full-version-list')
+    }
+  }
+  return mismatches
+}
+
 function getWebGPUBaselineStatus (webgpu) {
   if (webgpu?.supported !== true) return 'not-applicable'
   const attempts = Object.values(webgpu.requests || {})
@@ -228,4 +248,4 @@ if (require.main === module) void run().catch(error => {
   process.exitCode = 1
 })
 
-module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus, readTLSReference, validateTLSReport }
+module.exports = { hashFile, validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getContextHintMismatches, getWebGPUBaselineStatus, readTLSReference, validateTLSReport }

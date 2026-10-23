@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict')
-const { validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
+const {
+  validateContextReport, getContextFallbackFields, getWebGPUProtectionFailures,
+  getContextHintMismatches, getWebGPUBaselineStatus
+} = require('../scripts/test-fingerprint')
 
 const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
 const webgpuModes = ['default', 'low-power', 'high-performance', 'force-fallback']
@@ -59,6 +62,17 @@ assert.equal(getWebGPUBaselineStatus({ supported: false, requests: {} }), 'not-a
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: false, device: false } } }), 'not-applicable')
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: true } } }), 'ready')
 assert.equal(getWebGPUBaselineStatus({ supported: true, requests: { default: { adapter: true, device: false, deviceError: true } } }), 'unverified')
+const contextHints = {
+  hints: { fullVersionList: [{ brand: 'Chromium', version: '138.0.0.0' }], platform: 'Windows', architecture: 'x86', bitness: '64' },
+  headers: { hints: {
+    'sec-ch-ua-full-version-list': '"Chromium";v="138.0.0.0"',
+    'sec-ch-ua-platform': '"Windows"', 'sec-ch-ua-arch': '"x86"', 'sec-ch-ua-bitness': '"64"'
+  } }
+}
+assert.deepEqual(getContextHintMismatches(contextHints), [])
+const inconsistentContextHints = structuredClone(contextHints)
+inconsistentContextHints.headers.hints['sec-ch-ua-platform'] = '"Linux"'
+assert.deepEqual(getContextHintMismatches(inconsistentContextHints), ['sec-ch-ua-platform'])
 for (const change of [
   report => { report.runtime.chrome = '139.0.0.0' },
   report => { report.samples[1].values.serviceWorker.languages = ['en-US'] },

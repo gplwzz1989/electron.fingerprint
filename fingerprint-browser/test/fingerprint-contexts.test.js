@@ -10,7 +10,7 @@ const { app, BrowserWindow, session } = require('electron/main')
 const { getDefaultProfile } = require('../profile-store')
 const { applyFingerprintConfig } = require('../runtime-compat')
 const { applyProxyConfig } = require('../browser-tabs')
-const { getContextFallbackFields, getWebGPUProtectionFailures, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
+const { getContextFallbackFields, getWebGPUProtectionFailures, getContextHintMismatches, getWebGPUBaselineStatus } = require('../scripts/test-fingerprint')
 
 const output = process.env.FP_FINGERPRINT_TEST_OUTPUT
 const phase = process.env.FP_CONTEXT_PHASE || 'initial'
@@ -221,6 +221,7 @@ async function run () {
       if (profile?.enabled && profile.modules.clientHints) {
         check(`环境 ${index} ${context} 高熵提示可用`, () => assert.ok(value.hints && typeof value.hints === 'object' && values.page.hints && typeof values.page.hints === 'object', '已启用客户端提示，但该上下文未返回高熵值。'))
         check(`环境 ${index} ${context} 客户端提示一致`, () => assert.deepEqual(value.hints, values.page.hints, '客户端提示在上下文之间不一致。'))
+        check(`环境 ${index} ${context} 请求提示一致`, () => assert.deepEqual(getContextHintMismatches(value), [], '请求中的客户端提示与该上下文的高熵值不一致。'))
       }
       for (const field of getContextFallbackFields(profile)) {
         const actual = field.split('.').reduce((target, key) => target?.[key], value)
