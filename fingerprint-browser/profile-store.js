@@ -258,9 +258,22 @@ function createProxyConfig (input) {
 function createTLSFingerprintConfig (input) {
   if (input === undefined || input === null) return undefined
   ensureObject(input, 'TLS 策略')
-  ensureOnlyKeys(input, ['chromiumVersion', 'cipherSuites', 'permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled', 'supportedGroups', 'signatureAlgorithms', 'alpsCodepoint'], 'TLS 策略')
+  ensureOnlyKeys(input, [
+    'chromiumVersion', 'cipherSuites', 'permuteExtensions', 'echEnabled',
+    'postQuantumKeyAgreementEnabled', 'supportedGroups', 'signatureAlgorithms',
+    'alpsCodepoint', 'targetVersion', 'targetMajor', 'emulationMode'
+  ], 'TLS 策略')
   if (typeof input.chromiumVersion !== 'string' || !/^138\.\d+\.\d+\.\d+$/.test(input.chromiumVersion)) {
     fail('TLS 策略必须声明当前 Chrome 138 内核的完整版本。')
+  }
+  if (Object.hasOwn(input, 'emulationMode') && !['native', 'cross-version'].includes(input.emulationMode)) {
+    fail('TLS 策略 emulationMode 必须为 native 或 cross-version。')
+  }
+  if (Object.hasOwn(input, 'targetMajor') && (!Number.isInteger(input.targetMajor) || input.targetMajor < 100 || input.targetMajor > 200)) {
+    fail('TLS 策略 targetMajor 必须为受支持的 Chrome 大版本整数 (100-200)。')
+  }
+  if (Object.hasOwn(input, 'targetVersion') && (typeof input.targetVersion !== 'string' || !/^\d+\.\d+\.\d+\.\d+$/.test(input.targetVersion))) {
+    fail('TLS 策略 targetVersion 必须为合法的四段版本号字符串。')
   }
   for (const key of ['permuteExtensions', 'echEnabled', 'postQuantumKeyAgreementEnabled']) {
     if (Object.hasOwn(input, key)) ensureBoolean(input[key], `TLS 策略 ${key}`)

@@ -1,10 +1,16 @@
 const { createFingerprintProfile, ProfileValidationError } = require('./profile-store')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
-const { chromeVersionFromUserAgent } = require('./tls-fingerprint')
+const { chromeVersionFromUserAgent, auditTLSVersionConsistency } = require('./tls-fingerprint')
 
-function previewFingerprintProfile (input, runtime, proxy) {
+function previewFingerprintProfile (input, runtime, proxy, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProfileValidationError('指纹配置必须是对象。')
-  const fingerprint = createFingerprintProfile(input)
+  const rawFingerprint = Object.hasOwn(input, 'fingerprint') ? input.fingerprint : input
+  const tlsFingerprint = Object.hasOwn(input, 'tlsFingerprint')
+    ? input.tlsFingerprint
+    : (options.tlsFingerprint || rawFingerprint.tlsFingerprint)
+  const cleanFingerprint = { ...rawFingerprint }
+  delete cleanFingerprint.tlsFingerprint
+  const fingerprint = createFingerprintProfile(cleanFingerprint)
   const changes = input.hardware?.deviceMemory === 16
     ? [{ field: 'hardware.deviceMemory', before: 16, after: 8, message: '网页可见内存将从 16 GiB 调整为 8 GiB；物理内存和登录数据不会改变。' }]
     : []
@@ -12,19 +18,52 @@ function previewFingerprintProfile (input, runtime, proxy) {
   const warnings = describeFingerprintProtection(fingerprint, proxy).warnings
   const { browser, locale, hardware, graphics, modules } = fingerprint
   const hostPlatform = { win32: 'Win32', darwin: 'MacIntel', linux: 'Linux x86_64' }[runtime.platform]
+  const allowCrossVersion = Boolean(
+    options.allowCrossVersion ||
+    tlsFingerprint?.emulationMode === 'cross-version' ||
+    options.mode === 'cross-version'
+  )
+
   if (fingerprint.enabled) {
-    if ((modules.ua || modules.clientHints) && browser.chromiumMajor !== Number(runtime.chromiumVersion?.split('.')[0])) {
-      errors.push('配置的浏览器主版本与当前运行时不一致，请使用匹配的运行时。')
+    const runtimeMajor = Number(runtime.chromiumVersion?.split('.')[0])
+    if ((modules.ua || modules.clientHints)) {
+      if (!allowCrossVersion && browser.chromiumMajor !== runtimeMajor) {
+        errors.push('配置的浏览器主版本与当前运行时不一致，请使用匹配的运行时。')
+      } else if (allowCrossVersion) {
+        if (!browser.chromiumMajor || browser.chromiumMajor < 100 || browser.chromiumMajor > 200) {
+          errors.push('跨版本仿真需要指定合法的 Chrome 大版本 (100-200)。')
+        }
+      }
     }
     if ((modules.navigator || modules.fonts) && hardware.platform !== hostPlatform) {
       errors.push('操作系统平台与本机不一致；当前仅支持与真实宿主相容的桌面配置。')
     }
     if (modules.ua && browser.userAgent) {
       const version = chromeVersionFromUserAgent(browser.userAgent)
-      if (!version || Number(version.split('.')[0]) !== browser.chromiumMajor) {
-        errors.push('用户代理必须包含与当前内核一致的 Chrome 主版本。')
-      } else if (version !== `${browser.chromiumMajor}.0.0.0` && version !== runtime.chromiumVersion) {
-        errors.push('用户代理完整版本与 TLS 内核不一致；请使用内核默认值、原生缩减版本或真实完整版本。')
+      const targetMajor = version ? Number(version.split('.')[0]) : null
+      if (!version) {
+        errors.push('用户代理格式无效，无法识别 Chrome 版本。')
+      } else if (!allowCrossVersion) {
+        if (targetMajor !== browser.chromiumMajor) {
+          errors.push('用户代理必须包含与当前内核一致的 Chrome 主版本。')
+        } else if (version !== `${browser.chromiumMajor}.0.0.0` && version !== runtime.chromiumVersion) {
+          errors.push('用户代理完整版本与 TLS 内核不一致；请使用内核默认值、原生缩减版本或真实完整版本。')
+        }
+      } else if (allowCrossVersion) {
+        if (!targetMajor || targetMajor < 100 || targetMajor > 200) {
+          errors.push('跨版本仿真需要指定合法的 Chrome 目标版本 (100-200)。')
+        } else {
+          const audit = auditTLSVersionConsistency(
+            fingerprint,
+            tlsFingerprint,
+            { runtimeVersion: runtime.chromiumVersion }
+          )
+          if (!audit.consistent) {
+            errors.push(`跨版本 TLS 策略不自洽：${audit.reason}`)
+          } else if (targetMajor !== runtimeMajor) {
+            warnings.push(`已启用 Chrome ${targetMajor} 跨版本 TLS 仿真；ClientHello 特征已对齐目标版本。`)
+          }
+        }
       }
       const uaPlatform = /Windows NT/.test(browser.userAgent) ? 'Win32'
         : /Macintosh/.test(browser.userAgent) ? 'MacIntel'

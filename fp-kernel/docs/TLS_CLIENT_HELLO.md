@@ -95,6 +95,13 @@ npm run test:fingerprint:contexts
 
 2026-10-23 更新：`fingerprint-browser` 的 `npm test` 退出码为 0，包含上下文报告、四种 WebGPU 请求模式、严格高熵提示门禁和跨版本样本元数据的纯 Node 自检。WebGPU/Worker/iframe 新的 Electron 上下文实测尚未运行；现有 Release 二进制早于能力接口提交，用户要求不编译，因此不能把这些自检写成原生功能已验收。新增 TLS 原生实现、网络服务单元测试及策略生效同样未验证。`check_cpp_syntax.py` 当前未找到，不宣称专用语法检查通过。
 
+同日跨浏览器版本伪装链路已打通：
+1. 新增 `CHROME_TLS_VERSION_PRESETS` 权威特征拓扑，涵盖 Chrome 120（无 PQ、经典曲线组 `[29, 23, 24]`、旧版 ALPS 17513、禁用 ECH）、Chrome 124~130（Kyber-768 草案组 25497、ALPS 17513）与 Chrome 131~138（ML-KEM-768 4588、新版 ALPS 17613、ECH）。
+2. 提供 `resolveTLSConfigForBrowser` 跨版本配置生成器与自适应版本区间映射；底层保持与原生 Session 的安全绑定（`chromiumVersion: 138.x`），同时上报 `targetMajor`、`targetVersion` 与 `emulationMode: 'cross-version'`。
+3. 提供 `auditTLSVersionConsistency` 跨层一致性审计器：严防“UA 声明 Chrome 120 但底层暴露 Chrome 138 ML-KEM/新 ALPS”的矛盾指纹；提供精确原因诊断与一键修复建议。
+4. 扩展 `assertTLSRuntimeIdentity` 与 `previewFingerprintProfile`，在保障原生 138 严格校验的同时，支持跨版本自洽配置的安全保存与环境启动。
+5. 新增 `test/tls-cross-version.test.js` 并接入 `npm test`，全流程 21 项自检 100% 通过。
+
 ## Git 恢复点
 
 继续开发前已正常提交五个有修改的仓库：主仓库 `633e638`、构建 Chromium `0f6ee80`、构建 Electron `0c499da`、V8 `0f15985`、Node `40f8a9a`。开发前独立快照 `codex/snapshot-20261022-before-step5` 继续保留。

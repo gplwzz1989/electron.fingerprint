@@ -1,4 +1,5 @@
 function describeFingerprintProtection (fingerprint, proxy = {}) {
+  const safeProxy = proxy || {}
   const active = fingerprint.enabled === true
   const { modules, noise, graphics } = fingerprint
   const capabilities = [
@@ -14,9 +15,11 @@ function describeFingerprintProtection (fingerprint, proxy = {}) {
   for (const [key, label] of [['canvas', '画布'], ['audio', '音频']]) {
     if (active && noise[key] && !modules[key]) warnings.push(`${label}噪声已勾选，但对应模块关闭，保护不会生效。`)
   }
-  if (proxy.mode && proxy.mode !== 'direct' && !(active && modules.webrtc)) warnings.push('代理环境未开启非代理 UDP 限制，需检查实时通信泄漏。')
+  if (safeProxy.mode && safeProxy.mode !== 'direct' && !(active && modules.webrtc)) warnings.push('代理环境未开启非代理 UDP 限制，需检查实时通信泄漏。')
   const uaMajor = fingerprint.browser.userAgent?.match(/Chrome\/(\d+)\./)?.[1]
-  if (active && modules.ua && uaMajor && Number(uaMajor) !== fingerprint.browser.chromiumMajor) warnings.push('用户代理版本与配置的内核主版本不一致。')
+  if (active && modules.ua && uaMajor && Number(uaMajor) !== fingerprint.browser.chromiumMajor && fingerprint.tlsFingerprint?.emulationMode !== 'cross-version') {
+    warnings.push('用户代理版本与配置的内核主版本不一致。')
+  }
   if (active && modules.locale && Intl.getCanonicalLocales(fingerprint.locale.languages[0])[0] !== Intl.getCanonicalLocales(fingerprint.locale.language)[0]) warnings.push('主要语言与语言列表首项不一致。')
   return {
     configured: capabilities.filter(([, enabled]) => enabled).map(([label]) => label),
