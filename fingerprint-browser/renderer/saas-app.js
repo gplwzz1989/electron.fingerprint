@@ -1406,17 +1406,19 @@ async function loadRealData (showToast = true) {
 async function launchEnvironment (environment) {
   if (!environment) return
   try {
+    let warning = ''
     if (environment.state !== '运行中') {
       const response = await window.browserApi.reopenEnvironment(environment.id)
       if (!response?.ok) throw new Error(response?.error || '打开浏览器环境失败。')
       applyEnvironmentSnapshot(response.environments)
+      warning = response.warning || ''
     } else {
       const focused = await focusEnvironmentTab(environment.id)
       if (!focused) throw new Error('找不到该环境的已打开标签，请重新打开环境。')
     }
     currentEnvironment = environments.find(item => item.id === environment.id) || environment
     render()
-    toast(`已打开“${currentEnvironment.name}”环境。`)
+    toast(`已打开“${currentEnvironment.name}”环境。${warning ? ` ${warning}` : ''}`)
   } catch (error) {
     toast(error?.message || '打开浏览器环境失败，请重试。')
   }
@@ -1468,6 +1470,7 @@ async function updateSelected (operation) {
   const ids = [...selected]
   if (!ids.length) return
   try {
+    const warnings = []
     for (const id of ids) {
       const item = environments.find(environment => environment.id === id)
       if (!item) continue
@@ -1475,6 +1478,7 @@ async function updateSelected (operation) {
         const response = await window.browserApi.reopenEnvironment(id)
         if (!response?.ok) throw new Error(response?.error || '批量打开环境失败。')
         applyEnvironmentSnapshot(response.environments)
+        if (response.warning) warnings.push(response.warning)
       }
       if (operation === 'close' && item.state === '运行中') {
         const response = await window.browserApi.closeEnvironment(id)
@@ -1484,7 +1488,8 @@ async function updateSelected (operation) {
     }
     selected.clear()
     render()
-    toast(operation === 'open' ? '选中的环境已打开。' : '选中的环境已关闭。')
+    const message = operation === 'open' ? '选中的环境已打开。' : '选中的环境已关闭。'
+    toast(`${message}${warnings.length ? ` ${[...new Set(warnings)].join('；')}` : ''}`)
   } catch (error) {
     toast(error?.message || '批量操作环境失败，请重试。')
   }
@@ -2184,7 +2189,7 @@ document.addEventListener('submit', async event => {
       const createdName = draft.name
       closeOverlay()
       void startCreateWizard()
-      toast(`已创建“${createdName}”环境并打开浏览器窗口。`)
+      toast(`已创建“${createdName}”环境并打开浏览器窗口。${launchResponse.warning ? ` ${launchResponse.warning}` : ''}`)
     } catch (error) {
       toast(error?.message || '创建浏览器环境失败，请重试。')
     } finally {

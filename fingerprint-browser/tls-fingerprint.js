@@ -302,12 +302,22 @@ function applyTLSFingerprintConfig (profileSession, policy, chromiumVersion = pr
 
 function applyEnvironmentTLSFingerprintConfig (profileSession, policy, chromiumVersion = process.versions.chrome) {
   const normalized = assertTLSFingerprintRuntimeVersion(policy, chromiumVersion, '环境 TLS 策略与当前内核版本不一致，请使用匹配的运行时。')
+  const missingRuntimeInterface = normalized && (
+    typeof profileSession.getTLSFingerprintCapabilities !== 'function' ||
+    typeof profileSession.setSSLConfig !== 'function'
+  )
+  const warning = '当前运行时缺少 TLS 指纹策略接口，本次启动未应用 TLS 策略，请更新匹配的运行时。'
   if (environmentPolicies.has(profileSession)) {
     if (!isDeepStrictEqual(environmentPolicies.get(profileSession), normalized)) throw new ProfileValidationError('该环境会话已经锁定另一份 TLS 策略，请重启客户端后重新打开以生效。')
-    return
+    return missingRuntimeInterface ? warning : ''
+  }
+  if (normalized && missingRuntimeInterface) {
+    environmentPolicies.set(profileSession, normalized)
+    return warning
   }
   if (normalized) applyTLSFingerprintConfig(profileSession, normalized, chromiumVersion)
   environmentPolicies.set(profileSession, normalized)
+  return ''
 }
 
 module.exports = {

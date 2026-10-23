@@ -327,7 +327,7 @@ class TabBrowser {
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
     // 严格使用规范目录路径，确保 LevelDB 与 SQLite WAL 存储引擎正常工作并保持持久化登录态。
     const tabSession = session.fromPath(dataDir)
-    applyEnvironmentTLSFingerprintConfig(tabSession, snapshot.tlsFingerprint)
+    const tlsWarning = applyEnvironmentTLSFingerprintConfig(tabSession, snapshot.tlsFingerprint)
     if (this.mediaHub?.sniffer) {
       this.mediaHub.sniffer.attachSession(tabSession, () => this.activeId)
     }
@@ -341,7 +341,8 @@ class TabBrowser {
       if (snapshot.proxy && snapshot.proxy.mode !== 'direct' && snapshot.fingerprint?.modules) {
         snapshot.fingerprint.modules.webrtc = true
       }
-      const warning = applyFingerprintConfig(tabSession, snapshot.fingerprint)
+      const fingerprintWarning = applyFingerprintConfig(tabSession, snapshot.fingerprint, { allowMissingCapabilitiesQuery: true })
+      const warning = [tlsWarning, fingerprintWarning].filter(Boolean).join('；')
     const view = new WebContentsView({ webPreferences: {
       // 当前 Testing 内核需要显式初始化为显示状态，否则原生视图没有可截图的绘制表面。
       show: true,
