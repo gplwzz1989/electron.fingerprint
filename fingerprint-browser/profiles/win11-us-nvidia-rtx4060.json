@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "win11-us-chrome126-nvidia",
+  "id": "win11-us-nvidia-rtx4060",
   "enabled": true,
   "browser": {
     "family": "Chrome",
     "chromiumMajor": 138,
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "acceptLanguage": "en-US,en;q=0.9"
   },
   "locale": {
     "language": "en-US",
     "languages": ["en-US", "en"],
-    "timezone": "America/Los_Angeles"
+    "timezone": "America/New_York"
   },
   "hardware": {
     "hardwareConcurrency": 16,
@@ -19,18 +19,18 @@
     "platform": "Win32"
   },
   "screen": {
-    "width": 2560,
-    "height": 1440,
-    "availWidth": 2560,
-    "availHeight": 1400,
-    "deviceScaleFactor": 1.25
+    "width": 1920,
+    "height": 1080,
+    "availWidth": 1920,
+    "availHeight": 1040,
+    "deviceScaleFactor": 1
   },
   "graphics": {
     "webglVendor": "Google Inc. (NVIDIA)",
-    "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+    "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
   },
   "noise": {
-    "seed": "win11-us-chrome126-nvidia-seed",
+    "seed": "win11-us-nvidia-rtx4060-seed",
     "canvas": true,
     "audio": true,
     "rects": true

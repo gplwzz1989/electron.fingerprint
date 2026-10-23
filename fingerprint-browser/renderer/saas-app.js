@@ -204,11 +204,11 @@ const FINGERPRINT_PRESETS = [
     }
   },
   {
-    id: 'win11-us-chrome120-nvidia',
-    name: 'Windows 11 · 英语美国 · Chrome 120 经典稳定版 · 纯经典 TLS (出海稳健)',
+    id: 'win11-us-nvidia-rtx4060',
+    name: 'Windows 11 · 英语美国 · NVIDIA RTX 4060 · 1080p · 纽约时区 (主流电竞)',
     data: {
       platform: 'Win32',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.109 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
       language: 'en-US',
       languages: ['en-US', 'en'],
       acceptLanguage: 'en-US,en;q=0.9',
@@ -221,28 +221,28 @@ const FINGERPRINT_PRESETS = [
       availHeight: 1040,
       scale: 1,
       webglVendor: 'Google Inc. (NVIDIA)',
-      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
     }
   },
   {
-    id: 'win11-us-chrome126-nvidia',
-    name: 'Windows 11 · 英语美国 · Chrome 126 Kyber 版 · 2K分辨率 (后量子过渡期)',
+    id: 'win10-us-intel-uhd770',
+    name: 'Windows 10 · 英语美国 · Intel UHD 770 · 1080p · 芝加哥时区 (经典办公)',
     data: {
       platform: 'Win32',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
       language: 'en-US',
       languages: ['en-US', 'en'],
       acceptLanguage: 'en-US,en;q=0.9',
-      timezone: 'America/Los_Angeles',
-      cpu: 16,
+      timezone: 'America/Chicago',
+      cpu: 8,
       memory: 8,
-      width: 2560,
-      height: 1440,
-      availWidth: 2560,
-      availHeight: 1400,
-      scale: 1.25,
-      webglVendor: 'Google Inc. (NVIDIA)',
-      webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      scale: 1,
+      webglVendor: 'Google Inc. (Intel)',
+      webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)'
     }
   },
   {
@@ -480,9 +480,8 @@ const FINGERPRINT_PRESETS = [
 
 const USER_AGENT_OPTIONS = [
   { value: '', label: '内核原生（留空使用当前内核原生 User-Agent）' },
-  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 138 (推荐)' },
-  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 126 (后量子 Kyber 版)' },
-  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.109 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 120 (经典稳定版 · 纯经典 TLS)' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 138 (推荐标准缩减版)' },
+  { value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.185 Safari/537.36', label: 'Windows 11 / 10 · 64 位 · Chrome 138.0.7204.185 (高熵完整版)' },
   { value: 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'Windows 10 · 32 位兼容模式 · Chrome 138' },
   { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS · Intel / Sonoma · Chrome 138' },
   { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', label: 'macOS 14.4 Sonoma · Chrome 138' },
