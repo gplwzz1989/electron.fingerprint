@@ -19,12 +19,14 @@
 | FP-14 | 用户已确认通过（2026-10-22） | WebGL `RGBA + UNSIGNED_BYTE` 的 `readPixels()` 升级为复用 `NoisePixelsEdgeAware` 及探针/平坦区保护，确保纯色 WebGL 实心矩形（如 PixelScan `getFixedRedBoxHash`）读回像素 100% 保持标准哈希（`noNoise` 判定通过），同时兼顾复杂着色器指纹抗锯齿混淆 |
 | FP-15 | 已实现，待验证 | `AutomationControlled` 开启时不再强制暴露 `navigator.webdriver=true`，保留显式自动化探针覆盖；定向测试和补丁导出已完成，Electron 增量编译与运行测试待验证 |
 | FP-16 | 已实现，待验证 | Headless UA 已隐藏 `HeadlessChrome` 产品名；`modules.runtimeInspector=true` 时降低 bindings、console message 和 enabled 状态暴露，未设置或为 `false` 时保持原生 CDP Runtime；补丁登记已完成，Electron 增量编译、DevTools/自动化兼容性和运行测试待验证 |
-| FP-17 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 的指纹配置；2026-10-22 增加共享/后台线程完整语言列表补丁和页面、三类线程、iframe、刷新、重启测试；新运行时验收待完成 |
+| FP-17 | 已实现，待原生运行验证 | Renderer、Dedicated/Shared/Service Worker 与同源/跨源 iframe 复用 Session 指纹配置；上下文诊断现在核对语言列表、高熵 API/请求头、UA、平台、硬件值、Accept-Language、模块关闭原生回退及刷新/重启；`npm test` 的纯 Node 报告自检通过，新 Electron 实测未运行 |
 | FP-18 | 已实现，待验证 | `modules.webrtc` 已在 Electron `RendererPreferences` 入口启用 `disable_non_proxied_udp`；Session 隔离、模块关闭、无 Profile 回退和真实 ICE 候选测试已补充，增量编译与运行验证待完成 |
 
-| FP-19 | 已实现，待运行验收 | WebGPU 按 Session 的 `modules.webgl` 在 Blink `GPU::requestAdapter` 限制适配器访问；页面和工作线程共享入口，关闭及无配置保持原生行为 |
-| FP-20 | 已实现，未编译 | Chrome 138 TLS/UA 版本绑定、会话级 TLS 1.2 套件/支持组/签名算法顺序与扩展策略；环境保存与生命周期接入完成，已采集原生 ClientHello/JA3/JA4 基线，新增原生策略尚未运行验证，见 [实现说明](TLS_CLIENT_HELLO.md) |
+| FP-19 | 已实现，待原生运行验收 | WebGPU 按 Session 的 `modules.webgl` 在 Blink `GPU::requestAdapter` 限制适配器访问；诊断覆盖默认、低功耗、高性能和强制回退四种选项，并区分设备不支持的“不适用”；页面/工作线程共享入口，Node 报告自检通过 |
+| FP-20 | Chrome 138 范围已实现，未编译 | Chrome 138 TLS/UA 版本绑定、会话级 TLS 1.2 套件/支持组/签名算法顺序与扩展策略；环境保存与生命周期接入完成，已有原生 ClientHello/JA3/JA4 基线；任意合法 Chrome 样本可用于字段对照，但跨版本匹配不表示目标仿真。新增原生策略待编译与运行验证，见 [实现说明](TLS_CLIENT_HELLO.md) |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
+
+2026-10-23 上下文诊断补充了原生基线回退、严格 Client Hints 门禁、四种 WebGPU 选项及不适用状态自检；`fingerprint-browser` 的 `npm test` 退出码为 0。该结果没有运行 Electron，不改变 FP-17、FP-19 的原生验收状态，也没有验证 FP-20 新 TLS 原生策略。
 
 2026-10-02 已将构建目录中的补充改动同步回主仓库：Navigator 设备内存补丁及登记、Session 的 UA/Client Hints/语言入口、指纹类型的编译适配，以及 WebGL 缓冲区检查和 V8 Runtime 方法定义的后续修复补丁。保留原有完整测试与配置字段；Chromium/V8 子模块的其他版本差异不纳入提交。这次归档不表示最新 Release 构建和全部功能已重新实测通过。

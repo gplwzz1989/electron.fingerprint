@@ -11,7 +11,7 @@
 - **基础设施已完成**：配置、校验、传输或 API 已存在，但尚未有对应的运行时消费逻辑。
 - **未实现**：当前只有规划、Schema 字段或参考补丁信息，没有接入本分支运行时。
 
-2026-10-22 更新：用户已确认 Pixelscan 通过、噪音问题解决；本轮不改噪音算法。新增 Unicode 配置传输、WebGPU 会话保护、Worker 语言列表与生命周期测试，并优先实现 Chrome 138 TLS 策略和 UA 版本绑定。新增源码与原生运行验收的区别见 [TLS 实现说明](TLS_CLIENT_HELLO.md)。
+2026-10-23 更新：用户已确认 Pixelscan 通过、噪音问题解决；本轮不改噪音算法。新增 Unicode 配置传输、WebGPU 会话保护、Worker 语言列表和页面/Worker/iframe 一致性验收，并优先实现 Chrome 138 TLS 策略和 UA 版本绑定。上下文报告自检已覆盖四种 WebGPU 请求模式、模块原生回退、高熵 Client Hints 及严格门禁；新 Electron 运行时验收仍未执行。详见 [TLS 实现说明](TLS_CLIENT_HELLO.md)。
 
 ## 2. 结论摘要
 
@@ -26,10 +26,10 @@
 | 配置入口 | `Session.setFingerprintConfig()` |
 | 配置作用域 | `Session` 对应的 `ElectronBrowserContext` |
 | 已真正覆盖的指纹点 | `navigator.hardwareConcurrency`、`navigator.deviceMemory`、User-Agent、Client Hints、Locale、Timezone、Navigator 平台、Screen/DPR、WebGL GPU 信息、Canvas 2D 像素与文本测量、OfflineAudioContext、字体平台过滤、ClientRects、WebRTC IP 处理策略 |
-| 已验证的场景 | Session 配置保存/清除、非法值校验、Renderer 中的硬件值和 UA/Client Hints/Locale/Timezone/平台/Screen/DPR/WebGL/Canvas 覆盖、Session 隔离、Accept-Language 请求头 |
-| 仍未真正覆盖的主要项目 | WebGL 像素噪声的独立开关/格式覆盖、FP-16 的 DevTools/自动化兼容性、FP-17 的 ServiceWorker 运行验证、FP-18 的真实 ICE 候选验证 |
+| 已验证的场景 | 已有单点测试覆盖 Session 配置保存/清除、非法值、Renderer 指纹覆盖和隔离；本轮 `npm test` 的 Node 自检覆盖上下文报告完整性、原生回退规则、高熵提示门禁和 WebGPU 请求模式判断，不等于新内核运行验收 |
+| 仍未形成的运行证据 | WebGPU 页面/Worker 实际拦截、Worker/iframe 高熵提示和语言列表一致性、ServiceWorker 重启、FP-16 DevTools/自动化兼容性、FP-18 真实 ICE 候选 |
 | FP-16 默认行为 | `modules.runtimeInspector` 未设置或为 `false` 时保持原生 CDP Runtime；只有显式为 `true` 时收敛 Runtime Inspector 暴露 |
-| 编译状态 | 2026-10-22 WebGPU/Worker/配置传输的 3 个编译单元及 2 个静态库已完成，随后按用户要求停止构建，最终 Electron 未链接；本轮 TLS 源码未同步构建树、未编译。已有运行时只完成受控 TLS 基线采集 |
+| 编译状态 | 2026-10-22 WebGPU/Worker/配置传输的 3 个编译单元及 2 个静态库已完成，随后按用户要求停止构建，最终 Electron 未链接；当前 Release 二进制早于能力查询接口提交，本轮未编译、未运行新上下文诊断。TLS 新策略同样未编译；`npm test` 通过仅表示应用层/解析器纯 Node 自检通过 |
 
 因此，当前版本适合用于验证“按 Session 隔离的指纹配置基础设施”和
 `hardwareConcurrency`、Locale、Timezone、Navigator 平台与 Screen/DPR 等已完成单点能力，不适合宣称已经完成浏览器级指纹伪装或全量反检测。
@@ -165,10 +165,10 @@ WEBGL_debug_renderer_info vendor / renderer
 | WebGL 像素 | `noise.seed`、`modules.webgl` | 已实现，基础验证通过 | 标签回归已验证 `RGBA + UNSIGNED_BYTE` 读回和无 GL 错误；独立噪声开关、跨环境像素差异及其他格式仍待验证 |
 | `navigator.webdriver` | 无需 Profile 字段 | 已实现，待验证 | AutomationControlled 开启时不再强制返回 `true`，保留显式自动化探针覆盖 |
 | Headless/CDP 特征 | 无需 Profile 字段 | 已实现，待验证 | Headless UA 产品名已改为 `Chrome`；V8 Runtime Agent 不再主动暴露 bindings、console message 和 enabled 状态，DevTools/自动化兼容性待验证 |
-| Worker/ServiceWorker/Network 一致性 | 全部相关字段 | 已实现，待验证 | Renderer、普通 Worker 和 ServiceWorker 复用 Session 配置；页面、Worker 和 ServiceWorker 请求复用 Session 的 User-Agent 与 `Accept-Language`，端到端运行验证待完成 |
+| Worker/iframe/ServiceWorker 一致性 | 全部相关字段 | 已实现，待新运行时验证 | 新诊断覆盖页面、独立/共享/后台 Worker、同源/跨源 iframe；比较语言列表、高熵 API、UA、平台、硬件值、时区及请求身份，并按同类上下文检查模块关闭回退；只通过 Node 报告自检，未用当前 Release 实际运行 |
 | Unicode 配置传输 | 标准 JSON Unicode 转义 | 已实现，待运行验收 | 不改变配置字段与种子内容；覆盖中文、扩展字符、转义及 ASCII 对照 |
-| WebGPU 适配器访问 | `modules.webgl` | 已实现，待运行验收 | 开启时阻止所属 Session 的适配器访问；保留 API 本身，关闭/无配置回退原生 |
-| TLS ClientHello 策略 | Session `setSSLConfig().fingerprint`、环境 `tlsFingerprint` | 已实现，未编译 | 当前内核版本绑定、TLS 1.2 套件/支持组/签名算法顺序、扩展排列/ECH/PQ 开关、环境保存及会话锁定；仅 TCP，原生基线已测，新策略及独立 Chrome 对照待验收 |
+| WebGPU 适配器访问 | `modules.webgl` | 已实现，待运行验收 | `requestAdapter()` 默认、低功耗、高性能和强制回退四种选项均纳入诊断；本机无原生适配器的上下文标记为不适用；当前只阻止适配器访问，不伪造 GPU/适配器身份 |
+| TLS ClientHello 策略 | Session `setSSLConfig().fingerprint`、环境 `tlsFingerprint` | Chrome 138 范围已实现，未编译 | 当前运行时精确版本绑定、TLS 1.2 套件/支持组/签名算法顺序、扩展排列/ECH/PQ 开关、环境保存及会话锁定；仅 TCP。可测量并对照任意合法 Chrome 样本，但跨版本/跨平台字段匹配不代表 Chrome 120/macOS 已被模拟 |
 | WebRTC 网络地址 | `modules.webrtc` | 已实现，待验证 | 启用时将 Session 的 RendererPreferences 设为 `disable_non_proxied_udp`；真实 ICE 候选和代理组合仍待验证 |
 
 ### 4.1 当前已生效的指纹点
@@ -426,11 +426,13 @@ ses.setFingerprintConfig(require('./win11-cn-desktop.json'))
 - 全量 Chromium Patch System 应用后的构建验证；
 - FP-14 的独立噪声开关、跨环境像素差异和完整格式覆盖；
 - FP-16 对 DevTools、CDP 和自动化工具的兼容性回归；
-- FP-17 的 ServiceWorker 启动、重启和跨进程请求头回归；
+- FP-17/FP-19 新版页面、Worker、iframe 与 ServiceWorker 的真实运行结果；
+- 高熵 Client Hints 严格模式和客户端提示请求头在实际 Worker/iframe 下的协商结果；
 - ServiceWorker、跨进程 Network 请求头和 WebRTC 真实 ICE 候选的验证；
+- TLS 新原生策略、跨版本目标的真实 Chrome ClientHello 对照，以及 TLS 终止代理/QUIC 行为；
 - 多个 Renderer 进程重启、崩溃复用和持久 Session 场景下的完整隔离回归。
 
-现有 Windows 构建工作流仍是手动触发的预留入口；当前状态应标记为“基础验证和增量构建通过，完整回归待验证”。
+用户要求本轮不编译；现有 Windows 构建工作流仍是手动触发的预留入口。当前状态应标记为“应用层自检通过，最新 Electron 运行时和原生功能验收待完成”。
 
 ## 8. 风险与后续建议
 

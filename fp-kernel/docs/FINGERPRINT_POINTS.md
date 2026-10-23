@@ -33,8 +33,10 @@
 | FP-14 | WebGL 像素 | `readPixels` | `016-webgl-readPixels.patch` | 已实现，待编译和运行验证 |
 | FP-15 | `navigator.webdriver` | 自动化标记 | `009-webdriver.patch` | 已实现，待编译和运行验证 |
 | FP-16 | Headless 与 Runtime Inspector | Headless UA、可选 Runtime Inspector 暴露收敛 | `fp_hide_headless_chrome_product_name.patch`、`patches/v8/fp_reduce_v8_runtime_inspector_exposure.patch`、`patches/chromium/fp_configurable_runtime_inspector_exposure.patch` | 已实现，待编译和运行验证；`modules.runtimeInspector` 可选，默认关闭 |
-| FP-17 | Worker / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | `ElectronBrowserClient::AppendExtraCommandLineSwitches` 与 Session NetworkContext | 已实现，待编译和运行验证 |
+| FP-17 | Worker / iframe / ServiceWorker / Network 一致性 | 跨上下文配置和请求头 | `ElectronBrowserClient::AppendExtraCommandLineSwitches`、`WorkerNavigator::GetAcceptLanguages` 与 Session NetworkContext | 已实现，新增一致性诊断和 Node 自检通过；Electron 实际运行待验证 |
 | FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `ElectronBrowserClient::OverrideWebPreferences`（参考 `default-webrtc-ip-handling-policy.patch`） | 已实现，待编译和真实 ICE 候选验证 |
+| FP-19 | WebGPU 适配器访问 | `GPU::requestAdapter(options)` | `fp_block_session_webgpu_adapter.patch` 与 Session 启动参数 | 已实现，四种选项的报告自检通过；Electron 实际运行待验证 |
+| FP-20 | TLS ClientHello 策略 | TLS 1.2 套件、支持组、签名算法和扩展策略 | `fp_session_tls_client_hello.patch` 与 `Session.setSSLConfig()` | Chrome 138 范围已实现，未编译；跨版本参考样本只用于测量对照，不表示目标仿真 |
 
 ## 每个指纹点的完成门槛
 
@@ -184,3 +186,26 @@
 | Profile B 且 `modules.webrtc=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |
 | 无 Profile 或 `enabled=false` | 保留 Chromium 原生 WebRTC IP 处理策略 |
 | `modules.webrtc=true` 的 ICE 收集 | 不产生非代理 UDP 主机候选 |
+
+## FP-17 / FP-19 当前上下文验收矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| 页面、Dedicated/Shared/Service Worker、同源/跨源 iframe | `navigator.language`、完整 `navigator.languages`、UA、高熵 API 与配置一致；请求 UA 和语言与配置一致 |
+| Locale、Client Hints、Navigator、WebGL 模块关闭 | 各自字段对照同类型上下文的无配置原生基线；请求头不以页面和线程一起偏离来误判通过 |
+| `--require-client-hints` | 将高熵版本列表按完整品牌/版本集合（忽略顺序）对照 API 值，并校验平台、架构、位数；启用 Client Hints 的样例缺少请求头时失败，普通模式列为未验证 |
+| `modules.webgl=true` 且有可用原生 WebGPU 适配器 | 默认、`low-power`、`high-performance`、`forceFallbackAdapter` 均不得取得适配器/设备，也不得以错误冒充成功阻断 |
+| 对照上下文不支持 WebGPU 或没有可用适配器 | 报告标为“不适用”，不计为保护通过 |
+| `modules.webgl=false`、无 Profile 或 `enabled=false` | 四种 WebGPU 请求结果对照同类型上下文的原生基线 |
+
+以上当前只有应用层 Node 报告自检通过；需使用包含能力查询接口的最新自定义 Electron 运行时执行 `npm run test:fingerprint:contexts`，才可标记为原生运行验收通过。
+
+## FP-20 当前测试矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| 默认策略 | 保持当前 Chromium 138 原生握手 |
+| TLS 1.2 套件、支持组、签名算法和扩展排列策略 | 仅按本内核实际能力生效，按 Session 隔离 |
+| UA、Client Hints 和 TLS Profile 版本 | 必须与当前运行时版本生命周期一致 |
+| Chrome 120/macOS 等跨版本参考样本 | 可用于测量握手字段差异；不能据此宣称在当前 Chrome 138 内核完整模拟目标 |
+| 新原生策略构建/运行验收 | 用户要求暂停编译；当前未通过，待使用现有缓存按规则预演及验收 |

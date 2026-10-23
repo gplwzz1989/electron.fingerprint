@@ -1,6 +1,6 @@
 # Chrome 138 TLS 策略与 ClientHello 验证
 
-更新：2026-10-22。用户已指定首个目标为当前 Chrome 138，并要求锁定 UA 生命周期；TLS 优先于其他后续开发。
+更新：2026-10-23。首个原生策略目标为当前 Chrome 138，并锁定 UA 生命周期；TLS 优先于其他后续开发。
 
 ## 当前实现
 
@@ -8,14 +8,16 @@
 | --- | --- |
 | UA 版本绑定 | 应用加载和原生 Profile 入口校验实际内核版本；允许真实完整版本与 `138.0.0.0` 缩减版本；启用 UA 或 Client Hints 时，`Session.setUserAgent()`、`WebContents.setUserAgent()` 和 `loadURL({ userAgent })` 同样校验 |
 | TLS 1.2 密码套件 | 按 Session 配置套件子集和顺序；限制为当前 Chromium 原生支持的 12 个套件，拒绝空列表、重复、非整数、不支持值及与禁用列表冲突的值 |
-| 支持组及签名算法 | 按 Session 配置原生安全算法的子集与顺序；支持组为 P-256、P-384、X25519、X25519MLKEM768，签名算法限当前内核的 8 项；拒绝空、重复、非法值及后量子策略冲突 |
-| ClientHello 扩展策略 | 支持扩展随机排列、ECH/ECH GREASE、后量子密钥协商开关；默认全部保持 Chrome 138 原生行为 |
+| 支持组及签名算法 | 按 Session 配置原生安全算法的子集与顺序；支持组为 P-256、P-384、X25519、X25519MLKEM768、X25519Kyber768Draft00（25497），签名算法限当前内核的 8 项；拒绝空、重复、非法值及后量子策略冲突 |
+| ClientHello 扩展策略 | 支持扩展随机排列、ECH/ECH GREASE、后量子密钥协商开关及 ALPS 编号 17513/17613；未指定 ALPS 编号时保持原生，0 是内部哨兵值，不是可公开输入 |
 | 会话隔离及更新 | 通过已有 `SSLConfigClient` 和 `SSLContextConfig` 传输；使用每条连接的 `SSL` 对象，不修改共享 `SSL_CTX`；配置比较及更新通知沿用原实现 |
 | 能力查询 | `Session.getTLSFingerprintCapabilities()` 返回真实运行时版本和支持范围，旧运行时不会被误认为支持新策略 |
 | 环境保存与启动 | `tlsFingerprint` 与 `proxy` 同级，可随配置、环境快照保存及重启恢复；首次创建页面前应用，同一 Session 策略锁定。旧记录缺省保持原生，旧运行时拒绝显式策略；旧界面保存时未提交字段不会抹掉策略，显式 `null` 才清除 |
 | 测量 | 透明转发 TLS 字节并解析实际 ClientHello，保留套件、扩展顺序、支持版本、组、签名算法、ALPN、KeyShare 组及 JA3/JA4 原文与摘要 |
 
-TLS 1.3 套件及顺序、GREASE 随机值、证书校验、ALPN 和密钥生成保持原生实现。当前不提供任意扩展插入/排列、任意 Chrome 版本预设、QUIC 指纹或 HTTP/2 SETTINGS 仿真；自定义策略不能宣称是完整的其他浏览器版本。
+TLS 1.3 套件及顺序、GREASE 随机值、证书校验、ALPN 和密钥生成保持原生实现。当前不提供任意扩展插入/排列、其他 Chrome 版本预设、QUIC 指纹或 HTTP/2 SETTINGS 仿真；自定义策略不能宣称是完整的其他浏览器版本。
+
+原生 Profile 仍绑定实际 Chromium 138，且 `tlsFingerprint.chromiumVersion` 必须与运行时完整版本相同。因此当前不能在这个内核上完整模拟 macOS Chrome 120。独立样本现在允许提供任意合法 Chrome 四段版本及平台，用来测量并对比握手字段；样本与运行时版本或平台不同会明确标记 `runtimeIdentityMatches: false`，字段对照通过也不等于已模拟目标浏览器。用户尚未提供 Chrome 120/macOS 的真实 ClientHello 样本，当前没有该目标的实测结果。
 
 默认应用继续使用原生 Chrome 138 TLS；高级调用方可通过现有配置保存入口设置 `tlsFingerprint`，本轮未新增界面编辑器。同一环境策略相同的重复标签不重新设置 TLS；修改或清除已使用的策略需要重启客户端，避免复用旧连接。Profile 的版本绑定不限制用户主动使用 DevTools 或逐请求覆写请求头的调试行为。
 
@@ -83,15 +85,15 @@ npm run test:fingerprint:contexts
 - JA3 包含扩展顺序，Chrome 扩展随机排列会令不同握手的 JA3 改变；JA4 对相应字段排序，不能要求默认 Chrome 的每次 JA3 固定。
 - 除 JA3/JA4 外，对比有序套件、扩展集合（固定模式时为顺序）、支持组、签名算法、支持版本、ALPN、KeyShare 和 GREASE 数量/位置，防止摘要相同掩盖实际差异。
 
-可选独立对照：`npm run test:fingerprint:tls -- --tls-reference <样本路径>`；基线入口同样支持。文件为 UTF-8 JSON，最大 256 KiB；启动器固定本次输入副本并记录 SHA-256。样本必须包含 `schemaVersion: 1`、`browser: { family: 'Chrome', version: '138.0.7204.185' }`、`platform`（`win32`/`darwin`/`linux`）、`source: { kind: 'independent-browser', capturedAt: '含时区的 ISO 时间', description: '实际采集来源' }` 和完整 `hello`。`hello` 字段是解析结果中的 `legacyVersion`、`ciphers`、`extensions`、`groups`、`pointFormats`、`supportedVersions`、`signatureAlgorithms`、`alpnHex`、`keyShareGroups`；摘要重新计算，拒绝票据恢复样本。
+可选独立对照：`npm run test:fingerprint:tls -- --tls-reference <样本路径>`；基线入口同样支持。文件为 UTF-8 JSON，最大 256 KiB；启动器固定本次输入副本并记录 SHA-256。样本必须包含 `schemaVersion: 1`、`browser: { family: 'Chrome', version: '120.0.6099.1' }` 等合法四段版本号、`platform`（`win32`/`darwin`/`linux`）、`source: { kind: 'independent-browser', capturedAt: '含时区的 ISO 时间', description: '实际采集来源' }` 和完整 `hello`。`hello` 字段是解析结果中的 `legacyVersion`、`ciphers`、`extensions`、`groups`、`pointFormats`、`supportedVersions`、`signatureAlgorithms`、`alpnHex`、`keyShareGroups`；摘要重新计算，拒绝票据恢复样本。示例版本只演示样本格式，不是本内核支持的模拟目标。
 
-报告的 `independentReference` 区分未提供、已对照、失配；没有参考文件不能声称与独立 Chrome 一致。来源由提供者声明，工具不认证样本出处；对照通过也只说明已比较的握手字段一致，不代表扩展全部载荷、HTTP/2 字节顺序、QUIC 或 CDN 行为一致。
+报告的 `independentReference` 区分未提供、已对照、失配；没有参考文件不能声称与独立 Chrome 一致。样本允许跨版本对照，`runtimeIdentityMatches` 只比较版本和平台元数据，不代表跨版本/跨系统模拟。来源由提供者声明，工具不认证样本出处；对照通过也只说明已比较的握手字段一致，不代表扩展全部载荷、HTTP/2 字节顺序、QUIC 或 CDN 行为一致。
 
 2026-10-22 现有 Release 基线：`dist/electron-diagnostics/fingerprint/1792676247354-a6eb53f0/tls-result.json`。Electron `37.2.6` / Chromium `138.0.7204.185`，直连与透明代理两个样本均为 TLS 1.3、`TLS_AES_128_GCM_SHA256`、HTTP/2；JA4 均为 `t13d1516h2_8daaf6152771_d8a2da3f94cd`，JA3 因扩展顺序不同而不同。该结果只证明当前运行时的受控基线，不代表与独立 Chrome 138 发行版或公网检测完成对照。
 
-同日用本轮增强校验再次采集：`dist/electron-diagnostics/fingerprint/1792678161747-0d1c94de/tls-result.json`。直连与透明代理共 2 个样本、0 个失败项，握手稳定字段和 HTTP/2 设置值一致；`implementationVerified: false`，`independentReference.provided: false`。新策略的 14 样本入口尚未运行，不把旧运行时基线计为新原生功能已生效。
+同日用本轮增强校验再次采集：`dist/electron-diagnostics/fingerprint/1792678161747-0d1c94de/tls-result.json`。直连与透明代理共 2 个样本、0 个失败项，握手稳定字段和 HTTP/2 设置值一致；`implementationVerified: false`，`independentReference.provided: false`。新策略的 16 样本入口（8 种样本 × 直连/CONNECT）尚未运行，不把旧运行时基线计为新原生功能已生效。
 
-已通过应用测试、解析测试和补丁应用只读检查。用户已要求暂停编译：新增 TLS 原生实现、网络服务单元测试、策略生效及 WebGPU/多上下文的新运行时验收均未执行。`check_cpp_syntax.py` 当前未找到，不宣称专用语法检查通过。
+2026-10-23 更新：`fingerprint-browser` 的 `npm test` 退出码为 0，包含上下文报告、四种 WebGPU 请求模式、严格高熵提示门禁和跨版本样本元数据的纯 Node 自检。WebGPU/Worker/iframe 新的 Electron 上下文实测尚未运行；现有 Release 二进制早于能力接口提交，用户要求不编译，因此不能把这些自检写成原生功能已验收。新增 TLS 原生实现、网络服务单元测试及策略生效同样未验证。`check_cpp_syntax.py` 当前未找到，不宣称专用语法检查通过。
 
 ## Git 恢复点
 
