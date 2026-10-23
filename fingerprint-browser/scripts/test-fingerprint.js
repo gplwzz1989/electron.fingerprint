@@ -37,9 +37,10 @@ async function readTLSReference (filename) {
   }
 }
 
-function validateContextReport (report, phase, previous) {
+function validateContextReport (report, phase, previous, requireClientHints = false) {
   const contexts = ['page', 'dedicated', 'shared', 'serviceWorker', 'sameOriginFrame', 'crossOriginFrame']
   if (report?.phase !== phase || report.ok !== true || !Array.isArray(report.failures) || report.failures.length || !Array.isArray(report.unverified) || report.samples?.length !== 7) throw new Error('指纹验证报告不完整或存在失败项。')
+  if (requireClientHints && report.unverified.length) throw new Error('指纹验证的高熵客户端提示仍有未验证项。')
   if (phase === 'restore' && !previous) throw new Error('指纹验证缺少首次运行对照。')
   if (previous && !isDeepStrictEqual(report.runtime, previous.runtime)) throw new Error('指纹验证两阶段运行时不一致。')
   for (let index = 0; index < report.samples.length; index++) {
@@ -186,7 +187,7 @@ async function run () {
       }
       if (contexts) {
         const report = JSON.parse(await fs.readFile(path.join(output, `contexts-${phase}.json`), 'utf8'))
-        validateContextReport(report, phase, initialReport)
+        validateContextReport(report, phase, initialReport, options.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1')
         if (phase === 'initial') initialReport = report
       }
       if (tls) {

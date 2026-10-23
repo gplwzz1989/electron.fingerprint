@@ -217,7 +217,12 @@ async function run () {
         const expected = field.split('.').reduce((target, key) => target?.[key], native)
         check(`环境 ${index} ${context} ${field} 原生回退`, () => assert.deepEqual(actual, expected, '关闭配置或模块后未保持该上下文的原生值。'))
       }
-      if (profile?.enabled && profile.modules.clientHints && !value.headers.hints['sec-ch-ua-full-version-list']) report.unverified.push(`环境 ${index} ${context} 请求未携带高熵提示；本项仅记录，尚未验证线程请求的协商支持。`)
+      const missingHintHeaders = ['sec-ch-ua-full-version-list', 'sec-ch-ua-platform', 'sec-ch-ua-arch', 'sec-ch-ua-bitness'].filter(header => !Object.hasOwn(value.headers.hints, header))
+      if (profile?.enabled && profile.modules.clientHints && missingHintHeaders.length) {
+        const description = `环境 ${index} ${context} 高熵提示请求头`
+        report.unverified.push(`${description}缺少 ${missingHintHeaders.join('、')}；本项尚未完成线程协商验证。`)
+        if (process.env.FP_FINGERPRINT_REQUIRE_CLIENT_HINTS === '1') report.failures.push({ description, message: '已要求严格验证，但该上下文缺少部分高熵用户代理提示请求头。' })
+      }
       check(`环境 ${index} ${context} 请求身份`, () => {
         assert.equal(value.headers.userAgent, values.page.userAgent, '请求用户代理不一致。')
         assert.equal(value.headers.language.split(',')[0], values.page.language, '请求语言不一致。')

@@ -17,6 +17,10 @@ const restored = { ...structuredClone(initial), phase: 'restore' }
 assert.doesNotThrow(() => validateContextReport(initial, 'initial'))
 assert.doesNotThrow(() => validateContextReport(restored, 'restore', initial))
 assert.throws(() => validateContextReport(restored, 'restore'), /首次运行对照/)
+const unverifiedHints = structuredClone(initial)
+unverifiedHints.unverified.push('工作线程缺少高熵提示请求头。')
+assert.doesNotThrow(() => validateContextReport(unverifiedHints, 'initial'))
+assert.throws(() => validateContextReport(unverifiedHints, 'initial', undefined, true), /高熵/)
 for (const change of [
   report => { report.ok = false },
   report => { report.failures.push({ message: '测试失败。' }) },
