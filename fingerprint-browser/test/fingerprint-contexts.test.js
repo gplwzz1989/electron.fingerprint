@@ -177,15 +177,13 @@ async function run () {
       profile.id = 'ascii-profile'
       profile.noise.seed = 'ascii-seed'
       profile.graphics.webglVendor = 'ASCII vendor'
+      profile.modules.clientHints = false
     }
     profile.modules.canvas = false
     profile.modules.audio = false
     profile.noise.canvas = false
     profile.noise.audio = false
-    if (index === 3) {
-      profile.modules.webgl = false
-      profile.modules.clientHints = false
-    }
+    if (index === 3) profile.modules.webgl = false
     if (index === 4) profile.enabled = false
     if (index === 5) for (const module of Object.keys(profile.modules)) profile.modules[module] = false
   }
@@ -245,6 +243,7 @@ async function run () {
         check(`环境 ${index} ${context} 配置生效`, () => {
           if (profile.modules.navigator) assert.equal(value.platform, profile.hardware.platform, '配置的平台值未生效。')
           if (profile.modules.navigator) assert.equal(value.hardwareConcurrency, profile.hardware.hardwareConcurrency, '配置的硬件值未生效。')
+          if (profile.modules.navigator) assert.equal(value.deviceMemory, profile.hardware.deviceMemory, '配置的设备内存值未生效。')
           if (profile.modules.timezone) assert.equal(value.timezone, profile.locale.timezone, '配置的时区未生效。')
           if (profile.modules.locale) assert.equal(value.language, profile.locale.language, '配置的主要语言未生效。')
           if (profile.modules.webgl) assert.equal(value.webglVendor, profile.graphics.webglVendor, '图形名称未生效或本机不支持所需图形对照。')
