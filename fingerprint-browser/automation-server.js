@@ -11,6 +11,7 @@ const {
   humanoidMouseMove,
   humanoidClick,
   humanoidType,
+  humanoidImeType,
   humanoidDrag,
   humanoidScroll
 } = require('./humanoid-actions')
@@ -317,6 +318,24 @@ class AutomationServer {
       }
       await humanoidType(tab.view.webContents, body.text, body.options)
       return { ok: true, message: '拟人化文本输入已执行。' }
+    }
+
+    // 拟人化输入法 (IME) 输入 API: 模拟拼音输入、组词 (composition) 与选词上屏
+    if (method === 'POST' && pathname === '/api/v1/actions/ime-type') {
+      const tabId = body.tabId || this.tabBrowser?.activeId
+      const tab = this.tabBrowser?.getTab(tabId)
+      if (!tab) {
+        const error = new Error('未找到指定或处于激活状态的标签页。')
+        error.statusCode = 404
+        throw error
+      }
+      if (typeof body.text !== 'string') {
+        const error = new Error('必须提供待输入的文本 (text)。')
+        error.statusCode = 400
+        throw error
+      }
+      await humanoidImeType(tab.view.webContents, body.text, body.options)
+      return { ok: true, message: '拟人化 IME 输入法组词上屏已执行。' }
     }
 
     // 拟人化行为引擎 API: 滚动

@@ -1,0 +1,14 @@
+{
+  "name": "@qijie/saas-server",
+  "version": "0.1.0",
+  "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/server.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}

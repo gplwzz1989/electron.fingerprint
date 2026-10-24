@@ -28,6 +28,13 @@ const { MediaHub } = require('./media-hub')
 const { CreatorHub } = require('./creator-hub')
 const { detectExitIp, alignFingerprintWithGeo } = require('./geo-ip')
 const { generateRandomHardwareProfile, getRecommendedGPUList } = require('./webgl-topology')
+const {
+  humanoidClick,
+  humanoidType,
+  humanoidImeType,
+  humanoidDrag,
+  humanoidScroll
+} = require('./humanoid-actions')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -246,6 +253,74 @@ function registerIpc () {
       return { ok: true, hardware }
     } catch (error) {
       return errorResult('生成自洽硬件指纹', error, '生成自洽硬件指纹失败。')
+    }
+  })
+
+  ipcMain.handle('actions:click', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const tabId = payload?.tabId || tabBrowser?.activeId
+      const tab = tabBrowser?.getTab(tabId)
+      if (!tab) throw new ProfileValidationError('未找到指定或激活的标签页。')
+      const target = payload.selector || { x: Number(payload.x), y: Number(payload.y) }
+      await humanoidClick(tab.view.webContents, target, payload.options)
+      return { ok: true }
+    } catch (error) {
+      return errorResult('拟人化点击', error, '拟人化点击执行失败。')
+    }
+  })
+
+  ipcMain.handle('actions:type', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const tabId = payload?.tabId || tabBrowser?.activeId
+      const tab = tabBrowser?.getTab(tabId)
+      if (!tab) throw new ProfileValidationError('未找到指定或激活的标签页。')
+      if (typeof payload?.text !== 'string') throw new ProfileValidationError('输入文本无效。')
+      await humanoidType(tab.view.webContents, payload.text, payload.options)
+      return { ok: true }
+    } catch (error) {
+      return errorResult('拟人化打字', error, '拟人化打字执行失败。')
+    }
+  })
+
+  ipcMain.handle('actions:ime-type', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const tabId = payload?.tabId || tabBrowser?.activeId
+      const tab = tabBrowser?.getTab(tabId)
+      if (!tab) throw new ProfileValidationError('未找到指定或激活的标签页。')
+      if (typeof payload?.text !== 'string') throw new ProfileValidationError('输入文本无效。')
+      await humanoidImeType(tab.view.webContents, payload.text, payload.options)
+      return { ok: true }
+    } catch (error) {
+      return errorResult('拟人化IME输入', error, '拟人化 IME 输入法组词上屏失败。')
+    }
+  })
+
+  ipcMain.handle('actions:scroll', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const tabId = payload?.tabId || tabBrowser?.activeId
+      const tab = tabBrowser?.getTab(tabId)
+      if (!tab) throw new ProfileValidationError('未找到指定或激活的标签页。')
+      await humanoidScroll(tab.view.webContents, payload)
+      return { ok: true }
+    } catch (error) {
+      return errorResult('拟人化滚动', error, '拟人化滚动执行失败。')
+    }
+  })
+
+  ipcMain.handle('actions:drag', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const tabId = payload?.tabId || tabBrowser?.activeId
+      const tab = tabBrowser?.getTab(tabId)
+      if (!tab) throw new ProfileValidationError('未找到指定或激活的标签页。')
+      await humanoidDrag(tab.view.webContents, payload.start, payload.end, payload.options)
+      return { ok: true }
+    } catch (error) {
+      return errorResult('拟人化拖拽', error, '拟人化拖拽执行失败。')
     }
   })
 

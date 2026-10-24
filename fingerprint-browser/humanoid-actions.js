@@ -418,6 +418,270 @@ async function humanoidScroll (webContents, options = {}) {
   }
 }
 
+/**
+ * 常用汉字基础拼音字典 (用于自适应拆解中文输入法的拼音打字节奏)
+ */
+const COMMON_PINYIN_DICT = {
+  '你': 'ni', '好': 'hao', '我': 'wo', '们': 'men', '的': 'de', '是': 'shi', '在': 'zai', '有': 'you',
+  '个': 'ge', '人': 'ren', '这': 'zhe', '中': 'zhong', '大': 'da', '为': 'wei', '上': 'shang',
+  '国': 'guo', '到': 'dao', '说': 'shuo', '和': 'he', '地': 'di', '也': 'ye', '子': 'zi',
+  '时': 'shi', '道': 'dao', '出': 'chu', '而': 'er', '要': 'yao', '于': 'yu', '就': 'jiu', '下': 'xia',
+  '得': 'de', '可': 'ke', '年': 'nian', '生': 'sheng', '自': 'zi', '会': 'hui', '那': 'na',
+  '后': 'hou', '能': 'neng', '对': 'dui', '着': 'zhe', '事': 'shi', '其': 'qi', '里': 'li', '所': 'suo',
+  '去': 'qu', '行': 'xing', '过': 'guo', '家': 'jia', '十': 'shi', '用': 'yong', '发': 'fa', '天': 'tian',
+  '如': 'ru', '然': 'ran', '作': 'zuo', '方': 'fang', '成': 'cheng', '者': 'zhe', '多': 'duo', '日': 'ri',
+  '都': 'dou', '三': 'san', '小': 'xiao', '军': 'jun', '二': 'er', '无': 'wu', '同': 'tong', '么': 'me',
+  '经': 'jing', '法': 'fa', '当': 'dang', '起': 'qi', '与': 'yu', '看': 'kan', '学': 'xue',
+  '进': 'jin', '种': 'zhong', '将': 'jiang', '还': 'hai', '分': 'fen', '此': 'ci', '心': 'xin', '前': 'qian',
+  '面': 'mian', '又': 'you', '定': 'ding', '见': 'jian', '只': 'zhi', '主': 'zhu', '没': 'mei', '公': 'gong',
+  '开': 'kai', '已': 'yi', '商': 'shang', '品': 'pin', '店': 'dian', '淘': 'tao', '宝': 'bao', '抖': 'dou',
+  '音': 'yin', '电': 'dian', '测': 'ce', '试': 'shi', '账': 'zhang', '号': 'hao', '密': 'mi', '码': 'ma',
+  '环': 'huan', '境': 'jing', '浏': 'liu', '览': 'lan', '器': 'qi', '指': 'zhi', '纹': 'wen', '栖': 'qi', '界': 'jie'
+}
+
+/**
+ * 将输入文本拆解为 IME 词元（包含对应拼音和目标字符）
+ * @param {string} text 目标文本
+ * @param {Array<string>} [customPinyins] 自定义拼音数组
+ */
+function resolveImeSegments (text, customPinyins = null) {
+  const segments = []
+  if (Array.isArray(customPinyins) && customPinyins.length > 0) {
+    // 显式指定拼音模式
+    const chars = Array.from(text)
+    if (customPinyins.length === chars.length) {
+      for (let i = 0; i < chars.length; i++) {
+        segments.push({ char: chars[i], pinyin: customPinyins[i] })
+      }
+      return segments
+    }
+  }
+
+  // 自动检测中文与拼音映射
+  for (const char of text) {
+    if (/[\u4e00-\u9fa5]/.test(char)) {
+      const pinyin = COMMON_PINYIN_DICT[char] || 'zi'
+      segments.push({ char, pinyin, isIme: true })
+    } else {
+      segments.push({ char, pinyin: char, isIme: false })
+    }
+  }
+  return segments
+}
+
+/**
+ * 仿生人类输入法 (IME) 键盘输入引擎
+ * 完整模拟用户通过拼音输入法输入文本的底层与 DOM 行为序列：
+ * 1. 敲击拼音按键（发送 keydown: keyCode 229, key: 'Process', isComposing: true）
+ * 2. 触发 compositionstart 事件
+ * 3. 伴随拼音输入触发 compositionupdate 事件（包含实时组词 buffer）
+ * 4. 模拟候选词停顿扫视后按空格或数字键选词
+ * 5. 触发 compositionend 事件（携带最终上屏文本）
+ * 6. 派发 beforeinput 与 input (inputType: 'insertFromComposition')，同步光标与组件状态
+ *
+ * @param {object} webContents Electron WebContents 实例
+ * @param {string} text 目标输入文本 (支持中英混排、纯中文或指定拼音)
+ * @param {object} [options]
+ * @param {Array<string>} [options.pinyin] 自定义拼音序列 (可选)
+ * @param {number} [options.keyInterval] 拼音敲击基础间隔 (默认 70ms)
+ * @param {number} [options.candidateWaitMs] 选词停顿思考时延 (默认 120ms)
+ * @param {string} [options.selector] 目标输入框选择器 (若不传则作用于当前 document.activeElement)
+ */
+async function humanoidImeType (webContents, text, options = {}) {
+  if (typeof text !== 'string' || !text) return
+
+  const keyInterval = options.keyInterval || 70
+  const candidateWait = options.candidateWaitMs || 120
+  const segments = resolveImeSegments(text, options.pinyin)
+  const selector = options.selector ? JSON.stringify(options.selector) : 'null'
+
+  for (const seg of segments) {
+    if (!seg.isIme) {
+      // 纯非 IME 字符（如英文、数字、符号），直接使用高斯拟人物理按键
+      await humanoidType(webContents, seg.char, options)
+      continue
+    }
+
+    const pinyin = seg.pinyin.toLowerCase()
+    const targetChar = seg.char
+
+    // 1. 聚焦目标元素 (如提供了 selector)
+    if (options.selector) {
+      await webContents.executeJavaScript(`(() => {
+        const el = document.querySelector(${selector});
+        if (el) el.focus();
+      })()`).catch(() => {})
+    }
+
+    // 2. 派发 compositionstart (组词开始)
+    await webContents.executeJavaScript(`(() => {
+      const target = ${selector} ? document.querySelector(${selector}) : document.activeElement;
+      if (!target) return;
+      const startEv = new CompositionEvent('compositionstart', {
+        data: '',
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(startEv);
+    })()`).catch(() => {})
+
+    // 3. 逐个敲击拼音字母
+    let buffer = ''
+    for (let j = 0; j < pinyin.length; j++) {
+      const pChar = pinyin[j]
+      buffer += pChar
+      const code = `Key${pChar.toUpperCase()}`
+
+      // 3.1 派发底层真实的 IME 虚拟按键 (W3C 规范: IME 拦截按键 keyCode 一律为 229, key 为 'Process')
+      webContents.sendInputEvent({
+        type: 'keyDown',
+        keyCode: 'Process',
+        modifiers: []
+      })
+
+      // 3.2 派发 DOM keydown 事件 (携带 keyCode 229 与 isComposing: true)
+      await webContents.executeJavaScript(`(() => {
+        const target = ${selector} ? document.querySelector(${selector}) : document.activeElement;
+        if (!target) return;
+        const kd = new KeyboardEvent('keydown', {
+          key: 'Process',
+          code: ${JSON.stringify(code)},
+          keyCode: 229,
+          which: 229,
+          isComposing: true,
+          bubbles: true,
+          cancelable: true
+        });
+        target.dispatchEvent(kd);
+
+        // 派发 compositionupdate (组词缓冲区更新)
+        const compUp = new CompositionEvent('compositionupdate', {
+          data: ${JSON.stringify(buffer)},
+          bubbles: true,
+          cancelable: true
+        });
+        target.dispatchEvent(compUp);
+      })()`).catch(() => {})
+
+      // 生理打字物理按压停留时长
+      const dwell = Math.max(16, Math.floor(randomGaussian(28, 6)))
+      await wait(dwell)
+
+      // 3.3 释放拼音按键
+      webContents.sendInputEvent({
+        type: 'keyUp',
+        keyCode: 'Process'
+      })
+
+      await webContents.executeJavaScript(`(() => {
+        const target = ${selector} ? document.querySelector(${selector}) : document.activeElement;
+        if (!target) return;
+        const ku = new KeyboardEvent('keyup', {
+          key: 'Process',
+          code: ${JSON.stringify(code)},
+          keyCode: 229,
+          which: 229,
+          isComposing: true,
+          bubbles: true,
+          cancelable: true
+        });
+        target.dispatchEvent(ku);
+      })()`).catch(() => {})
+
+      // 拼音输入按键间隔
+      await wait(Math.max(25, Math.floor(randomGaussian(keyInterval, 18))))
+    }
+
+    // 4. 人眼在输入法候选词框中扫视与决策停顿 (80ms ~ 220ms)
+    await wait(Math.max(50, Math.floor(randomGaussian(candidateWait, 35))))
+
+    // 5. 敲下选词确认键 (模拟空格键选词确认)
+    webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: 'Space'
+    })
+
+    // 6. 触发 compositionend 与字符上屏 (insertFromComposition)
+    await webContents.executeJavaScript(`(() => {
+      const target = ${selector} ? document.querySelector(${selector}) : document.activeElement;
+      if (!target) return;
+
+      // 选词 Space 键的 keydown (此瞬间仍处于 composing)
+      const spaceKd = new KeyboardEvent('keydown', {
+        key: ' ',
+        code: 'Space',
+        keyCode: 229,
+        which: 229,
+        isComposing: true,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(spaceKd);
+
+      // 派发 compositionend (完成组词，输出最终文本)
+      const compEnd = new CompositionEvent('compositionend', {
+        data: ${JSON.stringify(targetChar)},
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(compEnd);
+
+      // 派发 beforeinput
+      const beforeInput = new InputEvent('beforeinput', {
+        data: ${JSON.stringify(targetChar)},
+        inputType: 'insertFromComposition',
+        isComposing: false,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(beforeInput);
+
+      // 写入文本到目标控件
+      if ('value' in target && typeof target.value === 'string') {
+        const start = target.selectionStart ?? target.value.length;
+        const end = target.selectionEnd ?? target.value.length;
+        target.value = target.value.slice(0, start) + ${JSON.stringify(targetChar)} + target.value.slice(end);
+        target.selectionStart = target.selectionEnd = start + ${targetChar.length};
+      } else if (target.isContentEditable) {
+        document.execCommand('insertText', false, ${JSON.stringify(targetChar)});
+      }
+
+      // 派发标准 input 事件 (已完成上屏，isComposing 恢复为 false)
+      const inputEv = new InputEvent('input', {
+        data: ${JSON.stringify(targetChar)},
+        inputType: 'insertFromComposition',
+        isComposing: false,
+        bubbles: true
+      });
+      target.dispatchEvent(inputEv);
+    })()`).catch(() => {})
+
+    // 释放空格选词键
+    webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: 'Space'
+    })
+
+    await webContents.executeJavaScript(`(() => {
+      const target = ${selector} ? document.querySelector(${selector}) : document.activeElement;
+      if (!target) return;
+      const spaceKu = new KeyboardEvent('keyup', {
+        key: ' ',
+        code: 'Space',
+        keyCode: 32,
+        which: 32,
+        isComposing: false,
+        bubbles: true,
+        cancelable: true
+      });
+      target.dispatchEvent(spaceKu);
+    })()`).catch(() => {})
+
+    // 单字输入完成后的生理思考间歇 (40ms ~ 120ms)
+    await wait(Math.max(30, Math.floor(randomGaussian(80, 25))))
+  }
+}
+
 module.exports = {
   randomGaussian,
   generateHumanoidPath,
@@ -425,6 +689,9 @@ module.exports = {
   humanoidMouseMove,
   humanoidClick,
   humanoidType,
+  humanoidImeType,
+  resolveImeSegments,
+  COMMON_PINYIN_DICT,
   humanoidDrag,
   humanoidScroll,
   getHumanoidTargetPoint,
