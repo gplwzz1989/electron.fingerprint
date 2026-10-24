@@ -1126,7 +1126,7 @@ void Session::SetUserAgent(const std::string& user_agent,
     std::string error_message;
     if (!fingerprint::FingerprintProfileParser::Parse(candidate,
                                                       &error_message)) {
-      args->ThrowError(error_message);
+      args->ThrowTypeError(error_message);
       return;
     }
   }
