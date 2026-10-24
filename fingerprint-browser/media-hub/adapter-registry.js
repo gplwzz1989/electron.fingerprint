@@ -1,6 +1,7 @@
 const { BilibiliAdapter } = require('./adapters/bilibili')
 const { DouyinAdapter } = require('./adapters/douyin')
 const { XiaohongshuAdapter } = require('./adapters/xiaohongshu')
+const { TwitterAdapter } = require('./adapters/twitter')
 const { GenericAdapter } = require('./adapters/generic')
 
 class AdapterRegistry {
@@ -12,6 +13,7 @@ class AdapterRegistry {
 
   initDefaultAdapters () {
     // 注册内置适配器，高优先级放前
+    this.register(new TwitterAdapter())
     this.register(new BilibiliAdapter())
     this.register(new DouyinAdapter())
     this.register(new XiaohongshuAdapter())

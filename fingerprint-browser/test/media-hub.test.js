@@ -7,23 +7,30 @@ const { GenericAdapter } = require('../media-hub/adapters/generic')
 const { BilibiliAdapter } = require('../media-hub/adapters/bilibili')
 const { DouyinAdapter } = require('../media-hub/adapters/douyin')
 const { XiaohongshuAdapter } = require('../media-hub/adapters/xiaohongshu')
+const { TwitterAdapter } = require('../media-hub/adapters/twitter')
 
-test('适配器注册中心：正确识别 B站、抖音、小红书及通用兜底', () => {
+test('适配器注册中心：正确识别 Twitter/X、B站、抖音、小红书及通用兜底', () => {
   const registry = new AdapterRegistry()
 
-  // 1. 哔哩哔哩匹配
+  // 1. Twitter / X 匹配
+  const xAdapter = registry.findAdapter('https://x.com/caobidi/status/2113888225513148808')
+  assert.equal(xAdapter.id, 'twitter')
+  const twitterAdapter = registry.findAdapter('https://twitter.com/caobidi/status/2113888225513148808')
+  assert.equal(twitterAdapter.id, 'twitter')
+
+  // 2. 哔哩哔哩匹配
   const biliAdapter = registry.findAdapter('https://www.bilibili.com/video/BV1G4411p7Z2')
   assert.equal(biliAdapter.id, 'bilibili')
 
-  // 2. 抖音匹配
+  // 3. 抖音匹配
   const dyAdapter = registry.findAdapter('https://www.douyin.com/video/7382910492817294')
   assert.equal(dyAdapter.id, 'douyin')
 
-  // 3. 小红书匹配
+  // 4. 小红书匹配
   const xhsAdapter = registry.findAdapter('https://www.xiaohongshu.com/explore/64a92c8100000000130283')
   assert.equal(xhsAdapter.id, 'xiaohongshu')
 
-  // 4. 任意未知网站自动降级为通用兜底
+  // 5. 任意未知网站自动降级为通用兜底
   const genericAdapter = registry.findAdapter('https://example.com/some/article')
   assert.equal(genericAdapter.id, 'generic')
 })
@@ -361,5 +368,90 @@ test('抖音适配器 DouyinAdapter：正确解析用户主页多个不同作品
   const audios = result.resources.filter(r => r.category === 'audio')
   assert.ok(audios.length >= 2, '应当包含多个作品各自的原声背景音')
 })
+
+test('推特适配器 TwitterAdapter：精准解析推文标题、作者、高清原画直链与画质排序', async () => {
+  const adapter = new TwitterAdapter()
+
+  const mockWebContents = {
+    isDestroyed: () => false,
+    getUserAgent: () => 'Mozilla/5.0 Chrome/138.0',
+    executeJavaScript: async () => ({
+      title: '卧槽！！！现在的诈骗这么高级了吗，谁能告诉我付款时显示 付 1 元钱，为什么付完后变成 499 了，问题到底在哪里？',
+      author: '操笔帝 (@caobidi)',
+      cover: 'https://pbs.twimg.com/amplify_video_thumb/2113869996581584896/img/CHXKKBbsbgTu3SeH.jpg',
+      variants: [
+        {
+          content_type: 'application/x-mpegURL',
+          url: 'https://video.twimg.com/amplify_video/2113869996581584896/pl/yZwHlUpel-5HLaVM.m3u8?tag=29&v=cfc'
+        },
+        {
+          bitrate: 632000,
+          content_type: 'video/mp4',
+          url: 'https://video.twimg.com/amplify_video/2113869996581584896/vid/avc1/320x568/65bDBO_zepDhagqs.mp4?tag=29'
+        },
+        {
+          bitrate: 950000,
+          content_type: 'video/mp4',
+          url: 'https://video.twimg.com/amplify_video/2113869996581584896/vid/avc1/464x824/aUAk2gkSMfDDyzgx.mp4?tag=29'
+        }
+      ],
+      images: [
+        'https://pbs.twimg.com/media/G123456?format=jpg&name=medium'
+      ]
+    })
+  }
+
+  const result = await adapter.extract({
+    webContents: mockWebContents,
+    url: 'https://x.com/caobidi/status/2113888225513148808'
+  })
+
+  assert.equal(result.adapterId, 'twitter')
+  assert.equal(result.author, '操笔帝 (@caobidi)')
+  assert.ok(result.title.includes('现在的诈骗这么高级了吗'))
+
+  const videoResources = result.resources.filter(r => r.category === 'video')
+  assert.equal(videoResources.length, 3, '应当包含 2 个 MP4 清晰度与 1 个 HLS 流')
+
+  // 验证画质排序：最高码率（950000）的 MP4 应当排在首位
+  assert.equal(videoResources[0].format, 'mp4')
+  assert.ok(videoResources[0].url.includes('464x824'))
+  assert.ok(videoResources[0].quality.includes('464×824'))
+
+  // 次高码率（632000）的 MP4 应当排第二位
+  assert.equal(videoResources[1].format, 'mp4')
+  assert.ok(videoResources[1].url.includes('320x568'))
+
+  // 自适应流 M3U8 排最后
+  assert.equal(videoResources[2].format, 'm3u8')
+  assert.ok(videoResources[2].quality.includes('HLS'))
+
+  // 验证图片资源：封面与配图已转换为 orig 超清原图
+  const imgResources = result.resources.filter(r => r.category === 'image')
+  assert.ok(imgResources.length >= 2)
+  assert.ok(imgResources[1].url.includes('name=orig'), '推特图片应当自动替换为 orig 原图参数')
+})
+
+test('下载管理器 DownloadManager：对 m3u8 流媒体自动修正文件后缀为 mp4', () => {
+  const { DownloadManager } = require('../media-hub/download-manager')
+  const dm = new DownloadManager()
+
+  // 模拟 startDownload 时对于 m3u8 资源的处理
+  const task = dm.startDownload({
+    resource: {
+      category: 'video',
+      format: 'm3u8',
+      title: '测试推特视频',
+      url: 'https://video.twimg.com/amplify_video/2113869996581584896/pl/yZwHlUpel-5HLaVM.m3u8?tag=29&v=cfc'
+    }
+  })
+
+  // 任务取消避免发起实际网络请求
+  dm.cancelTask(task.id)
+
+  assert.equal(task.format, 'mp4', 'm3u8 视频流在下载任务中后缀应修正为 mp4 容器')
+  assert.ok(task.filePath.endsWith('.mp4'), '目标文件保存路径必须是 .mp4 格式')
+})
+
 
 

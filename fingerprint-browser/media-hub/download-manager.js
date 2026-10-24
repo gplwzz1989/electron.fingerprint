@@ -2,10 +2,28 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { EventEmitter } = require('node:events')
-const { app, shell } = require('electron')
-
 const { spawn } = require('node:child_process')
 const { findExistingFfmpeg, ensureFfmpegBinary } = require('./ffmpeg-provider')
+
+let app, shell
+try {
+  const electron = require('electron')
+  app = electron.app
+  shell = electron.shell
+} catch (_) {
+  const os = require('node:os')
+  app = {
+    getPath: (name) => {
+      if (name === 'downloads') return path.join(os.homedir(), 'Downloads')
+      return path.join(os.homedir(), '.fingerprint-browser')
+    },
+    getAppPath: () => process.cwd()
+  }
+  shell = {
+    openPath: () => {},
+    showItemInFolder: () => {}
+  }
+}
 
 async function streamFetchToFile ({ url, destPath, headers, session, signal, onChunk, onLength }) {
   const reqHeaders = {
@@ -135,7 +153,8 @@ class DownloadManager extends EventEmitter {
     }
 
     const taskId = randomUUID()
-    const ext = resource.format || (resource.category === 'image' ? 'jpg' : resource.category === 'audio' ? 'mp3' : 'mp4')
+    const isM3u8Stream = resource.category === 'video' && (targetUrl.includes('.m3u8') || resource.format === 'm3u8')
+    const ext = isM3u8Stream ? 'mp4' : (resource.format || (resource.category === 'image' ? 'jpg' : resource.category === 'audio' ? 'mp3' : 'mp4'))
     const safeTitle = this.sanitizeFilename(resource.title || '下载资源')
     const fileName = `${safeTitle}_${Date.now().toString().slice(-4)}.${ext}`
     const filePath = path.join(this.downloadDir, fileName)
@@ -351,8 +370,68 @@ class DownloadManager extends EventEmitter {
           } catch (_) {}
         }
       }
+      } else if (resource.category === 'video' && (targetUrl.includes('.m3u8') || resource.format === 'm3u8')) {
+        // 3. HLS / M3U8 流媒体：通过 FFmpeg 拉流并无损转封装为标准 MP4 视频容器
+        task.speed = '正在解析 HLS 媒体流...'
+        task.progress = 10
+        this.emitChange()
+
+        const ffmpegPath = await this.resolveFfmpegPath(task)
+        if (!ffmpegPath) {
+          throw new Error('未检测到可用 FFmpeg 套件，无法下载 HLS 流媒体')
+        }
+
+        const ffmpegArgs = ['-y']
+        if (headers && Object.keys(headers).length > 0) {
+          const headerStr = Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('')
+          ffmpegArgs.push('-headers', headerStr)
+        }
+        ffmpegArgs.push('-i', targetUrl, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', filePath)
+
+        await new Promise((resolve, reject) => {
+          const proc = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true })
+          const onAbort = () => {
+            try { proc.kill('SIGKILL') } catch (_) {}
+          }
+          if (abortController.signal.aborted) {
+            onAbort()
+            return reject(new Error('下载已被取消'))
+          }
+          abortController.signal.addEventListener('abort', onAbort, { once: true })
+
+          let stderr = ''
+          proc.stderr.on('data', d => {
+            const chunk = d.toString()
+            stderr += chunk
+            const speedMatch = chunk.match(/speed=\s*([\d\.]+x)/i)
+            const timeMatch = chunk.match(/time=\s*([\d:\.]+)/i)
+            if (speedMatch || timeMatch) {
+              const spd = speedMatch ? speedMatch[1] : ''
+              const t = timeMatch ? timeMatch[1] : ''
+              task.speed = [t, spd ? `${spd}速` : ''].filter(Boolean).join(' ') || '正在封装...'
+              task.progress = Math.min(96, Math.max(20, task.progress + 2))
+              this.emitChange()
+            }
+          })
+
+          proc.on('close', code => {
+            abortController.signal.removeEventListener('abort', onAbort)
+            if (code === 0 && fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+              task.progress = 100
+              task.totalBytes = fs.statSync(filePath).size
+              task.receivedBytes = task.totalBytes
+              resolve()
+            } else {
+              reject(new Error(`HLS 拉流转码失败 (退出码 ${code}): ${stderr.slice(-200)}`))
+            }
+          })
+          proc.on('error', err => {
+            abortController.signal.removeEventListener('abort', onAbort)
+            reject(err)
+          })
+        })
       } else {
-        // 3. 普通单流资源（图片、直链 MP4、通用视频）
+        // 4. 普通单流资源（图片、直链 MP4、通用视频）
         await streamFetchToFile({
           url: targetUrl,
           destPath: filePath,

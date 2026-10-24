@@ -29,6 +29,9 @@ class MediaSniffer extends EventEmitter {
         // 仅处理 http/https
         if (!/^https?:\/\//i.test(url)) return
 
+        // 过滤流媒体分段切片（如 .m4s, .ts 切片分段），避免切片刷屏干扰主视频识别
+        if (/\.(m4s|ts)(\?|$)/i.test(url) || /\/(seg|segment|fragment)-\d+/i.test(url)) return
+
         let category = null
         let format = 'mp4'
 
