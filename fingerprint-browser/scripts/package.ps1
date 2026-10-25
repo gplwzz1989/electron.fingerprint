@@ -1,13 +1,19 @@
 param(
   [string]$RuntimeRoot = $env:FP_ELECTRON_RUNTIME,
   [string]$Compiler = $env:FP_NSIS_COMPILER,
-  [string]$ResourceEditor = $env:FP_RESOURCE_EDITOR
+  [string]$ResourceEditor = $env:FP_RESOURCE_EDITOR,
+  [string]$OutputRoot
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $workspaceRoot = (Resolve-Path (Join-Path $projectRoot '..')).Path
-$outputRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist'))
+$distRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist'))
+$outputRoot = if ($OutputRoot) { [IO.Path]::GetFullPath($OutputRoot) } else { $distRoot }
+if (!$outputRoot.Equals($distRoot, [StringComparison]::OrdinalIgnoreCase) -and
+    !$outputRoot.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+  throw '打包产物目录必须位于工作区 dist 目录内。'
+}
 $payload = Join-Path $outputRoot 'fingerprint-browser-win-x64'
 $buildRoot = Join-Path $outputRoot 'installer-build'
 $installer = Join-Path $outputRoot '指纹浏览器-安装包.exe'

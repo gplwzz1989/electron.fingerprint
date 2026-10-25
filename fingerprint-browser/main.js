@@ -36,6 +36,7 @@ const {
   humanoidScroll
 } = require('./humanoid-actions')
 const { PlatformAutomationManager } = require('./platform-automation')
+const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -56,6 +57,9 @@ let groupRepository = null
 let tabBrowser = null
 let automationServer = null
 let xGrokAutomation = null
+let xGrokPanelWindow = null
+let xGrokPanelReady = null
+let xGrokPanelEnvironmentId = null
 let mediaHub = null
 let creatorHub = null
 let quitting = false
@@ -65,6 +69,90 @@ const APPLICATION_ID = 'com.qijie.fingerprintbrowser'
 const APPLICATION_ICON = process.platform === 'win32'
   ? path.join(__dirname, 'assets', 'saas.ico')
   : path.join(__dirname, 'assets', 'saas.png')
+
+function hideXGrokPanel () {
+  if (xGrokPanelWindow && !xGrokPanelWindow.isDestroyed() && xGrokPanelWindow.isVisible()) {
+    xGrokPanelWindow.hide()
+  }
+  xGrokPanelEnvironmentId = null
+}
+
+function ensureXGrokPanelWindow () {
+  if (xGrokPanelWindow && !xGrokPanelWindow.isDestroyed()) return xGrokPanelWindow
+  if (!dashboardWindow || dashboardWindow.isDestroyed()) {
+    throw new ProfileValidationError('管理窗口尚未准备好，请稍后重试。')
+  }
+
+  const panel = new BrowserWindow({
+    parent: dashboardWindow,
+    width: 380,
+    height: 560,
+    show: false,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    autoHideMenuBar: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer', 'x-grok-panel-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  xGrokPanelWindow = panel
+  panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  panel.webContents.on('will-navigate', event => event.preventDefault())
+  panel.on('blur', () => {
+    if (xGrokPanelWindow === panel) hideXGrokPanel()
+  })
+  panel.on('closed', () => {
+    if (xGrokPanelWindow === panel) {
+      xGrokPanelWindow = null
+      xGrokPanelReady = null
+      xGrokPanelEnvironmentId = null
+    }
+  })
+  xGrokPanelReady = panel.loadFile(path.join(__dirname, 'renderer', 'x-grok-panel.html'))
+    .catch(error => {
+      if (xGrokPanelWindow === panel) {
+        panel.destroy()
+        xGrokPanelWindow = null
+        xGrokPanelReady = null
+      }
+      throw error
+    })
+  return panel
+}
+
+function positionXGrokPanelWindow () {
+  if (!dashboardWindow || dashboardWindow.isDestroyed() ||
+      !xGrokPanelWindow || xGrokPanelWindow.isDestroyed()) return
+  const [parentX, parentY] = dashboardWindow.getPosition()
+  const [parentWidth] = dashboardWindow.getSize()
+  const [panelWidth] = xGrokPanelWindow.getSize()
+  xGrokPanelWindow.setPosition(
+    Math.max(0, parentX + parentWidth - panelWidth - 18),
+    Math.max(0, parentY + 88)
+  )
+}
+
+async function showXGrokPanel (environmentId) {
+  const panel = ensureXGrokPanelWindow()
+  if (xGrokPanelReady) await xGrokPanelReady
+
+  if (panel.isVisible() && xGrokPanelEnvironmentId === environmentId) {
+    hideXGrokPanel()
+    return false
+  }
+
+  xGrokPanelEnvironmentId = environmentId
+  panel.webContents.send('x-grok:panel-environment', environmentId)
+  positionXGrokPanelWindow()
+  panel.show()
+  panel.focus()
+  return true
+}
 
 async function acquireClientLock () {
   // 客户端锁与配置、备用数据目录及发行包位置无关，同一系统用户只启动一个客户端。
@@ -174,13 +262,14 @@ function registerIpc () {
   const trustedPages = new Set([
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href,
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'browser.html')).href,
+    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'x-grok-panel.html')).href,
     require('node:url').pathToFileURL(path.join(__dirname, 'media-hub', 'popover.html')).href
   ])
   // 只有本地管理页和标签栏可调用应用接口，远程网页不能操作其他标签。
   function assertTrusted (event) {
     if (quitting) throw new ProfileValidationError('应用正在退出，请稍后重新打开。')
     const trustedUrl = event.senderFrame?.url?.split('#', 1)[0]
-    if (![dashboardWindow?.webContents, tabBrowser?.window?.webContents].includes(event.sender) ||
+    if (![dashboardWindow?.webContents, tabBrowser?.window?.webContents, xGrokPanelWindow?.webContents].includes(event.sender) ||
         event.senderFrame !== event.sender.mainFrame || !trustedPages.has(trustedUrl)) {
       throw new ProfileValidationError('当前页面无权操作浏览器配置或标签。')
     }
@@ -578,6 +667,33 @@ function registerIpc () {
     }
   })
 
+  ipcMain.handle('x-grok:toggle-panel', async (event, environmentId) => {
+    try {
+      assertTrusted(event)
+      const activeTab = tabBrowser?.getTab(tabBrowser?.activeId)
+      if (!activeTab || activeTab.environmentId !== environmentId) {
+        throw new ProfileValidationError('当前 X 标签已切换，请重新打开 Grok 发帖面板。')
+      }
+      if (!isXPlatformUrl(activeTab.view.webContents.getURL())) {
+        throw new ProfileValidationError('请先切换到 X 页面，再打开 Grok 发帖面板。')
+      }
+      const visible = await showXGrokPanel(environmentId)
+      return { ok: true, visible }
+    } catch (error) {
+      return errorResult('显示 X 发帖面板', error, '无法打开 Grok 发帖面板。')
+    }
+  })
+
+  ipcMain.handle('x-grok:close-panel', async (event) => {
+    try {
+      assertTrusted(event)
+      hideXGrokPanel()
+      return { ok: true }
+    } catch (error) {
+      return errorResult('关闭 X 发帖面板', error, '无法关闭 Grok 发帖面板。')
+    }
+  })
+
   ipcMain.handle('x-grok:status', async (event, environmentId) => {
     try {
       assertTrusted(event)
@@ -689,6 +805,12 @@ async function start () {
       onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
     })
     xGrokAutomation = new PlatformAutomationManager({ tabBrowser })
+    xGrokAutomation.on('status-changed', task => {
+      if (xGrokPanelWindow && !xGrokPanelWindow.isDestroyed() &&
+          xGrokPanelEnvironmentId === task.environmentId) {
+        xGrokPanelWindow.webContents.send('x-grok:status-changed', task)
+      }
+    })
     tabBrowser.setXGrokAutomation(xGrokAutomation)
     registerIpc()
     automationServer = new AutomationServer({

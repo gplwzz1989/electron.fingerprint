@@ -18,8 +18,8 @@ const SELECTORS = {
   ],
 
   // Grok 对话界面
-  GROK_INPUT: 'div[contenteditable="true"][aria-label*="Ask" i], div[contenteditable="true"][role="textbox"], textarea',
-  GROK_SEND_BUTTON: 'button[aria-label="Send"], button[aria-label="发送"], button[aria-label*="Grok" i]',
+  GROK_INPUT: '[role="textbox"][contenteditable="true"][aria-label="Ask anything"], div[contenteditable="true"][aria-label*="Ask" i], div[contenteditable="true"][role="textbox"], textarea',
+  GROK_SEND_BUTTON: 'button[aria-label="Send"], button[aria-label="发送"], button[aria-label*="Send" i], button[type="submit"]',
   GROK_STOP_BUTTON: 'button[aria-label*="Stop" i], button[data-testid*="stop" i]',
   GROK_MESSAGE_BLOCK: '[data-quotable-message]',
   GROK_CONTENT_HOLDER: '.grok-trace-soft-enter, .wrap-break-word',

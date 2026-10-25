@@ -96,6 +96,8 @@ contextBridge.exposeInMainWorld('creatorApi', {
 })
 
 contextBridge.exposeInMainWorld('xGrokApi', {
+  togglePanel: environmentId => ipcRenderer.invoke('x-grok:toggle-panel', environmentId),
+  closePanel: () => ipcRenderer.invoke('x-grok:close-panel'),
   getStatus: environmentId => ipcRenderer.invoke('x-grok:status', environmentId),
   toggle: payload => ipcRenderer.invoke('x-grok:toggle', payload),
   triggerNow: environmentId => ipcRenderer.invoke('x-grok:trigger-now', environmentId),
