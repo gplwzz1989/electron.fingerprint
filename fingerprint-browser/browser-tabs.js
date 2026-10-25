@@ -351,6 +351,9 @@ class TabBrowser {
       }
       const fingerprintWarning = applyFingerprintConfig(tabSession, snapshot.fingerprint, { allowMissingCapabilitiesQuery: true })
       const warning = [tlsWarning, fingerprintWarning].filter(Boolean).join('；')
+      const targetUA = snapshot.fingerprint?.browser?.userAgent ||
+        `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome || '138.0.0.0'} Safari/537.36`
+      if (typeof tabSession.setUserAgent === 'function') tabSession.setUserAgent(targetUA)
     const view = new WebContentsView({ webPreferences: {
       // 当前 Testing 内核需要显式初始化为显示状态，否则原生视图没有可截图的绘制表面。
       show: true,

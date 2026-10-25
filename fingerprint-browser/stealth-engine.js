@@ -315,8 +315,8 @@ function generateStealthScript () {
             const win = originalContentWindow.get.call(this)
             if (win) {
               try {
-                if (!win.chrome) applyChromeToTarget(win)
-                if (!win.navigator.plugins || win.navigator.plugins.length === 0) applyPluginsToTarget(win.navigator)
+                if (!win.chrome || !win.chrome.csi) applyChromeToTarget(win)
+                if (!win.navigator || !win.navigator.plugins || win.navigator.plugins.length === 0) applyPluginsToTarget(win.navigator)
               } catch (_) {}
             }
             return win
