@@ -132,7 +132,8 @@ const nativeSession = {}
 applyEnvironmentTLSFingerprintConfig(nativeSession, undefined, version)
 applyEnvironmentTLSFingerprintConfig(nativeSession, null, version)
 assert.throws(() => applyEnvironmentTLSFingerprintConfig(nativeSession, storedPolicy, version), /重启客户端/)
-assert.throws(() => applyEnvironmentTLSFingerprintConfig({}, storedPolicy, version), /未包含 TLS/)
+assert.throws(() => applyTLSFingerprintConfig({}, storedPolicy, version), /未包含 TLS/)
+assert.match(applyEnvironmentTLSFingerprintConfig({}, storedPolicy, version), /缺少 TLS 指纹策略接口/)
 assert.throws(() => applyEnvironmentTLSFingerprintConfig({}, storedPolicy, '138.0.7204.186'), /当前内核版本不一致/)
 const retrySession = { ...fakeSession, setSSLConfig () { throw new Error('底层错误') } }
 assert.throws(() => applyEnvironmentTLSFingerprintConfig(retrySession, storedPolicy, version), /TLS 策略无效/)

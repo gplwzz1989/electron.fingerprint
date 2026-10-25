@@ -94,3 +94,15 @@ contextBridge.exposeInMainWorld('creatorApi', {
     return () => ipcRenderer.removeListener('creator:publish-progress', listener)
   }
 })
+
+contextBridge.exposeInMainWorld('xGrokApi', {
+  getStatus: environmentId => ipcRenderer.invoke('x-grok:status', environmentId),
+  toggle: payload => ipcRenderer.invoke('x-grok:toggle', payload),
+  triggerNow: environmentId => ipcRenderer.invoke('x-grok:trigger-now', environmentId),
+  updateConfig: payload => ipcRenderer.invoke('x-grok:update-config', payload),
+  onStatusChanged: callback => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('x-grok:status-changed', listener)
+    return () => ipcRenderer.removeListener('x-grok:status-changed', listener)
+  }
+})

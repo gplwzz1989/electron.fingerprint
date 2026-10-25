@@ -246,8 +246,10 @@ async function run () {
     await assert.rejects(tabBrowser.reopen(mockEnv.id), /重启客户端/)
     assert.equal(tabBrowser.tabs.size, 0, '策略不匹配时不能创建网页。')
     mockSessionInstance = { ...mockSessionInstance, getTLSFingerprintCapabilities: undefined }
-    await assert.rejects(tabBrowser.reopen(mockEnv.id), /未包含 TLS/)
-    assert.equal(tabBrowser.tabs.size, 0, '运行时不支持 TLS 策略时必须阻止打开网页。')
+    const fallbackTab = await tabBrowser.reopen(mockEnv.id)
+    assert.match(fallbackTab.warning, /缺少 TLS 指纹策略接口/)
+    assert.equal(tabBrowser.tabs.size, 1, '运行时不支持 TLS 策略时应优雅降级打开标签页并提示警告。')
+    await tabBrowser.close(mockEnv.id)
     assert.equal(calls.filter(value => value === 'tls').length, 1)
   } finally {
     if (oldChrome) Object.defineProperty(process.versions, 'chrome', oldChrome)

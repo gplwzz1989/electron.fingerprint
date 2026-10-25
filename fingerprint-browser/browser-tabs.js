@@ -105,6 +105,7 @@ class TabBrowser {
     this.activeId = null
     this.shuttingDown = null
     this.mediaHub = options.mediaHub || null
+    this.xGrokAutomation = options.xGrokAutomation || null
     app.on('login', (event, contents, _request, authInfo, callback) => {
       if (!authInfo.isProxy) return
       const tab = [...this.tabs.values()].find(item => item.view.webContents === contents)
@@ -229,6 +230,10 @@ class TabBrowser {
 
   setMediaHub (mediaHub) {
     this.mediaHub = mediaHub
+  }
+
+  setXGrokAutomation (xGrokAutomation) {
+    this.xGrokAutomation = xGrokAutomation
   }
 
   select (id) {
@@ -428,6 +433,9 @@ class TabBrowser {
     this.select(tabId)
     try {
       await loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
+      if (this.xGrokAutomation) {
+        this.xGrokAutomation.onEnvironmentOpened(environment, tabId, url)
+      }
     } catch (error) {
       console.error('[加载标签网页]', error)
       tab.preserveLastUrl = false
@@ -486,6 +494,9 @@ class TabBrowser {
         status: remainingTabIds.length > 0 ? 'open' : 'closed',
         lastUrl: contents && !contents.isDestroyed() ? contents.getURL() || tab.url : tab.url
       })
+      if (remainingTabIds.length === 0 && this.xGrokAutomation) {
+        this.xGrokAutomation.onEnvironmentClosed(tab.environmentId)
+      }
       this.onEnvironmentChanged()
       if (this.mediaHub) {
         this.mediaHub.sniffer.clearTab(id)

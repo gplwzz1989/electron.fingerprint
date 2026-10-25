@@ -67,7 +67,7 @@ try {
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'package.json') -Destination $application -Force
-  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub', 'creator-hub')) {
+  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub', 'creator-hub', 'platform-automation')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
   $destNodeService = Join-Path $application 'nodeservice'

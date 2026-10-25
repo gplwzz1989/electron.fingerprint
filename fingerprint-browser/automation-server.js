@@ -34,6 +34,7 @@ class AutomationServer {
     this.environmentRepository = options.environmentRepository || null
     this.groupRepository = options.groupRepository || null
     this.tabBrowser = options.tabBrowser || null
+    this.xGrokAutomation = options.xGrokAutomation || null
     this.server = null
     this.listening = false
   }
@@ -377,6 +378,40 @@ class AutomationServer {
         platform,
         recommendations: getRecommendedGPUList(platform)
       }
+    }
+
+    // X (Twitter) Grok 自动化状态
+    if (method === 'GET' && pathname === '/api/v1/x-grok/status') {
+      const environmentId = query.get('environmentId') || this.tabBrowser?.getTab(this.tabBrowser?.activeId)?.environmentId
+      const status = this.xGrokAutomation?.getTaskStatus(environmentId)
+      return { ok: true, status }
+    }
+
+    // X (Twitter) Grok 自动化任务开关
+    if (method === 'POST' && pathname === '/api/v1/x-grok/toggle') {
+      const environmentId = body.environmentId || this.tabBrowser?.getTab(this.tabBrowser?.activeId)?.environmentId
+      if (!environmentId) throw new Error('缺少 environmentId。')
+      const status = this.xGrokAutomation?.toggleTask(environmentId, body.enabled)
+      return { ok: true, status }
+    }
+
+    // X (Twitter) Grok 立即触发发帖
+    if (method === 'POST' && pathname === '/api/v1/x-grok/trigger') {
+      const environmentId = body.environmentId || this.tabBrowser?.getTab(this.tabBrowser?.activeId)?.environmentId
+      if (!environmentId) throw new Error('缺少 environmentId。')
+      const status = await this.xGrokAutomation?.triggerNow(environmentId)
+      return { ok: true, status }
+    }
+
+    // X (Twitter) Grok 参数配置更新
+    if (method === 'POST' && pathname === '/api/v1/x-grok/config') {
+      const environmentId = body.environmentId || this.tabBrowser?.getTab(this.tabBrowser?.activeId)?.environmentId
+      if (!environmentId) throw new Error('缺少 environmentId。')
+      const status = this.xGrokAutomation?.updateConfig(environmentId, {
+        intervalMs: body.intervalMs,
+        prompt: body.prompt
+      })
+      return { ok: true, status }
     }
 
     // GPU 硬件拓扑自洽性审计

@@ -35,6 +35,7 @@ const {
   humanoidDrag,
   humanoidScroll
 } = require('./humanoid-actions')
+const { PlatformAutomationManager } = require('./platform-automation')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
@@ -54,6 +55,7 @@ let environmentRepository = null
 let groupRepository = null
 let tabBrowser = null
 let automationServer = null
+let xGrokAutomation = null
 let mediaHub = null
 let creatorHub = null
 let quitting = false
@@ -575,6 +577,50 @@ function registerIpc () {
       return errorResult('启动浏览器', error, '启动浏览器配置失败。')
     }
   })
+
+  ipcMain.handle('x-grok:status', async (event, environmentId) => {
+    try {
+      assertTrusted(event)
+      const targetId = typeof environmentId === 'object' ? environmentId?.environmentId : environmentId
+      const status = xGrokAutomation?.getTaskStatus(targetId)
+      return { ok: true, status }
+    } catch (error) {
+      return errorResult('获取X发帖状态', error, '获取状态失败。')
+    }
+  })
+
+  ipcMain.handle('x-grok:toggle', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const { environmentId, enabled } = payload || {}
+      const status = xGrokAutomation?.toggleTask(environmentId, enabled)
+      return { ok: true, status }
+    } catch (error) {
+      return errorResult('切换X发帖状态', error, error.message || '切换发帖状态失败。')
+    }
+  })
+
+  ipcMain.handle('x-grok:trigger-now', async (event, environmentId) => {
+    try {
+      assertTrusted(event)
+      const targetId = typeof environmentId === 'object' ? environmentId?.environmentId : environmentId
+      const status = await xGrokAutomation?.triggerNow(targetId)
+      return { ok: true, status }
+    } catch (error) {
+      return errorResult('触发立即发帖', error, error.message || '触发发帖失败。')
+    }
+  })
+
+  ipcMain.handle('x-grok:update-config', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      const { environmentId, intervalMs, prompt } = payload || {}
+      const status = xGrokAutomation?.updateConfig(environmentId, { intervalMs, prompt })
+      return { ok: true, status }
+    } catch (error) {
+      return errorResult('更新X发帖配置', error, error.message || '更新配置失败。')
+    }
+  })
 }
 
 async function createDashboard () {
@@ -642,12 +688,15 @@ async function start () {
       getWindow: () => dashboardWindow,
       onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
     })
+    xGrokAutomation = new PlatformAutomationManager({ tabBrowser })
+    tabBrowser.setXGrokAutomation(xGrokAutomation)
     registerIpc()
     automationServer = new AutomationServer({
       profileRepository,
       environmentRepository,
       groupRepository,
-      tabBrowser
+      tabBrowser,
+      xGrokAutomation
     })
     try {
       await automationServer.start()
@@ -683,6 +732,13 @@ app.on('before-quit', event => {
   quitting = true
   void (async () => {
     await startup
+    if (xGrokAutomation) {
+      for (const platform of xGrokAutomation.platforms.values()) {
+        for (const envId of [...platform.tasks.keys()]) {
+          platform.onEnvironmentClosed(envId)
+        }
+      }
+    }
     await automationServer?.stop()
     await tabBrowser?.shutdown()
     await environmentRepository?.waitForWrites()

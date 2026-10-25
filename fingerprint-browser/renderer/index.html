@@ -25,6 +25,11 @@
         <span class="unified-media-text">媒体</span>
         <span id="unified-media-badge" class="unified-media-badge" style="display:none">0</span>
       </button>
+      <button id="unified-x-grok" type="button" data-action="toggle-x-grok" aria-label="X (Twitter) Grok 自动发帖" style="display:none" title="X (Twitter) Grok 自动发帖">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <span class="unified-x-grok-text">Grok发帖</span>
+        <span id="unified-x-grok-countdown" class="unified-x-grok-countdown" style="display:none">10:00</span>
+      </button>
       <button id="unified-devtools" type="button" data-action="open-devtools" aria-label="打开当前标签开发者工具" disabled>开发者工具</button>
       <button id="unified-go" type="submit" disabled>打开</button>
     </form>
@@ -61,6 +66,7 @@
   <script src="doocs-md/inliner.js"></script>
   <script src="doocs-md/clipboard.js"></script>
   <script src="creator-view.js"></script>
+  <script src="x-grok-view.js"></script>
   <script src="saas-app.js"></script>
 </body>
 </html>
