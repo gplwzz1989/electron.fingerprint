@@ -41,6 +41,8 @@ const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors'
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
 // WebGPU 防护由所属 Session 的图形模块控制，避免影响未启用保护的环境。
+// 禁用 Blink 自动化受控特性，规避各类风控与 BotGuard 对自动化标志的底层探测
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
 
 try {
   app.setPath('userData', initialDataRoot)

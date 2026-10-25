@@ -1,0 +1,75 @@
+From a81b92040b2efd14ca2f33c94d07997932c0274f Mon Sep 17 00:00:00 2001
+From: gaoyang <gaoyang@coozf.com>
+Date: Sun, 25 Oct 2026 18:14:00 +08:00
+Subject: [PATCH] fp: inject native window.chrome object tree to pass BotGuard detection
+
+---
+ third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc | 64 ++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+index 9b8214fa8e2..7f43a0e1c28 100644
+--- a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
++++ b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+@@ -218,6 +218,70 @@ void LocalWindowProxy::SetupChromeObject(v8::Local<v8::Context> context) {
++  v8::Isolate* isolate = context->GetIsolate();
++  v8::HandleScope handle_scope(isolate);
++  v8::Local<v8::Object> global = context->Global();
++
++  v8::Local<v8::String> chrome_key = v8::String::NewFromUtf8Literal(isolate, "chrome");
++  v8::Local<v8::Value> existing_chrome;
++  v8::Local<v8::Object> chrome_obj;
++
++  if (global->Get(context, chrome_key).ToLocal(&existing_chrome) && existing_chrome->IsObject()) {
++    chrome_obj = existing_chrome.As<v8::Object>();
++  } else {
++    chrome_obj = v8::Object::New(isolate);
++    global->DefineOwnProperty(context, chrome_key, chrome_obj, v8::None).Check();
++  }
++
++  // 原生 csi() 探针回调
++  auto csi_cb = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
++    v8::Isolate* isolate = info.GetIsolate();
++    v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
++    v8::Local<v8::Object> res = v8::Object::New(isolate);
++    double now = base::Time::Now().InMillisecondsFSinceUnixEpoch();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "startE"), v8::Number::New(isolate, now - 150.0)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "onloadT"), v8::Number::New(isolate, now - 20.0)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "pageT"), v8::Number::New(isolate, 210.5)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "tran"), v8::Number::New(isolate, 15)).Check();
++    info.GetReturnValue().Set(res);
++  };
++  v8::Local<v8::Function> csi_fn = v8::Function::New(context, csi_cb).ToLocalChecked();
++  chrome_obj->Set(context, v8::String::NewFromUtf8Literal(isolate, "csi"), csi_fn).Check();
++
++  // 原生 loadTimes() 探针回调
++  auto load_times_cb = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
++    v8::Isolate* isolate = info.GetIsolate();
++    v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
++    v8::Local<v8::Object> res = v8::Object::New(isolate);
++    double now_sec = base::Time::Now().InSecondsFSinceUnixEpoch();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "requestTime"), v8::Number::New(isolate, now_sec - 0.3)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "startLoadTime"), v8::Number::New(isolate, now_sec - 0.3)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "commitLoadTime"), v8::Number::New(isolate, now_sec - 0.2)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "finishDocumentLoadTime"), v8::Number::New(isolate, now_sec - 0.1)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "finishLoadTime"), v8::Number::New(isolate, now_sec - 0.05)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "firstPaintTime"), v8::Number::New(isolate, now_sec - 0.18)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "firstPaintAfterLoadTime"), v8::Number::New(isolate, 0)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "navigationType"), v8::String::NewFromUtf8Literal(isolate, "Other")).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "wasFetchedViaSpdy"), v8::Boolean::New(isolate, true)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "wasNpnNegotiated"), v8::Boolean::New(isolate, true)).Check();
++    res->Set(ctx, v8::String::NewFlomUtf8Literal(isolate, "npnNegotiatedProtocol"), v8::String::NewFromUtf8Literal(isolate, "h2")).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "wasAlternateProtocolAvailable"), v8::Boolean::New(isolate, false)).Check();
++    res->Set(ctx, v8::String::NewFromUtf8Literal(isolate, "connectionInfo"), v8::String::NewFromUtf8Literal(isolate, "h2")).Check();
++    info.GetReturnValue().Set(res);
++  };
++  v8::Local<v8::Function> load_times_fn = v8::Function::New(context, load_times_cb).ToLocalChecked();
++  chrome_obj->Set(context, v8::String::NewFromUtf8Literal(isolate, "loadTimes"), load_times_fn).Check();
++
++  // 原生 app 对象
++  v8::Local<v8::Object> app_obj = v8::Object::New(isolate);
++  app_obj->Set(context, v8::String::NewFromUtf8Literal(isolate, "isInstalled"), v8::Boolean::New(isolate, false)).Check();
++  chrome_obj->Set(context, v8::String::NewFromUtf8Literal(isolate, "app"), app_obj).Check();
++}
+-- 
+2.47.0.windows.2

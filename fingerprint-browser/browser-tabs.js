@@ -8,6 +8,9 @@ const { applyEnvironmentTLSFingerprintConfig } = require('./tls-fingerprint')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
+const { generateStealthScript } = require('./stealth-engine')
+
+const STEALTH_PRELOAD_PATH = path.join(__dirname, 'stealth-preload.js')
 
 
 const HEADER_HEIGHT = 88
@@ -354,7 +357,8 @@ class TabBrowser {
       session: tabSession,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      preload: STEALTH_PRELOAD_PATH
     } })
     const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
@@ -368,7 +372,11 @@ class TabBrowser {
             createWindow: (options) => {
               const popup = new BrowserWindow({
                 ...options,
-                autoHideMenuBar: true
+                autoHideMenuBar: true,
+                webPreferences: {
+                  ...options?.webPreferences,
+                  preload: STEALTH_PRELOAD_PATH
+                }
               })
               tab.popups.add(popup)
               popup.once('closed', () => {
@@ -378,6 +386,9 @@ class TabBrowser {
                 if (!/^https?:\/\//i.test(target) && target !== 'about:blank') {
                   event.preventDefault()
                 }
+              })
+              popup.webContents.on('dom-ready', () => {
+                void popup.webContents.executeJavaScript(generateStealthScript()).catch(() => {})
               })
               popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
               return popup.webContents
@@ -403,6 +414,9 @@ class TabBrowser {
       })
     }
     contents.on('page-title-updated', (_event, title) => { tab.title = title; this.notify() })
+    contents.on('dom-ready', () => {
+      void contents.executeJavaScript(generateStealthScript()).catch(() => {})
+    })
     contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; this.notify() })
     contents.on('did-stop-loading', () => {
       tab.loading = false

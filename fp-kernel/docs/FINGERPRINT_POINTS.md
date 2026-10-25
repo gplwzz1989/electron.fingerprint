@@ -37,6 +37,7 @@
 | FP-18 | WebRTC 网络地址 | ICE 候选与非代理 UDP | `ElectronBrowserClient::OverrideWebPreferences`（参考 `default-webrtc-ip-handling-policy.patch`） | 已实现，待编译和真实 ICE 候选验证 |
 | FP-19 | WebGPU 适配器访问 | `GPU::requestAdapter(options)` | `fp_block_session_webgpu_adapter.patch` 与 Session 启动参数 | 已实现，四种选项的报告自检通过；Electron 实际运行待验证 |
 | FP-20 | TLS ClientHello 策略 | TLS 1.2 套件、支持组、签名算法和扩展策略 | `fp_session_tls_client_hello.patch` 与 `Session.setSSLConfig()` | Chrome 138 范围已实现，未编译；跨版本参考样本只用于测量对照，不表示目标仿真 |
+| FP-21 | `window.chrome` 原生对象树 | `window.chrome` (app, csi, loadTimes, runtime) | `fp_native_window_chrome.patch` | 已实现，待编译和运行验证 |
 
 ## 每个指纹点的完成门槛
 

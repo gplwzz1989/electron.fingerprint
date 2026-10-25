@@ -24,6 +24,7 @@
 
 | FP-19 | 已实现，待原生运行验收 | WebGPU 按 Session 的 `modules.webgl` 在 Blink `GPU::requestAdapter` 限制适配器访问；诊断覆盖默认、低功耗、高性能和强制回退四种选项，并区分设备不支持的“不适用”；页面/工作线程共享入口，Node 报告自检通过 |
 | FP-20 | Chrome 138 范围已实现，未编译 | Chrome 138 TLS/UA 版本绑定、会话级 TLS 1.2 套件/支持组/签名算法顺序与扩展策略；环境保存与生命周期接入完成，已有原生 ClientHello/JA3/JA4 基线；任意合法 Chrome 样本可用于字段对照，但跨版本匹配不表示目标仿真。新增原生策略待编译与运行验证，见 [实现说明](TLS_CLIENT_HELLO.md) |
+| FP-21 | 已实现，待编译与运行验证 | `window.chrome` 原生对象树（app, csi, loadTimes, runtime）注入与反 BotGuard 探测原生支持；补丁 `patches/chromium/fp_native_window_chrome.patch` 已导出 |
 
 Chromium 修改必须通过 Electron 官方 Patch System 维护，不提交完整 Chromium 工作树。
 
