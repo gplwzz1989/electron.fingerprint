@@ -306,6 +306,33 @@ function generateStealthScript () {
   } catch (_) {}
 
   // 6. 动态 iframe 原型差分防探测 (Anti-Iframe Prototype Differential)
+  // 提前声明页面可见性与焦点锁定注入函数
+  const visibilityGetter = makeNative(function visibilityState() { return 'visible' }, 'get visibilityState')
+  const hiddenGetter = makeNative(function hidden() { return false }, 'get hidden')
+  const hasFocusFn = makeNative(function hasFocus() { return true }, 'hasFocus')
+
+  function applyVisibilityAndFocusToDoc(targetDoc) {
+    if (!targetDoc) return
+    try {
+      Object.defineProperty(targetDoc, 'visibilityState', {
+        get: visibilityGetter,
+        enumerable: true,
+        configurable: true
+      })
+      Object.defineProperty(targetDoc, 'hidden', {
+        get: hiddenGetter,
+        enumerable: true,
+        configurable: true
+      })
+      Object.defineProperty(targetDoc, 'hasFocus', {
+        value: hasFocusFn,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      })
+    } catch (_) {}
+  }
+
   try {
     if (typeof HTMLIFrameElement !== 'undefined' && HTMLIFrameElement.prototype) {
       const originalContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow')
@@ -317,6 +344,7 @@ function generateStealthScript () {
               try {
                 if (!win.chrome || !win.chrome.csi) applyChromeToTarget(win)
                 if (!win.navigator || !win.navigator.plugins || win.navigator.plugins.length === 0) applyPluginsToTarget(win.navigator)
+                if (win.document) applyVisibilityAndFocusToDoc(win.document)
               } catch (_) {}
             }
             return win
@@ -325,6 +353,66 @@ function generateStealthScript () {
           configurable: true
         })
       }
+    }
+  } catch (_) {}
+
+  // 7. 页面可见性永远为 true 与焦点状态永远为 focus 深度仿真 (Page Visibility & Focus Lock)
+  try {
+    if (typeof Document !== 'undefined' && Document.prototype) {
+      Object.defineProperty(Document.prototype, 'visibilityState', {
+        get: visibilityGetter,
+        enumerable: true,
+        configurable: true
+      })
+      Object.defineProperty(Document.prototype, 'hidden', {
+        get: hiddenGetter,
+        enumerable: true,
+        configurable: true
+      })
+      Object.defineProperty(Document.prototype, 'hasFocus', {
+        value: hasFocusFn,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      })
+    }
+    if (typeof document !== 'undefined') {
+      applyVisibilityAndFocusToDoc(document)
+    }
+  } catch (_) {}
+
+  // 在捕获阶段拦截 visibilitychange，阻断向页面业务代码派发隐藏通知
+  try {
+    const stopVisibilityEvent = function (e) {
+      if (e && typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation()
+      }
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('visibilitychange', stopVisibilityEvent, true)
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', stopVisibilityEvent, true)
+    }
+  } catch (_) {}
+
+  // 在捕获阶段拦截针对 window/document 的 blur 与 focusout 失焦事件
+  // 保持对普通输入框（如 input/textarea）内部正常切换焦点的放行
+  try {
+    const preventWindowBlur = function (e) {
+      if (!e) return
+      if (e.target === window || (typeof document !== 'undefined' && e.target === document) || !e.target) {
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation()
+        if (typeof e.preventDefault === 'function') e.preventDefault()
+      }
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('blur', preventWindowBlur, true)
+      window.addEventListener('focusout', preventWindowBlur, true)
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('blur', preventWindowBlur, true)
+      document.addEventListener('focusout', preventWindowBlur, true)
     }
   } catch (_) {}
 })()

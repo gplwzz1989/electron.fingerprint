@@ -27,14 +27,60 @@ function createMockBrowserContext (options = {}) {
     }
   }
 
+  class MockEvent {
+    constructor (type, init = {}) {
+      this.type = type
+      this.target = init.target || null
+      this._stopped = false
+      this.defaultPrevented = false
+    }
+    stopImmediatePropagation () {
+      this._stopped = true
+    }
+    preventDefault () {
+      this.defaultPrevented = true
+    }
+  }
+
+  class MockEventTarget {
+    constructor () {
+      this._listeners = new Map()
+    }
+    addEventListener (event, listener, useCapture) {
+      if (!this._listeners.has(event)) this._listeners.set(event, [])
+      this._listeners.get(event).push({ listener, useCapture: Boolean(useCapture) })
+    }
+    dispatchEvent (event) {
+      const list = this._listeners.get(event.type) || []
+      const sorted = [...list].sort((a, b) => (b.useCapture ? 1 : 0) - (a.useCapture ? 1 : 0))
+      for (const item of sorted) {
+        if (event._stopped) break
+        item.listener(event)
+      }
+      return !event.defaultPrevented
+    }
+  }
+
+  class MockDocument extends MockEventTarget {
+    createElement (tag) {
+      if (tag.toLowerCase() === 'iframe') {
+        return new MockHTMLIFrameElement()
+      }
+      return { tagName: tag.toUpperCase() }
+    }
+  }
+
   function createMockSubWindow () {
     return {
       navigator: {
         plugins: [],
         mimeTypes: []
-      }
+      },
+      document: new MockDocument()
     }
   }
+
+  const windowEventTarget = new MockEventTarget()
 
   const contextObj = {
     MimeType: MockMimeType,
@@ -43,6 +89,8 @@ function createMockBrowserContext (options = {}) {
     PluginArray: MockPluginArray,
     Navigator: MockNavigator,
     HTMLIFrameElement: MockHTMLIFrameElement,
+    Document: MockDocument,
+    Event: MockEvent,
     Notification: { permission: 'default' },
     Date,
     Math,
@@ -58,16 +106,11 @@ function createMockBrowserContext (options = {}) {
     console
   }
 
+  contextObj.addEventListener = (event, listener, useCapture) => windowEventTarget.addEventListener(event, listener, useCapture)
+  contextObj.dispatchEvent = (event) => windowEventTarget.dispatchEvent(event)
   contextObj.window = contextObj
   contextObj.navigator = new MockNavigator()
-  contextObj.document = {
-    createElement (tag) {
-      if (tag.toLowerCase() === 'iframe') {
-        return new MockHTMLIFrameElement()
-      }
-      return {}
-    }
-  }
+  contextObj.document = new MockDocument()
 
   const sandbox = vm.createContext(contextObj)
   return {
@@ -224,5 +267,80 @@ test('Google 登录与 BotGuard 防护对抗测试套件', async (t) => {
     assert.equal(iframeProbe.hasCsi, true)
     assert.equal(iframeProbe.csiTran, 15)
     assert.equal(iframeProbe.pluginsLength, 5, '动态子 iframe 的 plugins 必须同样具备 5 个插件')
+  })
+
+  await t.test('7. 页面可见性永远为 true 与焦点状态永远为 focus 深度防护', () => {
+    // 验证 document 实例与原型链上的 visibilityState 与 hidden
+    assert.equal(evalInContext('document.visibilityState'), 'visible', 'document.visibilityState 必须始终为 visible')
+    assert.equal(evalInContext('document.hidden'), false, 'document.hidden 必须始终为 false')
+    assert.equal(evalInContext('document.hasFocus()'), true, 'document.hasFocus() 必须始终返回 true')
+
+    // 验证 Document.prototype 上的原生函数与描述符
+    const visDesc = evalInContext('Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState")')
+    assert.equal(typeof visDesc.get, 'function')
+    assert.equal(evalInContext('Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState").get)'), 'function get visibilityState() { [native code] }')
+
+    const hiddenDesc = evalInContext('Object.getOwnPropertyDescriptor(Document.prototype, "hidden")')
+    assert.equal(typeof hiddenDesc.get, 'function')
+    assert.equal(evalInContext('Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Document.prototype, "hidden").get)'), 'function get hidden() { [native code] }')
+
+    assert.equal(evalInContext('Function.prototype.toString.call(document.hasFocus)'), 'function hasFocus() { [native code] }')
+
+    // 验证 visibilitychange 事件拦截阻断
+    const visResult = evalInContext(`
+      (function() {
+        let called = false;
+        document.addEventListener('visibilitychange', () => { called = true; }, false);
+        const event = new Event('visibilitychange');
+        document.dispatchEvent(event);
+        return { called, stopped: event._stopped };
+      })()
+    `)
+    assert.equal(visResult.called, false, '页面业务代码注册的 visibilitychange 监听器不得被触发')
+    assert.equal(visResult.stopped, true, 'visibilitychange 事件必须在捕获阶段被立即阻断传播')
+
+    // 验证 window/document 的 blur 与 focusout 失焦事件拦截
+    const blurResult = evalInContext(`
+      (function() {
+        let windowBlurCalled = false;
+        window.addEventListener('blur', () => { windowBlurCalled = true; }, false);
+        const blurEvt = new Event('blur', { target: window });
+        window.dispatchEvent(blurEvt);
+        return { windowBlurCalled, stopped: blurEvt._stopped, defaultPrevented: blurEvt.defaultPrevented };
+      })()
+    `)
+    assert.equal(blurResult.windowBlurCalled, false, '针对 window 的 blur 监听器不得被触发')
+    assert.equal(blurResult.stopped, true, '针对 window 的失焦事件必须被立即阻断')
+    assert.equal(blurResult.defaultPrevented, true)
+
+    // 验证表单输入控件（input）之间的失焦不受影响
+    const inputBlurResult = evalInContext(`
+      (function() {
+        let inputBlurCalled = false;
+        const fakeInput = { tagName: 'INPUT' };
+        window.addEventListener('blur', () => { inputBlurCalled = true; }, false);
+        const inputEvt = new Event('blur', { target: fakeInput });
+        window.dispatchEvent(inputEvt);
+        return { inputBlurCalled, stopped: inputEvt._stopped };
+      })()
+    `)
+    assert.equal(inputBlurResult.inputBlurCalled, true, '表单控件本身的失焦事件必须正常通行')
+    assert.equal(inputBlurResult.stopped, false)
+
+    // 验证动态子 iframe 继承可见性与焦点状态
+    const iframeFocus = evalInContext(`
+      (function() {
+        const iframe = document.createElement('iframe');
+        const win = iframe.contentWindow;
+        return {
+          visibilityState: win.document.visibilityState,
+          hidden: win.document.hidden,
+          hasFocus: typeof win.document.hasFocus === 'function' && win.document.hasFocus()
+        };
+      })()
+    `)
+    assert.equal(iframeFocus.visibilityState, 'visible')
+    assert.equal(iframeFocus.hidden, false)
+    assert.equal(iframeFocus.hasFocus, true)
   })
 })

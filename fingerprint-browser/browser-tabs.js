@@ -361,10 +361,14 @@ class TabBrowser {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      preload: STEALTH_PRELOAD_PATH
+      preload: STEALTH_PRELOAD_PATH,
+      backgroundThrottling: false
     } })
     const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
+    if (typeof contents.setBackgroundThrottling === 'function') {
+      contents.setBackgroundThrottling(false)
+    }
     contents.setWindowOpenHandler(({ url, disposition }) => {
       const isHttpOrBlank = /^https?:\/\//i.test(url) || url === 'about:blank'
       switch (disposition) {
@@ -378,9 +382,13 @@ class TabBrowser {
                 autoHideMenuBar: true,
                 webPreferences: {
                   ...options?.webPreferences,
-                  preload: STEALTH_PRELOAD_PATH
+                  preload: STEALTH_PRELOAD_PATH,
+                  backgroundThrottling: false
                 }
               })
+              if (typeof popup.webContents.setBackgroundThrottling === 'function') {
+                popup.webContents.setBackgroundThrottling(false)
+              }
               tab.popups.add(popup)
               popup.once('closed', () => {
                 tab.popups.delete(popup)

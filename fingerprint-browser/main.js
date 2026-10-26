@@ -37,12 +37,25 @@ const {
 } = require('./humanoid-actions')
 const { PlatformAutomationManager } = require('./platform-automation')
 const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors')
+const { generateStealthScript } = require('./stealth-engine')
 
 const initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
 // WebGPU 防护由所属 Session 的图形模块控制，避免影响未启用保护的环境。
 // 禁用 Blink 自动化受控特性，规避各类风控与 BotGuard 对自动化标志的底层探测
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
+
+// 全局 WebContents 增强：禁用后台限速，并对 webview 页面自动装载可见性与焦点保持脚本
+app.on('web-contents-created', (_event, contents) => {
+  if (typeof contents.setBackgroundThrottling === 'function') {
+    contents.setBackgroundThrottling(false)
+  }
+  if (typeof contents.getType === 'function' && contents.getType() === 'webview') {
+    contents.on('dom-ready', () => {
+      void contents.executeJavaScript(generateStealthScript()).catch(() => {})
+    })
+  }
+})
 
 try {
   app.setPath('userData', initialDataRoot)

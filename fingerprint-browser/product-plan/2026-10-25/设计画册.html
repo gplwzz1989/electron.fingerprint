@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>栖界 · 产品重构高保真设计画册</title>
+  <style>
+    :root{color-scheme:light;--ink:#18212d;--muted:#6d7988;--line:#e3e8ed;--canvas:#f4f6f8;--blue:#245ee8;--surface:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif;color:var(--ink)}
+    *{box-sizing:border-box}body{margin:0;background:var(--canvas)}main{max-width:1580px;margin:0 auto;padding:42px 34px 72px}
+    header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:25px}h1{margin:0 0 8px;font-size:28px;letter-spacing:-.035em}p{margin:0;color:var(--muted);font-size:12px;line-height:1.75}.eyebrow{margin-bottom:8px;color:#59765f;font-size:10px;font-weight:700;letter-spacing:.12em}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}.button{min-height:36px;display:inline-flex;align-items:center;padding:0 13px;color:#465667;background:#fff;border:1px solid #dce3e9;border-radius:7px;text-decoration:none;font-size:10px;font-weight:600}.button.primary{color:#fff;background:var(--blue);border-color:var(--blue)}
+    .note{margin-bottom:23px;padding:13px 15px;color:#596a7b;background:#edf3f7;border:1px solid #e0e8ee;border-radius:9px;font-size:10px;line-height:1.75}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.screen{overflow:hidden;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(19,35,50,.04);transition:box-shadow .18s ease,transform .18s ease}.screen:hover{transform:translateY(-2px);box-shadow:0 9px 25px rgba(19,35,50,.09)}.screen img{display:block;width:100%;aspect-ratio:1.52;object-fit:cover;border-bottom:1px solid var(--line)}.caption{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 15px}.caption strong{font-size:11px;font-weight:650}.caption a{color:var(--blue);font-size:9px;font-weight:600;text-decoration:none;white-space:nowrap}.number{margin-right:7px;color:#8492a0;font-size:9px;font-weight:700;letter-spacing:.08em}
+    footer{margin-top:25px;padding-top:18px;border-top:1px solid var(--line);color:#788593;font-size:10px;line-height:1.8}
+    @media(max-width:880px){main{padding:27px 17px 48px}header{align-items:flex-start;flex-direction:column}h1{font-size:23px}.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main>
+  <header><div><p class="eyebrow">栖界 · 产品重构方案 · 2026.10.25</p><h1>独立环境，清楚掌控。</h1><p>从产品定位到信息架构，再到 23 张逐页高保真设计图。<br>主线聚焦多账号环境隔离；AI 创作归入可选工具。</p></div><div class="actions"><a class="button" href="产品重构提案.md">查看产品定义与设计原则</a><a class="button primary" href="index.html#overview">打开可点击原型 ↗</a></div></header>
+  <div class="note">评审稿使用真实空状态，不填充虚构的环境、成员、账号、代理、操作记录、价格或配额。AI 创作页面保留为可选工具，不主导工作台和核心导航。所有图稿均为静态界面设计；可点击原型仅支持页面与流程导航，不写入本机数据、不连接网络或实际执行发布、计费操作。</div>
+  <section class="grid" aria-label="高保真页面设计图">
+    <article class="screen"><a href="screens/01-工作台.png"><img src="screens/01-工作台.png" alt="工作台高保真设计图"></a><div class="caption"><strong><span class="number">01</span>工作台</strong><a href="index.html#overview">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/02-环境列表.png"><img src="screens/02-环境列表.png" alt="环境列表高保真设计图"></a><div class="caption"><strong><span class="number">02</span>环境列表</strong><a href="index.html#environments">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/03-新建环境-基本信息.png"><img src="screens/03-新建环境-基本信息.png" alt="创建环境基本信息高保真设计图"></a><div class="caption"><strong><span class="number">03</span>新建环境 · 基本信息</strong><a href="index.html#create-basic">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/04-新建环境-网络连接.png"><img src="screens/04-新建环境-网络连接.png" alt="创建环境网络连接高保真设计图"></a><div class="caption"><strong><span class="number">04</span>新建环境 · 网络连接</strong><a href="index.html#create-network">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/05-新建环境-指纹配置.png"><img src="screens/05-新建环境-指纹配置.png" alt="创建环境指纹配置高保真设计图"></a><div class="caption"><strong><span class="number">05</span>新建环境 · 指纹配置</strong><a href="index.html#create-fingerprint">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/06-环境详情.png"><img src="screens/06-环境详情.png" alt="环境详情高保真设计图"></a><div class="caption"><strong><span class="number">06</span>环境详情</strong><a href="index.html#detail">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/07-环境浏览器.png"><img src="screens/07-环境浏览器.png" alt="环境浏览器高保真设计图"></a><div class="caption"><strong><span class="number">07</span>环境浏览器</strong><a href="index.html#browser">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/08-代理资源.png"><img src="screens/08-代理资源.png" alt="代理资源高保真设计图"></a><div class="caption"><strong><span class="number">08</span>代理资源</strong><a href="index.html#proxies">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/14-团队成员.png"><img src="screens/14-团队成员.png" alt="团队成员高保真设计图"></a><div class="caption"><strong><span class="number">09</span>团队成员</strong><a href="index.html#members">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/15-操作记录.png"><img src="screens/15-操作记录.png" alt="操作记录高保真设计图"></a><div class="caption"><strong><span class="number">10</span>操作记录</strong><a href="index.html#audit">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/16-订阅计费.png"><img src="screens/16-订阅计费.png" alt="订阅计费高保真设计图"></a><div class="caption"><strong><span class="number">11</span>订阅计费</strong><a href="index.html#billing">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/17-系统设置.png"><img src="screens/17-系统设置.png" alt="系统设置高保真设计图"></a><div class="caption"><strong><span class="number">12</span>系统设置</strong><a href="index.html#settings">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/18-首次使用引导.png"><img src="screens/18-首次使用引导.png" alt="首次使用引导高保真设计图"></a><div class="caption"><strong><span class="number">13</span>首次使用引导</strong><a href="index.html#onboarding">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/19-代理异常恢复.png"><img src="screens/19-代理异常恢复.png" alt="代理异常恢复高保真设计图"></a><div class="caption"><strong><span class="number">14</span>代理异常恢复</strong><a href="index.html#proxy-error">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/20-全局快速搜索.png"><img src="screens/20-全局快速搜索.png" alt="全局快速搜索高保真设计图"></a><div class="caption"><strong><span class="number">15</span>全局快速搜索</strong><a href="index.html#search">查看原型 →</a></div></article>
+    <div class="section-break">可选工具 · AI 创作</div>
+    <article class="screen"><a href="screens/09-AI创作-视频.png"><img src="screens/09-AI创作-视频.png" alt="视频创作高保真设计图"></a><div class="caption"><strong><span class="number">16</span>AI 创作 · 视频</strong><a href="index.html#creator-video">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/10-AI创作-长文排版.png"><img src="screens/10-AI创作-长文排版.png" alt="长文排版高保真设计图"></a><div class="caption"><strong><span class="number">17</span>AI 创作 · 长文排版</strong><a href="index.html#creator-article">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/11-AI创作-图文笔记.png"><img src="screens/11-AI创作-图文笔记.png" alt="图文笔记高保真设计图"></a><div class="caption"><strong><span class="number">18</span>AI 创作 · 图文笔记</strong><a href="index.html#creator-post">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/12-AI创作-作品库.png"><img src="screens/12-AI创作-作品库.png" alt="作品库高保真设计图"></a><div class="caption"><strong><span class="number">19</span>AI 创作 · 作品库</strong><a href="index.html#creator-assets">查看原型 →</a></div></article>
+    <article class="screen"><a href="screens/13-AI创作-发布配置.png"><img src="screens/13-AI创作-发布配置.png" alt="发布配置高保真设计图"></a><div class="caption"><strong><span class="number">20</span>AI 创作 · 发布配置</strong><a href="index.html#creator-publish">查看原型 →</a></div></article>
+    <article class="screen compact"><a href="screens/21-媒体提取-已捕获为空.png"><img src="screens/21-媒体提取-已捕获为空.png" alt="媒体提取面板空状态高保真设计图"></a><div class="caption"><strong><span class="number">21</span>媒体提取 · 已捕获为空</strong><a href="index.html#media-panel">查看原型 →</a></div></article>
+    <article class="screen compact"><a href="screens/22-媒体提取-下载队列为空.png"><img src="screens/22-媒体提取-下载队列为空.png" alt="媒体下载队列空状态高保真设计图"></a><div class="caption"><strong><span class="number">22</span>媒体提取 · 下载队列为空</strong><a href="index.html#media-queue">查看原型 →</a></div></article>
+    <article class="screen compact"><a href="screens/23-X-Grok发帖控制.png"><img src="screens/23-X-Grok发帖控制.png" alt="X 发帖控制面板高保真设计图"></a><div class="caption"><strong><span class="number">23</span>X 发帖控制</strong><a href="index.html#x-grok-panel">查看原型 →</a></div></article>
+  </section>
+  <footer>产品方向和页面范围按现有代码结构归纳，仍需在真实使用场景中验证。确认后再把设计系统映射到现有应用，不涉及 Chromium/Electron 原生构建。</footer>
+</main></body>
+</html>
