@@ -210,7 +210,7 @@ class BasePlatformAutomation extends EventEmitter {
 
     if (typeof prompt === 'string' && prompt.trim()) {
       task.prompt = prompt.trim()
-      this.addLog(task, 'info', '已更新生成 Prompt。')
+      this.addLog(task, 'info', '已更新创作提示词。')
     }
 
     this.notifyStatus(task)

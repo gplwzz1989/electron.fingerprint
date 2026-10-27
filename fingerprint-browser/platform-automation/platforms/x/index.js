@@ -6,8 +6,9 @@
  */
 
 const { BasePlatformAutomation } = require('../../base-automation')
-const { SELECTORS, cleanGeneratedText, isXPlatformUrl } = require('./selectors')
-const { humanoidClick, humanoidImeType } = require('../../../humanoid-actions')
+const { SELECTORS, cleanGeneratedText, isXPlatformUrl, normalizeXGrokConfig, getXPostBodyBudget, buildGrokPrompt } = require('./selectors')
+const { humanoidClick, humanoidType, humanoidImeType } = require('../../../humanoid-actions')
+const { startXRoaming, stopXRoaming, cancelXRoaming, assertNoReplyDraft } = require('./roaming')
 
 const DEFAULT_PROMPT = '请写一条关于最新科技、AI或数字化生活的精简推文（X post）。语言幽默有趣或富有洞察力，字数在120字以内。直接输出推文正文，严禁输出任何引号、前缀说明或解释。'
 const DEFAULT_INTERVAL_MS = 10 * 60 * 1000 // 默认 10 分钟
@@ -35,6 +36,37 @@ function getXPostBaseline () {
   return Array.from(document.querySelectorAll('article'))
     .map(article => article.querySelector('a[href*="/status/"]')?.getAttribute('href') || '')
     .filter(Boolean)
+}
+
+function getXMentionState (inputSelector, candidateSelector, handle) {
+  const input = document.querySelector(inputSelector)
+  const candidate = document.querySelector(candidateSelector)
+  const candidateVisible = Boolean(candidate && candidate.getClientRects().length)
+  const text = (input?.innerText || input?.value || '').replaceAll('\u00a0', ' ')
+  const rect = candidate?.getBoundingClientRect()
+  const centerX = rect ? rect.left + rect.width / 2 : 0
+  const centerY = rect ? rect.top + rect.height / 2 : 0
+  const hit = candidateVisible ? document.elementFromPoint(centerX, centerY) : null
+  const trimmed = text.trimEnd().toLowerCase()
+  const suffix = '@' + handle.toLowerCase()
+  const start = trimmed.length - suffix.length
+  return {
+    candidateReady: candidateVisible && !candidate.disabled && centerX >= 0 && centerX < innerWidth &&
+      centerY >= 0 && centerY < innerHeight && Boolean(hit && candidate.contains(hit)),
+    selected: !candidateVisible && /\s+$/.test(text) && trimmed.endsWith(suffix) && (start === 0 || /\s/.test(trimmed[start - 1] || '')),
+    currentText: text,
+    inputFocused: document.activeElement === input
+  }
+}
+
+function getXComposerState (inputSelector, buttonSelector) {
+  const input = document.querySelector(inputSelector)
+  const button = document.querySelector(buttonSelector)
+  const counterText = Array.from(document.querySelectorAll('[role="progressbar"]'))
+    .filter(node => node.getClientRects().length).map(node => node.parentElement?.innerText || '').join('\n')
+  const overflow = counterText.match(/exceeded the character limit by\s+(\d+)/i) || counterText.match(/(?:^|\n)-(\d+)(?:\n|$)/)
+  return { currentText: (input?.innerText || input?.value || '').trim(), buttonEnabled: Boolean(button && !button.disabled),
+    overLimitBy: overflow ? Number(overflow[1]) : 0 }
 }
 
 function verifyXPost (expectedText, previousLinks) {
@@ -72,6 +104,107 @@ class XPlatformAutomation extends BasePlatformAutomation {
       defaultIntervalMs: options.defaultIntervalMs || DEFAULT_INTERVAL_MS,
       defaultPrompt: options.defaultPrompt || DEFAULT_PROMPT
     })
+  }
+
+  createTask (environmentId, tabId, environmentName = '') {
+    const task = super.createTask(environmentId, tabId, environmentName)
+    const saved = this.tabBrowser?.environmentRepository?.get(environmentId)?.xGrokConfig
+    Object.assign(task, saved ? normalizeXGrokConfig(saved) : {})
+    task.mentions = [...(task.mentions || ['grok'])]
+    task.roamingEnabled = task.roamingEnabled === true
+    task.commentSentences = [...(task.commentSentences || [])]
+    task.commentIntervalMs = task.commentIntervalMs || 120000
+    task.commentCount = 0
+    task.commentedPostUrls = new Set()
+    task.skippedPostUrls = new Set()
+    task.remainingSeconds = Math.round(task.intervalMs / 1000)
+    return task
+  }
+
+  getTaskSnapshot (task) {
+    return { ...super.getTaskSnapshot(task), mentions: [...(task.mentions || ['grok'])],
+      roamingEnabled: task.roamingEnabled === true, commentSentences: [...(task.commentSentences || [])],
+      commentIntervalMs: task.commentIntervalMs || 120000, commentCount: task.commentCount || 0,
+      lastCommentAt: task.lastCommentAt || null, lastCommentUrl: task.lastCommentUrl || '' }
+  }
+
+  getTaskStatus (environmentId) {
+    const status = super.getTaskStatus(environmentId)
+    if (!status || this.tasks.has(environmentId)) return status
+    return this.getTaskSnapshot(this.createTask(environmentId, status.tabId, status.environmentName))
+  }
+
+  async updateConfig (environmentId, payload = {}) {
+    let task = this.tasks.get(environmentId)
+    if (!task) {
+      const tab = this.getTabForEnvironment(environmentId)
+      if (!tab) throw new Error('未找到该环境打开的标签页。')
+      task = this.createTask(environmentId, tab.id, tab.profile?.name || tab.profileName || environmentId)
+    }
+    const config = normalizeXGrokConfig({
+      prompt: payload.prompt === undefined ? task.prompt : payload.prompt,
+      intervalMs: payload.intervalMs === undefined ? task.intervalMs : payload.intervalMs,
+      mentions: payload.mentions === undefined ? task.mentions : payload.mentions,
+      roamingEnabled: payload.roamingEnabled === undefined ? task.roamingEnabled : payload.roamingEnabled,
+      commentSentences: payload.commentSentences === undefined ? task.commentSentences : payload.commentSentences,
+      commentIntervalMs: payload.commentIntervalMs === undefined ? task.commentIntervalMs : payload.commentIntervalMs
+    })
+    // 先持久化，再更新运行中任务；保存失败时不能把未保存配置报告为成功。
+    const repository = this.tabBrowser?.environmentRepository
+    if (repository) {
+      try {
+        await repository.update(environmentId, { xGrokConfig: config })
+      } catch (error) {
+        console.error('[保存 X 发帖配置失败]', error)
+        throw new Error('保存 X 发帖配置失败，请检查应用数据目录权限或磁盘空间后重试。')
+      }
+    }
+    this.tasks.set(environmentId, task)
+    const mentionsChanged = JSON.stringify(task.mentions) !== JSON.stringify(config.mentions)
+    task.mentions = [...config.mentions]
+    const roamingChanged = task.roamingEnabled !== config.roamingEnabled ||
+      JSON.stringify(task.commentSentences) !== JSON.stringify(config.commentSentences) || task.commentIntervalMs !== config.commentIntervalMs
+    task.roamingEnabled = config.roamingEnabled
+    task.commentSentences = [...config.commentSentences]
+    task.commentIntervalMs = config.commentIntervalMs
+    if (!task.roamingEnabled) await stopXRoaming(task)
+    const status = super.updateConfig(environmentId, {
+      ...(task.prompt !== config.prompt ? { prompt: config.prompt } : {}),
+      ...(task.intervalMs !== config.intervalMs ? { intervalMs: config.intervalMs } : {})
+    })
+    if (mentionsChanged) this.addLog(task, 'info', config.mentions.length
+      ? `已更新发帖提及账号：${config.mentions.map(handle => '@' + handle).join(' ')}`
+      : '已关闭发帖时提及账号。')
+    if (roamingChanged) this.addLog(task, 'info', config.roamingEnabled
+      ? `已启用发帖后漫游评论，已配置 ${config.commentSentences.length} 句评论。` : '已关闭发帖后漫游评论。')
+    return mentionsChanged || roamingChanged ? this.getTaskSnapshot(task) : status
+  }
+
+  stopTask (task) {
+    task.enabled = false
+    task.cancelCycle = true
+    cancelXRoaming(task)
+    super.stopTask(task)
+  }
+
+  startRoaming (task) {
+    startXRoaming(this, task)
+  }
+
+  async stopRoaming (task) {
+    await stopXRoaming(task)
+  }
+
+  activateTab (contents) {
+    const tab = [...(this.tabBrowser?.tabs.values() || [])].find(item => item.view?.webContents === contents)
+    if (tab && this.tabBrowser.activeId !== tab.id && typeof this.tabBrowser.select === 'function') {
+      this.tabBrowser.select(tab.id)
+      return
+    }
+    const window = this.tabBrowser?.window
+    if (window?.isMinimized?.()) window.restore()
+    if (!window?.isFocused?.()) window?.focus?.()
+    if (!contents.isFocused?.()) contents.focus?.()
   }
 
   /**
@@ -122,6 +255,19 @@ class XPlatformAutomation extends BasePlatformAutomation {
    * 核心发帖业务循环
    */
   async runCycle (task) {
+    if (task.cyclePromise) return await task.cyclePromise
+    task.cancelCycle = false
+    const cycle = this.runPostingCycle(task)
+    task.cyclePromise = cycle
+    try {
+      return await cycle
+    } finally {
+      if (task.cyclePromise === cycle) task.cyclePromise = null
+    }
+  }
+
+  async runPostingCycle (task) {
+    await this.stopRoaming(task)
     if (task.state === 'generating' || task.state === 'posting') return
     const tab = this.getTabForEnvironment(task.environmentId)
     if (!tab || !tab.view || tab.view.webContents.isDestroyed()) {
@@ -141,8 +287,16 @@ class XPlatformAutomation extends BasePlatformAutomation {
     }
 
     task.lastRunAt = Date.now()
+    const runMentions = [...(task.mentions || ['grok'])]
 
     try {
+      this.activateTab(contents)
+      await assertNoReplyDraft(contents)
+      if (task.cancelCycle) {
+        task.state = 'stopped'
+        task.statusText = '任务已暂停，本轮未继续发布。'
+        return
+      }
       // ----------------------------------------------------
       // 阶段 1：使用 X 内置 Grok AI 创作推文
       // ----------------------------------------------------
@@ -151,7 +305,16 @@ class XPlatformAutomation extends BasePlatformAutomation {
       this.addLog(task, 'info', '【阶段1】正在打开 X 内置 Grok 页面...')
 
       task.currentStage = '打开 Grok 页面'
-      const generatedText = await this.generateWithGrok(contents, task)
+      const bodyBudget = getXPostBodyBudget(runMentions)
+      const requestPrompt = buildGrokPrompt(task.prompt, runMentions)
+      let generatedText = ''
+      for (let attempt = 0; attempt < 2; attempt++) {
+        generatedText = await this.generateWithGrok(contents, task, requestPrompt)
+        if ([...generatedText].length <= bodyBudget) break
+        if (attempt === 1) throw new Error('Grok 回复仍超过本次发帖的正文长度预算，本次未发布，请缩短创作要求后重试。')
+        this.addLog(task, 'warn', `Grok 回复超过正文长度预算（${bodyBudget} 个字符），正在重新创作。`)
+        if (task.cancelCycle) break
+      }
       if (!generatedText) {
         throw new Error('Grok 未能成功生成推文内容。')
       }
@@ -161,6 +324,11 @@ class XPlatformAutomation extends BasePlatformAutomation {
 
       // 拟人化间隔停顿，给页面与网络充足缓冲
       await sleep(2500)
+      if (task.cancelCycle || contents.isDestroyed()) {
+        task.state = 'stopped'
+        task.statusText = '任务已暂停，本轮未继续发布。'
+        return
+      }
 
       // ----------------------------------------------------
       // 阶段 2：发布推文至 X (Twitter)
@@ -170,7 +338,7 @@ class XPlatformAutomation extends BasePlatformAutomation {
       task.statusText = '正在前往发帖页面发布推文...'
       this.addLog(task, 'info', '【阶段2】正在前往发帖框并填入推文内容...')
 
-      await this.publishTweet(contents, generatedText, task)
+      await this.publishTweet(contents, generatedText, task, runMentions)
 
       task.state = 'success'
       task.statusText = '推文已成功发布！'
@@ -193,8 +361,9 @@ class XPlatformAutomation extends BasePlatformAutomation {
           ? `本轮失败，将在${Math.round(task.intervalMs / 60000)}分钟后重试`
           : `等待下次调度（${Math.round(task.intervalMs / 60000)}分钟后）`
         this.scheduleNextRun(task, task.intervalMs)
+        if (task.state === 'success') this.startRoaming(task)
       } else {
-        if (task.state !== 'success' && task.state !== 'error') {
+        if (task.state !== 'success' && task.state !== 'error' && task.state !== 'stopped') {
           task.state = 'idle'
           task.statusText = '任务已就绪（已暂停）'
         }
@@ -206,7 +375,8 @@ class XPlatformAutomation extends BasePlatformAutomation {
   /**
    * 使用 Grok 生成推文
    */
-  async generateWithGrok (contents, task) {
+  async generateWithGrok (contents, task, requestPrompt) {
+    const prompt = requestPrompt || buildGrokPrompt(task.prompt, task.mentions)
     const currentUrl = contents.getURL()
     if (!currentUrl.includes('/i/grok')) {
       task.currentStage = '导航到 Grok 页面'
@@ -308,8 +478,9 @@ class XPlatformAutomation extends BasePlatformAutomation {
 
     try {
       task.currentStage = '通过框架输入 Grok 提示词'
+      this.activateTab(contents)
       await humanoidClick(contents, SELECTORS.GROK_INPUT)
-      await humanoidImeType(contents, task.prompt, { selector: SELECTORS.GROK_INPUT, typoRate: 0 })
+      await humanoidImeType(contents, prompt, { selector: SELECTORS.GROK_INPUT, typoRate: 0, nativeInput: true, lineBreakModifiers: ['shift'] })
     } catch {
       throw new Error('通过框架键鼠接口输入 Grok 提示词失败，请确认 X 页面处于可操作状态。')
     }
@@ -328,11 +499,11 @@ class XPlatformAutomation extends BasePlatformAutomation {
         };
       })(${JSON.stringify(SELECTORS.GROK_INPUT)}, ${JSON.stringify(SELECTORS.GROK_SEND_BUTTON)})`)
 
-      if (normalizeText(insertRes.currentText) === normalizeText(task.prompt) && insertRes.sendButtonEnabled) break
+      if (normalizeText(insertRes.currentText) === normalizeText(prompt) && insertRes.sendButtonEnabled) break
       await sleep(250)
     }
 
-    if (normalizeText(insertRes?.currentText) !== normalizeText(task.prompt)) {
+    if (normalizeText(insertRes?.currentText) !== normalizeText(prompt)) {
       throw new Error('Grok 输入框未接收完整提示词，本次未发送。')
     }
 
@@ -451,10 +622,69 @@ class XPlatformAutomation extends BasePlatformAutomation {
     return cleanGeneratedText(generatedContent)
   }
 
+  // 通过框架键盘输入和鼠标点击选择提及账号。
+  async appendMentions (contents, handles, task) {
+    for (const handle of handles) {
+      task.currentStage = `选择 X 提及账号 @${handle}`
+      try {
+        this.activateTab(contents)
+        await humanoidType(contents, ' @' + handle, { typoRate: 0 })
+      } catch {
+        throw new Error(`无法通过框架输入提及账号 @${handle}，本次未发布。`)
+      }
+      // 选择准确用户名对应的候选，避免把 Grokclip 等相似账号误认为 Grok。
+      const candidateSelector = `${SELECTORS.MENTION_CANDIDATE}:has([data-testid="UserAvatar-Container-${handle}" i])`
+      const readState = () => contents.executeJavaScript(
+        '(' + getXMentionState.toString() + ')(' + JSON.stringify(SELECTORS.TWEET_TEXTAREA) + ', ' +
+        JSON.stringify(candidateSelector) + ', ' + JSON.stringify(handle) + ')'
+      )
+      let candidateReady = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const state = await readState()
+        if (state.candidateReady || state.selected) {
+          candidateReady = true
+          break
+        }
+        await sleep(250)
+      }
+      if (!candidateReady) throw new Error(`未找到 @${handle} 的准确账号候选，本次未发布。请检查配置中的用户名。`)
+      let selected = false
+      const beforeSelection = normalizeText((await readState()).currentText)
+      for (let attempt = 0; attempt < 3 && !selected; attempt++) {
+        const state = await readState()
+        if (state.selected) {
+          selected = true
+          break
+        }
+        if (normalizeText(state.currentText) !== beforeSelection) {
+          throw new Error(`选择 @${handle} 时发帖内容发生变化，已保留草稿并停止发布。`)
+        }
+        if (!state.candidateReady) break
+        this.activateTab(contents)
+        try {
+          await humanoidClick(contents, candidateSelector, { recheckTarget: true })
+        } catch (error) {
+          console.warn('[X 提及候选点击未完成]', error)
+        }
+        for (let poll = 0; poll < 4; poll++) {
+          if ((await readState()).selected) { selected = true; break }
+          await sleep(250)
+        }
+      }
+      if (!selected) {
+        console.warn('[X 提及候选未确认]', await readState())
+        throw new Error(`重试后仍未确认 @${handle} 已选为提及账号，本次未发布，草稿已保留。`)
+      }
+      this.addLog(task, 'info', `已通过框架选择提及账号 @${handle}。`)
+    }
+  }
+
   /**
    * 发布推文到 X 平台
    */
-  async publishTweet (contents, tweetText, task) {
+  async publishTweet (contents, tweetText, task, mentionHandles = task.mentions || ['grok']) {
+    const mentions = normalizeXGrokConfig({ mentions: mentionHandles }).mentions
+    const expectedText = [tweetText, ...mentions.map(handle => '@' + handle)].join(' ')
     // 导航到主页
     await contents.loadURL('https://x.com/home')
     await sleep(3500)
@@ -513,35 +743,53 @@ class XPlatformAutomation extends BasePlatformAutomation {
     }
 
     try {
+      this.activateTab(contents)
       await humanoidClick(contents, SELECTORS.TWEET_TEXTAREA)
-      await humanoidImeType(contents, tweetText, { selector: SELECTORS.TWEET_TEXTAREA, typoRate: 0 })
+      await humanoidImeType(contents, tweetText, { selector: SELECTORS.TWEET_TEXTAREA, typoRate: 0, nativeInput: true })
     } catch {
       throw new Error('通过框架键鼠接口输入推文正文失败，本次未发布。')
     }
 
+    if (mentions.length) {
+      let bodyReady = false
+      let receivedText = ''
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const text = await contents.executeJavaScript(
+          '(() => { const input = document.querySelector(' + JSON.stringify(SELECTORS.TWEET_TEXTAREA) + '); return input?.innerText || input?.value || ""; })()'
+        )
+        receivedText = text
+        if (normalizeText(text) === normalizeText(tweetText)) {
+          bodyReady = true
+          break
+        }
+        await sleep(250)
+      }
+      if (!bodyReady) throw new Error(`推文正文输入校验未通过（应接收 ${[...tweetText].length} 个字符，实际接收 ${[...receivedText].length} 个），本次未发布。`)
+      await this.appendMentions(contents, mentions, task)
+    }
+
+    task.currentStage = '核验推文正文和提及账号'
     let publishReady = null
     for (let i = 0; i < 20; i++) {
-      publishReady = await contents.executeJavaScript(`((tweetAreaSel, tweetBtnSel) => {
-        const box = document.querySelector(tweetAreaSel);
-        const tweetButton = document.querySelector(tweetBtnSel);
-        return {
-          currentText: (box?.innerText || box?.value || '').trim(),
-          buttonEnabled: Boolean(tweetButton && !tweetButton.disabled)
-        };
-      })(${JSON.stringify(SELECTORS.TWEET_TEXTAREA)}, ${JSON.stringify(SELECTORS.TWEET_BUTTON)})`)
+      publishReady = await contents.executeJavaScript('(' + getXComposerState.toString() + ')(' +
+        JSON.stringify(SELECTORS.TWEET_TEXTAREA) + ', ' + JSON.stringify(SELECTORS.TWEET_BUTTON) + ')')
 
-      if (normalizeText(publishReady.currentText) === normalizeText(tweetText) && publishReady.buttonEnabled) break
+      if (normalizeText(publishReady.currentText) === normalizeText(expectedText) && publishReady.buttonEnabled) break
+      if (publishReady.overLimitBy > 0) break
       await sleep(250)
     }
 
-    if (normalizeText(publishReady?.currentText) !== normalizeText(tweetText)) {
-      throw new Error('推文正文未完整进入 X 发帖框，本次未发布。')
+    if (normalizeText(publishReady?.currentText) !== normalizeText(expectedText)) {
+      throw new Error('包含提及账号的最终发帖内容校验未通过，本次未发布。')
     }
+    if (publishReady.overLimitBy > 0) throw new Error(`X 页面提示内容超出字符限制（超出 ${publishReady.overLimitBy}），本次未发布。`)
     if (!publishReady.buttonEnabled) {
       throw new Error('X 发帖按钮未启用，请检查正文或账号状态。')
     }
 
     try {
+      task.currentStage = '点击 X 发帖按钮'
+      this.activateTab(contents)
       await humanoidClick(contents, SELECTORS.TWEET_BUTTON)
     } catch {
       throw new Error('无法通过框架键鼠接口点击 X 发帖按钮，本次未发布。')
@@ -552,7 +800,7 @@ class XPlatformAutomation extends BasePlatformAutomation {
     for (let i = 0; i < 20; i++) {
       await sleep(1000)
       verification = await contents.executeJavaScript(
-        '(' + verifyXPost.toString() + ')(' + JSON.stringify(tweetText) + ', ' + JSON.stringify(baselinePostLinks) + ')'
+        '(' + verifyXPost.toString() + ')(' + JSON.stringify(expectedText) + ', ' + JSON.stringify(baselinePostLinks) + ')'
       )
       if (verification.verified) break
     }
@@ -568,5 +816,6 @@ class XPlatformAutomation extends BasePlatformAutomation {
 module.exports = {
   XPlatformAutomation,
   DEFAULT_PROMPT,
-  DEFAULT_INTERVAL_MS
+  DEFAULT_INTERVAL_MS,
+  getXMentionState
 }

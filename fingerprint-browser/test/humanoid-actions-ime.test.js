@@ -84,3 +84,29 @@ test('humanoidImeType: 完整派发 IME 键盘事件序列与 W3C 组词生命�
   assert.ok(combinedScripts.includes('insertFromComposition'), '必须通过 insertFromComposition 将文字上屏到 DOM')
   assert.ok(combinedScripts.includes('isComposing: false'), '最终上屏 input 事件 isComposing 必须恢复为 false')
 })
+
+test('原生输入模式通过运行时提交中文、标点和表情，换行使用原生回车', async () => {
+  const inserted = []
+  const events = []
+  const scripts = []
+  const contents = {
+    focus () {},
+    insertText: async text => inserted.push(text),
+    sendInputEvent: event => events.push(event),
+    executeJavaScript: async script => { scripts.push(script); return true }
+  }
+  await humanoidImeType(contents, '中文，\n🙂A', { nativeInput: true, selector: '[contenteditable="true"]', baseInterval: 0 })
+  assert.deepEqual(inserted, ['中', '文', '，', '🙂', 'A'])
+  assert.deepEqual(events.map(event => [event.type, event.keyCode]), [['keyDown', 'Enter'], ['char', '\r'], ['keyUp', 'Enter']])
+  assert.ok(scripts.every(script => script.includes('document.activeElement?.matches') && !/dispatchEvent|execCommand|\.value\s*=/.test(script)), '原生输入不能通过页面脚本改写编辑器')
+  inserted.length = 0
+  await humanoidImeType(contents, '', { nativeInput: true, replace: true, selector: '[contenteditable="true"]' })
+  assert.equal(inserted.length, 0)
+  events.length = 0
+  await humanoidImeType(contents, 'A\nB', { nativeInput: true, lineBreakModifiers: ['shift'], baseInterval: 0 })
+  assert.ok(events.filter(event => event.keyCode === 'Enter' || event.keyCode === '\r').every(event => event.modifiers.includes('shift')), 'Grok 换行必须使用 Shift+Enter，避免提前提交提示词')
+  inserted.length = 0
+  contents.executeJavaScript = async () => false
+  await assert.rejects(humanoidImeType(contents, '不可输入', { nativeInput: true, selector: 'textarea' }), /焦点/)
+  assert.equal(inserted.length, 0, '焦点不正确时不能输入到其他控件')
+})

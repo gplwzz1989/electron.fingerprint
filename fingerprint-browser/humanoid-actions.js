@@ -103,7 +103,7 @@ function generateHumanoidPath (start, end, options = {}) {
 /**
  * 获取元素视口内拟真落点 (正态分布内聚在中心 70% 椭圆区域，避免机械化永远点几何中心)
  */
-async function getHumanoidTargetPoint (webContents, selector) {
+async function getHumanoidTargetPoint (webContents, selector, options = {}) {
   const rect = await webContents.executeJavaScript(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return null;
@@ -118,6 +118,7 @@ async function getHumanoidTargetPoint (webContents, selector) {
   // 中心点与内聚偏移
   const centerX = rect.x + rect.width / 2
   const centerY = rect.y + rect.height / 2
+  if (options.center === true) return { x: Math.round(centerX), y: Math.round(centerY) }
   const offsetX = randomGaussian(0, rect.width * 0.16)
   const offsetY = randomGaussian(0, rect.height * 0.16)
 
@@ -151,18 +152,28 @@ async function humanoidMouseMove (webContents, targetPoint) {
  * 仿生人类点击 (平滑移动 -> 悬停视线对齐 -> 物理按压停留 -> 释放)
  */
 async function humanoidClick (webContents, selectorOrPoint, options = {}) {
-  let targetPoint
-  if (typeof selectorOrPoint === 'string') {
-    targetPoint = await getHumanoidTargetPoint(webContents, selectorOrPoint)
-  } else {
-    targetPoint = selectorOrPoint
+  const resolveTarget = async () => {
+    const point = typeof options.resolvePoint === 'function' ? await options.resolvePoint()
+      : typeof selectorOrPoint === 'string' ? await getHumanoidTargetPoint(webContents, selectorOrPoint, { center: options.recheckTarget === true })
+        : selectorOrPoint
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('目标暂时不可点击，已停止本次操作。')
+    return point
   }
+  let targetPoint = await resolveTarget()
 
   // 1. 平滑移动光标到目标点
-  await humanoidMouseMove(webContents, targetPoint)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await humanoidMouseMove(webContents, targetPoint)
 
-  // 2. 悬停思考与对齐时延 (30ms ~ 90ms)
-  await wait(Math.max(25, Math.floor(randomGaussian(50, 15))))
+    // 2. 悬停思考与对齐时延 (30ms ~ 90ms)
+    await wait(Math.max(25, Math.floor(randomGaussian(50, 15))))
+    if (options.recheckTarget !== true || (typeof selectorOrPoint !== 'string' && typeof options.resolvePoint !== 'function')) break
+    // 自动补全列表可能在鼠标移动过程中重排，按下前必须再次读取准确目标的位置。
+    const refreshed = await resolveTarget()
+    if (Math.hypot(refreshed.x - targetPoint.x, refreshed.y - targetPoint.y) <= 1) break
+    if (attempt === 2) throw new Error('目标位置仍在变化，本次未点击，请稍后重试。')
+    targetPoint = refreshed
+  }
 
   // 3. 派发 mousedown
   webContents.sendInputEvent({
@@ -188,6 +199,44 @@ async function humanoidClick (webContents, selectorOrPoint, options = {}) {
 
   // 6. 点击后生理反应短暂停顿 (40ms ~ 120ms)
   await wait(Math.max(30, Math.floor(randomGaussian(70, 20))))
+}
+
+async function humanoidPressKey (webContents, keyCode, options = {}) {
+  const modifiers = options.modifiers || []
+  webContents.focus()
+  webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+  if (keyCode === 'Enter' || keyCode === 'Return') {
+    webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers })
+  }
+  await wait(35)
+  webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+}
+
+/**
+ * 通过 Chromium 原生文本接口提交文字，保留受控编辑器的输入事件和换行行为。
+ * 页面脚本只读取焦点；文字输入和清空均调用框架原生接口，不写入 DOM 或合成页面事件。
+ */
+async function humanoidNativeType (webContents, text, options = {}) {
+  if (typeof text !== 'string') throw new Error('待输入的文字必须是字符串。')
+  if (typeof webContents.insertText !== 'function') throw new Error('当前运行时不支持原生文本输入，请更新客户端运行时。')
+  const assertFocused = async () => {
+    if (!options.selector) return
+    const focused = await webContents.executeJavaScript('((selector) => Boolean(document.activeElement?.matches(selector)))(' + JSON.stringify(options.selector) + ')')
+    if (!focused) throw new Error('目标输入框未获得焦点，已停止输入，请重新打开编辑器后重试。')
+  }
+  webContents.focus()
+  await assertFocused()
+  if (options.replace === true) {
+    await humanoidPressKey(webContents, 'A', { modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] })
+    await humanoidPressKey(webContents, 'Backspace')
+  }
+  const interval = typeof options.baseInterval === 'number' ? Math.max(0, options.baseInterval) : 45
+  for (const character of text.replace(/\r\n?/g, '\n')) {
+    await assertFocused()
+    if (character === '\n') await humanoidPressKey(webContents, 'Enter', { modifiers: options.lineBreakModifiers || [] })
+    else await webContents.insertText(character)
+    if (interval > 0) await wait(Math.max(15, Math.floor(randomGaussian(interval, 10))))
+  }
 }
 
 const KEY_NEIGHBORS = {
@@ -486,8 +535,10 @@ function resolveImeSegments (text, customPinyins = null) {
  * @param {number} [options.keyInterval] 拼音敲击基础间隔 (默认 70ms)
  * @param {number} [options.candidateWaitMs] 选词停顿思考时延 (默认 120ms)
  * @param {string} [options.selector] 目标输入框选择器 (若不传则作用于当前 document.activeElement)
+ * @param {boolean} [options.nativeInput] 使用 Chromium 原生提交模式，适配 React 等受控编辑器
  */
 async function humanoidImeType (webContents, text, options = {}) {
+  if (options.nativeInput === true) return await humanoidNativeType(webContents, text, options)
   if (typeof text !== 'string' || !text) return
 
   const keyInterval = options.keyInterval || 70
@@ -689,6 +740,8 @@ module.exports = {
   humanoidMouseMove,
   humanoidClick,
   humanoidType,
+  humanoidPressKey,
+  humanoidNativeType,
   humanoidImeType,
   resolveImeSegments,
   COMMON_PINYIN_DICT,

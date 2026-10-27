@@ -80,3 +80,32 @@ test('humanoidClick & humanoidScroll & humanoidDrag: mock webContents 派发正�
   const dragMoves = events.filter(e => e.type === 'mouseMove' && e.button === 'left')
   assert.ok(dragMoves.length >= 10, '拖拽过程必须持续派发带左键的 mouseMove')
 })
+
+test('动态候选在鼠标移动期间重排时，点击前重新定位目标中心', async () => {
+  const events = []
+  let reads = 0
+  const contents = {
+    async executeJavaScript (script) {
+      assert.ok(!/dispatchEvent|execCommand|\.click\(/.test(script), '目标定位只能读取页面状态')
+      reads += 1
+      return { x: reads === 1 ? 10 : 80, y: reads === 1 ? 10 : 80, width: 20, height: 20 }
+    },
+    sendInputEvent: event => events.push(event)
+  }
+  await humanoidClick(contents, '[data-testid="TypeaheadUser"]', { recheckTarget: true })
+  const down = events.find(event => event.type === 'mouseDown')
+  assert.deepEqual({ x: down.x, y: down.y }, { x: 90, y: 90 })
+  assert.ok(reads >= 3, '候选移动后必须再次确认位置稳定')
+})
+
+test('动态帖子定位回调在按下前重新读取位置，不使用先前滚动坐标', async () => {
+  const events=[]
+  let reads=0
+  await humanoidClick({sendInputEvent:event=>events.push(event)}, {x:1,y:1}, {recheckTarget:true,resolvePoint:async()=>{
+    reads+=1
+    return reads===1?{x:20,y:20}:{x:70,y:80}
+  }})
+  const down=events.find(event=>event.type==='mouseDown')
+  assert.deepEqual({x:down.x,y:down.y},{x:70,y:80})
+  assert.ok(reads>=3)
+})

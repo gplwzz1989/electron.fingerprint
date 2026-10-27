@@ -2,6 +2,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { createProfileRecord, DEFAULT_URL, DEFAULT_ENVIRONMENT_GROUP, DEFAULT_ENVIRONMENT_STORAGE, ProfileValidationError, normalizeUrl } = require('./profile-store')
+const { normalizeXGrokConfig } = require('./platform-automation/platforms/x/selectors')
 
 const FALLBACK_CREATION_URL = 'about:blank'
 
@@ -54,6 +55,7 @@ function normalizeEnvironment (record, dataRoot) {
     proxy: profile.proxy,
     fingerprint: profile.fingerprint,
     ...(profile.tlsFingerprint ? { tlsFingerprint: profile.tlsFingerprint } : {}),
+    ...(record.xGrokConfig ? { xGrokConfig: normalizeXGrokConfig(record.xGrokConfig) } : {}),
     creationUrl,
     lastUrl: normalizeUrl(record.lastUrl || DEFAULT_URL),
     status: record.status,

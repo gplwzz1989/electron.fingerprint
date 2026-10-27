@@ -336,7 +336,7 @@ class AutomationServer {
         throw error
       }
       await humanoidImeType(tab.view.webContents, body.text, body.options)
-      return { ok: true, message: '拟人化 IME 输入法组词上屏已执行。' }
+      return { ok: true, message: body.options?.nativeInput === true ? '原生文本输入已完成。' : '拟人化 IME 输入法组词上屏已执行。' }
     }
 
     // 拟人化行为引擎 API: 滚动
@@ -407,9 +407,13 @@ class AutomationServer {
     if (method === 'POST' && pathname === '/api/v1/x-grok/config') {
       const environmentId = body.environmentId || this.tabBrowser?.getTab(this.tabBrowser?.activeId)?.environmentId
       if (!environmentId) throw new Error('缺少 environmentId。')
-      const status = this.xGrokAutomation?.updateConfig(environmentId, {
+      const status = await this.xGrokAutomation?.updateConfig(environmentId, {
         intervalMs: body.intervalMs,
-        prompt: body.prompt
+        prompt: body.prompt,
+        mentions: body.mentions,
+        roamingEnabled: body.roamingEnabled,
+        commentSentences: body.commentSentences,
+        commentIntervalMs: body.commentIntervalMs
       })
       return { ok: true, status }
     }

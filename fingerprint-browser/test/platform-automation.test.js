@@ -4,7 +4,7 @@ const assert = require('node:assert')
 const { PlatformAutomationManager } = require('../platform-automation')
 const { BasePlatformAutomation } = require('../platform-automation/base-automation')
 const { XPlatformAutomation, DEFAULT_PROMPT, DEFAULT_INTERVAL_MS } = require('../platform-automation/platforms/x')
-const { cleanGeneratedText, isXPlatformUrl } = require('../platform-automation/platforms/x/selectors')
+const { cleanGeneratedText, isXPlatformUrl, normalizeMentionHandles, getXPostBodyBudget, buildGrokPrompt } = require('../platform-automation/platforms/x/selectors')
 
 async function runTests () {
   console.log('[测试] 开始验证平台自动化架构 (PlatformAutomationManager & XPlatformAutomation)...')
@@ -47,6 +47,14 @@ async function runTests () {
   const cleaned2 = cleanGeneratedText(rawPolite)
   assert.strictEqual(cleaned2, '探索未知，拥抱未来。', '应去除客套前缀')
   console.log('✓ Grok 正文文本清洗与客套话过滤自检通过')
+  assert.deepStrictEqual(normalizeMentionHandles('@grok，@OpenAI grok'), ['grok', 'OpenAI'])
+  assert.deepStrictEqual(normalizeMentionHandles(''), [])
+  assert.throws(() => normalizeMentionHandles('@bad-name'), /用户名/)
+  assert.throws(() => normalizeMentionHandles('https://x.com/grok'), /用户名/)
+  assert.equal(getXPostBodyBudget(['grok']), 120)
+  assert.ok(getXPostBodyBudget(Array.from({length:10}, (_, index) => 'account_name_' + index)) < 120, '多个提及账号应压缩正文预算')
+  assert.ok(buildGrokPrompt('保留疑问结尾', ['grok']).startsWith('保留疑问结尾'))
+  assert.ok(buildGrokPrompt('保留疑问结尾', ['grok']).includes('最多 120 个字符'))
 
   // 5. 验证任务创建、生命周期与快照
   const mockEnv = { id: 'env-twitter-001', profileName: '美国-推特' }
@@ -59,6 +67,7 @@ async function runTests () {
   assert.strictEqual(status.enabled, false, '进入页面后必须保持待命状态，绝不自动启动发帖')
   assert.strictEqual(status.intervalMs, DEFAULT_INTERVAL_MS)
   assert.strictEqual(status.prompt, DEFAULT_PROMPT)
+  assert.deepStrictEqual(status.mentions, ['grok'], '默认发帖应提及 Grok')
   console.log('✓ 环境打开静默待命自检通过 (不自动启动)')
 
   // 6. 验证在百度等非 X 页面时打开环境不挂载任务
@@ -68,18 +77,23 @@ async function runTests () {
   console.log('✓ 打开百度页面静默忽略自检通过')
 
   // 7. 验证配置动态更新
-  manager.updateConfig('env-twitter-001', {
+  await manager.updateConfig('env-twitter-001', {
     intervalMs: 15 * 60 * 1000,
-    prompt: '全新科技推文Prompt'
+    prompt: '全新科技推文Prompt',
+    mentions: '@grok @OpenAI'
   })
   const updatedStatus = manager.getTaskStatus('env-twitter-001')
   assert.strictEqual(updatedStatus.intervalMs, 15 * 60 * 1000)
   assert.strictEqual(updatedStatus.prompt, '全新科技推文Prompt')
+  assert.deepStrictEqual(updatedStatus.mentions, ['grok', 'OpenAI'])
+  await assert.rejects(manager.updateConfig('env-twitter-001', { prompt: '' }), /提示词/)
+  assert.strictEqual(manager.getTaskStatus('env-twitter-001').prompt, '全新科技推文Prompt', '无效配置不能清除已保存提示词')
   console.log('✓ 动态配置更新自检通过')
 
   // 8. 验证手动启动开关与环境销毁
   manager.toggleTask('env-twitter-001', true)
   assert.strictEqual(manager.getTaskStatus('env-twitter-001').enabled, true, '手动点击后应成功启动任务')
+  assert.strictEqual(manager.getTaskStatus('env-twitter-001').prompt, '全新科技推文Prompt', '启动定时发帖不能恢复默认提示词')
 
   manager.toggleTask('env-twitter-001', false)
   assert.strictEqual(manager.getTaskStatus('env-twitter-001').enabled, false, '手动点击后应成功暂停任务')

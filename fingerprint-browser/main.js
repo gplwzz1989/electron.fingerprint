@@ -118,9 +118,6 @@ function ensureXGrokPanelWindow () {
   xGrokPanelWindow = panel
   panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   panel.webContents.on('will-navigate', event => event.preventDefault())
-  panel.on('blur', () => {
-    if (xGrokPanelWindow === panel) hideXGrokPanel()
-  })
   panel.on('closed', () => {
     if (xGrokPanelWindow === panel) {
       xGrokPanelWindow = null
@@ -745,8 +742,8 @@ function registerIpc () {
   ipcMain.handle('x-grok:update-config', async (event, payload) => {
     try {
       assertTrusted(event)
-      const { environmentId, intervalMs, prompt } = payload || {}
-      const status = xGrokAutomation?.updateConfig(environmentId, { intervalMs, prompt })
+      const { environmentId, intervalMs, prompt, mentions, roamingEnabled, commentSentences, commentIntervalMs } = payload || {}
+      const status = await xGrokAutomation?.updateConfig(environmentId, { intervalMs, prompt, mentions, roamingEnabled, commentSentences, commentIntervalMs })
       return { ok: true, status }
     } catch (error) {
       return errorResult('更新X发帖配置', error, error.message || '更新配置失败。')
