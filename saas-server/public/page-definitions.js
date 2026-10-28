@@ -409,7 +409,8 @@
             {
               "label": "噪声种子 *",
               "type": "text",
-              "placeholder": "由指纹生成器产生稳定种子",
+              "placeholder": "由 SaaS 服务端生成，保存时确定",
+              "readonly": true,
               "full": false,
               "profilePath": "noise.seed"
             },

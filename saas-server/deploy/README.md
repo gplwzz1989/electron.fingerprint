@@ -10,7 +10,9 @@
 4. QQ 邮件填写 `SMTP_USER`、`SMTP_PASSWORD`（SMTP 授权码）、`SMTP_FROM`，默认 `smtp.qq.com:465`、SSL 已预填。支付配置和套餐说明见 `saas-server/README.md`；未配置真实商户时保持关闭。
 5. Linux/macOS 执行 `sh start.sh prod`；Windows PowerShell 执行 `pwsh -File start.ps1 -Environment prod`。
 
-程序从配置文件连接 MySQL，并在对应数据库创建所需表；不会初始化演示账号。配置文件只保留样例，包中没有真实数据库密码、邮箱授权码、商户证书或用户数据。服务端 `data/workspace/encryption.key` 在首次启动时生成，后续升级应与数据库一同保留和备份，以继续解密已保存的代理凭据与验证码摘要。
+程序从配置文件连接 MySQL，并在对应数据库创建所需表；不会初始化演示账号。配置文件只保留样例，包中没有真实数据库密码、邮箱授权码、商户证书或用户数据。服务端 `data/workspace/encryption.key` 在首次启动时生成，后续升级应与数据库一同保留和备份，以继续解密指纹、环境快照、代理凭据与验证码摘要。
+
+客户端从 0.1.1 开始使用加密启动协议。首次升级应先安装新客户端，再切换服务端；服务端启动会在事务中将旧明文指纹迁移为密文，不改变历史版本与种子。旧客户端不能继续使用明文启动协议。客户端更新公开目录由 `.env.prod` 的 `CLIENT_UPDATES_DIR` 配置，仅发布经过签名的环境清单和安装包，私钥必须放在目录之外；具体发布流程见仓库 `fingerprint-browser/UPDATE-AND-FINGERPRINT.md`。
 
 ## 升级与检查
 

@@ -36,9 +36,10 @@ async function writeAtomic (fileSystem, target, records) {
 }
 
 class ProfileRepository {
-  constructor (filePath, fileSystem = fs) {
+  constructor (filePath, fileSystem = fs, protection = null) {
     this.filePath = filePath
     this.fileSystem = fileSystem
+    this.protection = protection
     this.records = []
     this.loaded = false
     this.recoveredFromBackup = false
@@ -50,7 +51,7 @@ class ProfileRepository {
   }
 
   async load (initialRecords) {
-    const read = async file => validateRecords(JSON.parse(await this.fileSystem.readFile(file, 'utf8')))
+    const read = async file => { const stored = JSON.parse(await this.fileSystem.readFile(file, 'utf8')); return validateRecords(this.protection ? this.protection.decode(stored) : stored) }
     try {
       this.records = await read(this.filePath)
       this.loaded = true
@@ -75,7 +76,7 @@ class ProfileRepository {
 
   async persist (nextRecords) {
     await this.fileSystem.mkdir(path.dirname(this.filePath), { recursive: true })
-    if (this.loaded) await writeAtomic(this.fileSystem, `${this.filePath}.bak`, this.records)
+    if (this.loaded) await writeAtomic(this.fileSystem, `${this.filePath}.bak`, this.protection ? this.protection.encode(this.records) : this.records)
     if (this.recoveredFromBackup) {
       try {
         await this.fileSystem.copyFile(this.filePath, `${this.filePath}.damaged-${randomUUID()}`)
@@ -83,7 +84,7 @@ class ProfileRepository {
         if (error.code !== 'ENOENT') throw error
       }
     }
-    await writeAtomic(this.fileSystem, this.filePath, nextRecords)
+    await writeAtomic(this.fileSystem, this.filePath, this.protection ? this.protection.encode(nextRecords) : nextRecords)
     this.records = nextRecords
     this.loaded = true
     this.recoveredFromBackup = false

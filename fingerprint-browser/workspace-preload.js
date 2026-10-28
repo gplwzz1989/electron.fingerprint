@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld('workspaceBridge', {
   createTab: payload => ipcRenderer.invoke('tabs:create-managed', payload),
   setTabCapabilities: payload => ipcRenderer.invoke('tabs:set-capabilities', payload),
   requestLocalApi: payload => ipcRenderer.invoke('automation:request', payload),
+  updateStatus: () => ipcRenderer.invoke('updates:status'),
+  checkUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
+  onUpdateChanged: callback => {
+    const listener = (_event, state) => callback(state)
+    ipcRenderer.on('updates:changed', listener)
+    return () => ipcRenderer.removeListener('updates:changed', listener)
+  },
   onTabsChanged: callback => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('tabs:changed', listener)

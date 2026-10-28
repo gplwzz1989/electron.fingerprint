@@ -106,6 +106,7 @@ class TabBrowser {
     this.getWindow = options.getWindow || (() => null)
     this.capabilityRegistry = options.capabilityRegistry || null
     this.onSessionCreated = options.onSessionCreated || (() => {})
+    this.preserveServerFingerprints = Boolean(options.preserveServerFingerprints)
     this.dashboardView = null
     this.onEnvironmentChanged = options.onEnvironmentChanged || (() => {})
     this.window = null
@@ -392,7 +393,7 @@ class TabBrowser {
   }
 
   async createEnvironment (profile, targetUrl) {
-    const environment = await this.environmentRepository.create(profile, targetUrl)
+    const environment = await this.environmentRepository.create(profile, targetUrl, { preserveFingerprint: this.preserveServerFingerprints })
     try {
       const result = await this.openEnvironment(environment)
       return { ...result, environmentId: environment.id, launchState: 'started' }

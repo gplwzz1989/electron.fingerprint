@@ -83,14 +83,17 @@ try {
   $application = Join-Path $payload 'resources/app'
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
-  foreach ($file in @('browser-shell.html', 'browser-shell.css', 'new-tab.html', 'new-tab.css')) {
+  foreach ($file in @('browser-shell.html', 'browser-shell.css', 'new-tab.html', 'new-tab.css', 'update-installer.ps1')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $application -Force
   }
   Copy-Item -LiteralPath (Join-Path $projectRoot 'package.json') -Destination $application -Force
   foreach ($directory in @('assets', 'platform-automation')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
-  @{ environment = $Environment; appUrl = [string]$validatedUrl } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'client-config.json') -Encoding utf8NoBOM
+  $clientSettings = @{ environment = $Environment; appUrl = [string]$validatedUrl; updateUrl = $environmentConfig.$Environment.updateUrl; updatePublicKey = $environmentConfig.$Environment.updatePublicKey; updatesEnabled = $environmentConfig.$Environment.updatesEnabled -ne $false }
+  $clientSettings | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'client-config.json') -Encoding utf8NoBOM
+  & node -e "require(process.argv[1]).getClientConfig({packaged:true,directory:process.argv[2]})" (Join-Path $application 'client-config.js') $application
+  if ($LASTEXITCODE -ne 0) { throw '客户端更新配置校验失败。' }
   # 工作空间业务页面仍由 URL 提供；发行包只携带原生浏览器控制条和无权限的新标签空白页。
   $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $version = $metadata.version

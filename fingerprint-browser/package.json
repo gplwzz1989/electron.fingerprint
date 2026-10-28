@@ -1,7 +1,7 @@
 {
   "name": "fingerprint-browser",
   "productName": "栖界指纹浏览器",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "基于本地指纹版 Electron 的多配置浏览器",
   "main": "main.js",
@@ -10,6 +10,7 @@
     "package": "pwsh -NoProfile -File scripts/package.ps1",
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
+    "test:client-security": "node --test test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js",
     "test": "node test/profile-store.test.js && node test/profile-repository.test.js && node test/environment-repository.test.js && node test/group-repository.test.js && node test/workspace-access.test.js && node test/environment-checkpoint.test.js && node test/fingerprint-protection.test.js && node test/fingerprint-review.test.js && node test/fingerprint-context-report.test.js && node test/tls-client-hello.test.js && node test/tls-reference-report.test.js && node test/tls-fingerprint.test.js && node test/tls-cross-version.test.js && node test/webgl-topology.test.js && node test/automation-server.test.js && node test/browser-tabs-popups.test.js && node test/dropdown-presets.test.js && node test/environment-edit-timezone.test.js && node test/media-hub.test.js && node test/creator-hub.test.js && node test/nodeservice-publisher.test.js && node test/geo-ip.test.js && node test/humanoid-actions.test.js && node test/humanoid-actions-ime.test.js && node test/platform-automation.test.js && node test/stealth-protection.test.js && node test/x-roaming.test.js",
     "prepare:ffmpeg": "node scripts/ensure-ffmpeg.js",
     "test:fingerprint": "node scripts/test-fingerprint.js",

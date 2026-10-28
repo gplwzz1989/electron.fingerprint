@@ -4,7 +4,9 @@ Unicode true
 !include "WinVer.nsh"
 !include "LogicLib.nsh"
 !include "StrFunc.nsh"
+!include "FileFunc.nsh"
 ${StrStr}
+Var AutoUpdate
 
 !define APP_NAME "栖界指纹浏览器"
 !define APP_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser"
@@ -35,6 +37,12 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "栖界"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
 Function .onInit
+  ${GetParameters} $3
+  ClearErrors
+  ${GetOptions} $3 "/UPDATE" $4
+  ${IfNot} ${Errors}
+    StrCpy $AutoUpdate "1"
+  ${EndIf}
   SetRegView 64
   ReadRegStr $0 HKLM "${APP_KEY}" "InstallLocation"
   ${If} $0 != ""
@@ -54,6 +62,11 @@ Function .onInit
     Pop $1
     ${StrStr} $2 $1 "指纹浏览器.exe"
     ${If} $2 != ""
+      ${If} $AutoUpdate == "1"
+        MessageBox MB_ICONEXCLAMATION "仍有其他栖界客户端正在运行。请关闭后重新执行更新。"
+        SetErrorLevel 1
+        Abort
+      ${EndIf}
       MessageBox MB_ICONEXCLAMATION|MB_YESNO "检测到栖界指纹浏览器正在运行。确认后将强制结束客户端，未保存的操作可能丢失，是否继续安装？" IDYES app_terminate
       Abort
     ${EndIf}
@@ -85,6 +98,9 @@ Section "安装客户端"
   WriteRegStr HKLM "${APP_KEY}" "QuietUninstallString" '"$INSTDIR\卸载.exe" /S'
   WriteRegDWORD HKLM "${APP_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${APP_KEY}" "NoRepair" 1
+  ${If} $AutoUpdate == "1"
+    ExecShell "open" "$WINDIR\explorer.exe" '"$INSTDIR\指纹浏览器.exe"'
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"

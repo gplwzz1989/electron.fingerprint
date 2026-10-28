@@ -48,9 +48,28 @@
   const expandedGroups = new Set()
   const formCategories = new Map()
   const fingerprintEngine = window.QijieFingerprintEngine
-  const fingerprintDraft = fingerprintEngine.getDefaultProfile()
-  fingerprintDraft.id = window.crypto.randomUUID()
-  fingerprintDraft.noise.seed = window.crypto.randomUUID().replace(/-/g,'')
+  const fingerprintDraft = {}
+  let generationRevision = 0
+  let generationPending = false
+  async function generateFingerprint (platform) {
+    const revision = ++generationRevision
+    generationPending = true
+    document.dispatchEvent(new CustomEvent('workspace:render'))
+    try {
+      const generated = await fingerprintEngine.generateRandomHardwareProfile({ platform })
+      if (revision !== generationRevision) return
+      Object.assign(fingerprintDraft, generated)
+      fingerprintDraft.browser.userAgent = null
+      fingerprintDraft.modules.canvas = fingerprintDraft.noise.canvas
+      fingerprintDraft.modules.audio = fingerprintDraft.noise.audio
+      fillFingerprintForm(); updateSummary()
+    } catch {
+      if (revision !== generationRevision) return
+      document.dispatchEvent(new CustomEvent('workspace:error', { detail: '云端指纹生成失败，请检查登录状态与网络后重试。' }))
+    } finally {
+      if (revision === generationRevision) { generationPending = false; document.dispatchEvent(new CustomEvent('workspace:render')) }
+    }
+  }
   let fingerprintName = ''
   const getProfileValue = path => path === 'name' ? fingerprintName : path.split('.').reduce((value,key)=>value?.[key],fingerprintDraft)
   const categoriesEnabled = (items,scope) => items?.length > 1 && !['environment-create','proxy-create','signin'].includes(scope)
@@ -167,6 +186,7 @@
   function validateFingerprintDraft() {
     const panel=document.getElementById('fingerprint-validation')
     if(!panel) return
+    if (!fingerprintDraft.id) { panel.classList.remove('error', 'warning'); panel.textContent = '登录后从 SaaS 服务端获取默认参数。'; return }
     const issues=[]
     const warnings=[]
     try {
@@ -201,6 +221,7 @@
   function updateFingerprintDraft(event) {
     const field=event.target.closest?.('[data-profile-path]')
     if(!field) return
+    if (!fingerprintDraft.id) return
     const path=field.dataset.profilePath
     let value=event.target.value
     if(path==='name') fingerprintName=value
@@ -216,11 +237,7 @@
       if(path==='noise.audio') fingerprintDraft.modules.audio=value
       if(path==='modules.screen') fingerprintDraft.modules.navigator=value
       if(path==='hardware.platform') {
-        Object.assign(fingerprintDraft,fingerprintEngine.generateRandomHardwareProfile({platform:value}))
-        fingerprintDraft.browser.userAgent=null
-        fingerprintDraft.modules.canvas=fingerprintDraft.noise.canvas
-        fingerprintDraft.modules.audio=fingerprintDraft.noise.audio
-        fillFingerprintForm()
+        void generateFingerprint(value)
       }
       if(path==='locale.language') {
         fingerprintDraft.locale.languages=value==='zh-CN' ? ['zh-CN','zh'] : value==='en-US' ? ['en-US','en'] : ['ja-JP','ja']
@@ -240,7 +257,7 @@
   function updateSummary() {
     const read = id => document.getElementById(`field-${currentRoute}-${id}`)?.value?.trim() || ''
     const write = (label,value) => document.querySelectorAll('[data-summary-label]').forEach(node=>{if(node.dataset.summaryLabel===label) node.textContent=value})
-    if (currentRoute === 'fingerprint-create') {
+    if (currentRoute === 'fingerprint-create' && fingerprintDraft.hardware) {
       write('平台类型',{'Win32':'Windows','MacIntel':'macOS','Linux x86_64':'Linux'}[fingerprintDraft.hardware.platform])
       write('主要语言',fingerprintDraft.locale.language)
       write('时区',fingerprintDraft.locale.timezone)
@@ -308,13 +325,7 @@
       return
     }
     if(event.target.closest('[data-action="generate-fingerprint"]')) {
-      const generated=fingerprintEngine.generateRandomHardwareProfile({platform:fingerprintDraft.hardware.platform})
-      Object.assign(fingerprintDraft,generated)
-      fingerprintDraft.browser.userAgent=null
-      fingerprintDraft.modules.canvas=fingerprintDraft.noise.canvas
-      fingerprintDraft.modules.audio=fingerprintDraft.noise.audio
-      fillFingerprintForm()
-      updateSummary()
+      void generateFingerprint(fingerprintDraft.hardware?.platform || 'Win32')
       return
     }
     const closeButton = event.target.closest('[data-close-platforms]')
@@ -391,8 +402,9 @@
     resetDraft: route => drafts.delete(route),
     closeDialog: closePlatformPicker,
     openSignin: openSigninDialog,
-    getFingerprint: () => ({name:fingerprintName,profile:structuredClone(fingerprintDraft)}),
-    setFingerprint: (profile,name='') => {Object.assign(fingerprintDraft,structuredClone(profile));fingerprintName=name;fillFingerprintForm();updateSummary()},
+    getFingerprint: () => ({name:fingerprintName,profile:structuredClone(fingerprintDraft),generating:generationPending}),
+    setFingerprint: (profile,name='') => {generationRevision++;generationPending=false;Object.assign(fingerprintDraft,structuredClone(profile));fingerprintName=name;fillFingerprintForm();updateSummary()},
+    resetFingerprint: () => {generationRevision++;generationPending=false;Object.keys(fingerprintDraft).forEach(key=>delete fingerprintDraft[key]);fingerprintName='';fillFingerprintForm();updateSummary()},
     getRoute: () => currentRoute
   }
   render()

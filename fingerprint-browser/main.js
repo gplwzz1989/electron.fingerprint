@@ -1,7 +1,7 @@
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { randomUUID } = require('node:crypto')
-const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell } = require('electron/main')
+const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeStorage } = require('electron/main')
 const { pathToFileURL } = require('node:url')
 const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
@@ -22,14 +22,12 @@ const {
   DEFAULT_URL,
   ProfileValidationError,
   createProfileRecord,
-  getDefaultProfile,
   getPresetTemplates,
-  getPresetTemplateById,
   normalizeUrl
 } = require('./profile-store')
 const { AutomationServer } = require('./automation-server')
 const { detectExitIp, alignFingerprintWithGeo } = require('./geo-ip')
-const { generateRandomHardwareProfile, getRecommendedGPUList } = require('./webgl-topology')
+const { getRecommendedGPUList } = require('./webgl-topology')
 const {
   humanoidClick,
   humanoidType,
@@ -41,6 +39,10 @@ const { PlatformAutomationManager } = require('./platform-automation')
 const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors')
 const { generateStealthScript } = require('./stealth-engine')
 const { getClientConfig } = require('./client-config')
+const { createLaunchRequest } = require('./fingerprint-envelope')
+const { ClientUpdater } = require('./client-updater')
+const { spawn } = require('node:child_process')
+const { createLocalProfileProtection } = require('./local-profile-protection')
 let clientConfig = null
 
 let initialDataRoot = resolveDataRoot()
@@ -78,6 +80,7 @@ let environmentRepository = null
 let groupRepository = null
 let tabBrowser = null
 let automationServer = null
+let clientUpdater = null
 let xGrokAutomation = null
 let xGrokPanelWindow = null
 let xGrokPanelReady = null
@@ -266,8 +269,10 @@ function defaultUserAgent () {
 
 async function loadProfiles () {
   const userDataPath = app.getPath('userData')
-  profileRepository = new ProfileRepository(path.join(userDataPath, 'profiles.json'))
-  return await profileRepository.load([])
+  profileRepository = new ProfileRepository(path.join(userDataPath, 'profiles.json'), undefined, createLocalProfileProtection(safeStorage))
+  const result = await profileRepository.load([])
+  if (!result.recovered) await profileRepository.persist(profileRepository.list())
+  return result
 }
 
 async function launchProfile (payload) {
@@ -277,6 +282,40 @@ async function launchProfile (payload) {
   const targetUrl = normalizeUrl(payload.url === undefined ? profile.url : String(payload.url).trim())
   await groupRepository.ensure(profile.group)
   return await tabBrowser.open(profile, targetUrl, payload.operationId)
+}
+
+async function installClientUpdate () {
+  try {
+    const prepared = await clientUpdater.prepareInstall()
+    const result = await dialog.showMessageBox(dashboardWindow, { type: 'question', title: '安装客户端更新', message: '安装将关闭当前全部标签页。请先保存网页中的操作，客户端会保存环境会话后退出。', detail: 'Windows 将请求安装权限。便携版执行此操作后会安装到系统中的客户端目录。', buttons: ['取消', '保存会话并安装'], defaultId: 0, cancelId: 0 })
+    if (result.response !== 1) return { ok: true, cancelled: true }
+    await clientUpdater.prepareInstall()
+    const helper = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'update-installer.ps1'), '-ClientProcessId', String(process.pid), '-InstallerPath', prepared.installer, '-ExpectedHash', prepared.sha256], { detached: true, stdio: 'ignore', windowsHide: true })
+    await new Promise((resolve, reject) => { helper.once('spawn', resolve); helper.once('error', reject) }); helper.unref()
+    clientUpdater.setState({ status: 'installing', message: '正在保存会话并准备安装。' }); app.quit()
+    return { ok: true }
+  } catch (error) { return { ok: false, error: /^(更新|启动配置)/.test(error.message) ? error.message : '无法开始安装更新，请稍后重试。' } }
+}
+
+async function cloudFingerprintRequest (route, body) {
+  const cookies = await dashboardView.webContents.session.cookies.get({ url: clientConfig.appUrl })
+  const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
+  const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error', signal: AbortSignal.timeout(15000) })
+  const me = await meResponse.json()
+  if (!meResponse.ok || !me.ok) throw new ProfileValidationError('请先登录 SaaS 工作空间，再创建指纹。')
+  const response = await fetch(new URL(route, clientConfig.appUrl), { method: body === undefined ? 'GET' : 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30000) })
+  const data = await response.json()
+  if (!response.ok || !data.ok) throw new ProfileValidationError(data.message || '云端指纹生成失败，请稍后重试。')
+  return data
+}
+
+async function saveCloudFingerprint (payload) {
+  const me = await cloudFingerprintRequest('/api/auth/me')
+  const workspaceId = payload?.workspaceId || (me.workspaces.length === 1 ? me.workspaces[0].id : '')
+  if (!/^[a-zA-Z0-9-]+$/.test(workspaceId)) throw new ProfileValidationError('请选择指纹所属的 SaaS 团队，并提供 workspaceId。')
+  const existing = profileRepository.list().find(item => item.id === payload.id)
+  const data = await cloudFingerprintRequest(`/api/workspaces/${workspaceId}/fingerprints`, { name: payload.name, profile: payload.fingerprint, ...(existing ? { id: existing.id, expectedVersion: payload.revision ?? existing.revision } : {}) })
+  return createProfileRecord({ ...payload, id: data.item.id, fingerprint: data.item.profile })
 }
 
 function registerIpc () {
@@ -293,6 +332,9 @@ function registerIpc () {
   handle('workspace:runtime', async event => {
     try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
   })
+  handle('updates:status', async () => ({ ok: true, ...clientUpdater.snapshot() }))
+  handle('updates:check', async () => ({ ok: true, ...await clientUpdater.check() }))
+  handle('updates:install', async () => await installClientUpdate())
   handle('automation:request', async (_event, payload) => {
     if (!automationServer?.listening || !payload || typeof payload.path !== 'string' || payload.path.length > 2048) throw new ProfileValidationError('本地接口请求参数无效或服务尚未启动。')
     const base = `http://127.0.0.1:${automationServer.port}`
@@ -308,15 +350,18 @@ function registerIpc () {
       if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new ProfileValidationError('环境标识无效。')
       const cookies = await dashboardView.webContents.session.cookies.get({ url: clientConfig.appUrl })
       const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
-      const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error' })
+      const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error', signal: AbortSignal.timeout(15000) })
       const me = await meResponse.json()
       if (!meResponse.ok || !me.ok) throw new ProfileValidationError('登录已失效，请重新登录。')
+      const encryption = createLaunchRequest(payload.workspaceId, payload.environmentId)
       const response = await fetch(new URL(`/api/workspaces/${payload.workspaceId}/environments/${payload.environmentId}/launch`, clientConfig.appUrl), {
-        method: 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, body: '{}'
+        method: 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, body: JSON.stringify(encryption.request), signal: AbortSignal.timeout(60000)
       })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new ProfileValidationError(data.message || '无法读取环境启动配置。')
-      const profile = createProfileRecord(data.profile)
+      let decrypted
+      try { decrypted = encryption.open(data.envelope) } catch (error) { throw new ProfileValidationError(error.message) }
+      const profile = createProfileRecord(decrypted)
       assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
       let existing = environmentRepository.list().find(item => item.profileId === profile.id)
       if (existing) {
@@ -353,6 +398,8 @@ function registerIpc () {
       Menu.buildFromTemplate([
         { label: '新建标签页', click: () => { void tabBrowser.openOrdinary() } },
         { label: '返回首页', click: () => tabBrowser.selectDashboard() },
+        { label: '检查客户端更新', click: () => { void clientUpdater.check().then(state => dialog.showMessageBox(dashboardWindow, { type: state.status === 'error' ? 'error' : 'info', title: '客户端更新', message: state.message, detail: `当前版本：${state.currentVersion}${state.version ? `，更新版本：${state.version}` : ''}` })) } },
+        { label: '安装已下载更新', enabled: clientUpdater?.state.status === 'ready', click: () => { void installClientUpdate() } },
         { type: 'separator' },
         { label: '重新加载当前网页', click: () => { void tabBrowser.navigate({ id: tabBrowser.activeId, action: 'reload' }) } },
         { label: '开发者工具', click: () => tabBrowser.openDevTools(tabBrowser.activeId) },
@@ -433,7 +480,7 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const platform = options?.platform || (process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32')
-      const hardware = generateRandomHardwareProfile({ platform })
+      const hardware = (await cloudFingerprintRequest('/api/fingerprint-generate', { platform })).parameters
       return { ok: true, hardware }
     } catch (error) {
       return errorResult('生成自洽硬件指纹', error, '生成自洽硬件指纹失败。')
@@ -655,26 +702,11 @@ function registerIpc () {
   handle('profiles:draft', async (event, payload) => {
     try {
       assertTrusted(event)
-      const id = `profile-${randomUUID().slice(0, 8)}`
-      let fingerprint = null
-      if (payload?.presetId) {
-        const preset = getPresetTemplateById(payload.presetId)
-        if (preset) {
-          fingerprint = clone(preset.profile)
-        }
-      }
-      if (!fingerprint) {
-        fingerprint = getDefaultProfile()
-      }
+      const platform = { darwin: 'MacIntel', linux: 'Linux x86_64' }[process.platform] || 'Win32'
+      const fingerprint = (await cloudFingerprintRequest('/api/fingerprint-draft', { platform, presetId: payload?.presetId })).profile
+      const id = fingerprint.id
       // 仅新草稿默认限制非代理 UDP，不改写已保存环境的开关。
       fingerprint.modules.webrtc = true
-      if (process.platform !== 'win32') {
-        fingerprint.hardware.platform = { darwin: 'MacIntel', linux: 'Linux x86_64' }[process.platform] || fingerprint.hardware.platform
-        fingerprint.graphics.webglVendor = ''
-        fingerprint.graphics.webglRenderer = ''
-      }
-      fingerprint.id = id
-      fingerprint.noise.seed = `environment-${randomUUID()}`
       return {
         ok: true,
         profile: createProfileRecord({
@@ -711,7 +743,8 @@ function registerIpc () {
       }
       assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy, options)
       if (Object.hasOwn(payload || {}, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(payload.tlsFingerprint, fingerprintRuntime.chromiumVersion)
-      const nextProfile = await profileRepository.save(payload)
+      const canonical = await saveCloudFingerprint(payload)
+      const nextProfile = await profileRepository.save(canonical)
       notifyBusiness('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }
     } catch (error) {
@@ -892,7 +925,7 @@ async function start () {
     await ensureUserDataPath()
     clientConfig = getClientConfig({ packaged: app.isPackaged })
     const { recovered } = await loadProfiles()
-    environmentRepository = new EnvironmentRepository(app.getPath('userData'))
+    environmentRepository = new EnvironmentRepository(app.getPath('userData'), undefined, createLocalProfileProtection(safeStorage))
     await environmentRepository.load()
     groupRepository = new GroupRepository(app.getPath('userData'))
     await groupRepository.load(environmentRepository.list())
@@ -900,6 +933,7 @@ async function start () {
       getWindow: () => dashboardWindow,
       capabilityRegistry,
       onSessionCreated: profileSession => automationServer?.attachSession(profileSession, capabilityRegistry),
+      preserveServerFingerprints: true,
       onEnvironmentChanged: () => notifyBusiness('environments:changed')
     })
     xGrokAutomation = new PlatformAutomationManager({ tabBrowser })
@@ -916,7 +950,8 @@ async function start () {
       environmentRepository,
       groupRepository,
       tabBrowser,
-      xGrokAutomation
+      xGrokAutomation,
+      resolveCloudProfile: saveCloudFingerprint
     })
     try {
       await automationServer.start()
@@ -924,7 +959,14 @@ async function start () {
     } catch (serverError) {
       console.warn('[自动化服务启动提示]', serverError?.message || serverError)
     }
+    clientUpdater = new ClientUpdater({ config: clientConfig.updates, currentVersion: app.getVersion(), directory: path.join(app.getPath('userData'), 'updates'), onReady: async () => {
+      if (!dashboardWindow || dashboardWindow.isDestroyed() || quitting) return
+      const result = await dialog.showMessageBox(dashboardWindow, { type: 'info', title: '新版本已准备好', message: `客户端 ${clientUpdater.state.version} 已下载并通过签名和文件校验。`, buttons: ['稍后安装', '查看安装'], defaultId: 0, cancelId: 0 })
+      if (result.response === 1) await installClientUpdate()
+    } })
+    clientUpdater.on('changed', state => { if (dashboardView && !dashboardView.webContents.isDestroyed()) dashboardView.webContents.send('updates:changed', state) })
     await createDashboard()
+    clientUpdater.start()
     if (recovered) {
       await dialog.showMessageBox(dashboardWindow, {
         type: 'warning',
@@ -951,6 +993,7 @@ app.on('before-quit', event => {
   if (quitting || !profileRepository) return
   event.preventDefault()
   quitting = true
+  clientUpdater?.stop()
   void (async () => {
     await startup
     if (xGrokAutomation) {

@@ -33,7 +33,7 @@ class WorkspaceDatabase {
       fs.writeFileSync(keyFile, crypto.randomBytes(32), { flag: 'wx', mode: 0o600 })
       this.key = fs.readFileSync(keyFile)
     }
-    if (this.key.length !== 32) throw new Error('代理凭据加密密钥无效，请恢复原密钥。')
+    if (this.key.length !== 32) throw new Error('服务端数据加密密钥无效，请恢复原密钥。')
     this.ready = this.initialize()
   }
   async initialize () {
@@ -59,6 +59,27 @@ class WorkspaceDatabase {
     if (!verifiedColumn.length) {
       try { await this.pool.query('ALTER TABLE users ADD COLUMN email_verified_at BIGINT NULL') } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
     }
+    await this.migrateFingerprintEncryption()
+  }
+  encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
+  decodeFingerprint (value) {
+    const envelope = parse(value)
+    if (envelope?.format !== 'qijie-fingerprint-storage-v1') throw new UserError('指纹密文格式无效，请联系管理员检查数据。', 500)
+    try { const data = JSON.parse(this.decrypt(envelope.ciphertext)); if (data.purpose !== 'fingerprint' || !data.profile) throw new Error(); return data.profile } catch { throw new UserError('指纹无法解密，请联系管理员恢复服务端加密密钥。', 500) }
+  }
+  async migrateFingerprintEncryption () {
+    // 在同一事务中迁移旧明文快照，升级不得丢弃已有指纹或改变历史版本。
+    const connection = await this.pool.getConnection()
+    try {
+      await connection.beginTransaction()
+      const [existing] = await connection.query("SELECT profile FROM fingerprint_versions WHERE JSON_EXTRACT(profile,'$.format') IS NOT NULL LIMIT 1")
+      if (existing.length) this.decodeFingerprint(existing[0].profile)
+      const [versions] = await connection.query("SELECT fingerprint_id,version,profile FROM fingerprint_versions WHERE JSON_EXTRACT(profile,'$.format') IS NULL FOR UPDATE")
+      for (const row of versions) await connection.execute('UPDATE fingerprint_versions SET profile=? WHERE fingerprint_id=? AND version=?', [JSON.stringify(this.encodeFingerprint(parse(row.profile))), row.fingerprint_id, row.version])
+      const [environments] = await connection.query("SELECT id,data FROM records WHERE kind='environments' AND JSON_EXTRACT(data,'$.fingerprint') IS NOT NULL AND JSON_EXTRACT(data,'$.fingerprint.format') IS NULL FOR UPDATE")
+      for (const row of environments) { const data = parse(row.data); data.fingerprint = this.encodeFingerprint(data.fingerprint); await connection.execute("UPDATE records SET data=? WHERE kind='environments' AND id=?", [JSON.stringify(data), row.id]) }
+      await connection.commit()
+    } catch (error) { await connection.rollback(); throw error } finally { connection.release() }
   }
   async execute (statement, parameters = []) {
     await this.ready
@@ -156,8 +177,8 @@ class WorkspaceDatabase {
     } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('记录被其他操作更新，请刷新后重试。', 409); throw error }
   }
   async remove (kind, workspaceId, id) { await this.execute('UPDATE records SET deleted_at=? WHERE kind=? AND workspace_id=? AND id=?', [Date.now(), kind, workspaceId, id]) }
-  async fingerprints (workspaceId) { return (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND f.version=v.version WHERE f.workspace_id=? AND f.deleted_at IS NULL', [workspaceId])).map(row => ({ id: row.id, name: row.name, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at, profile: parse(row.profile) })) }
-  async fingerprint (workspaceId, id, version) { const row = (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND v.version=? WHERE f.workspace_id=? AND f.id=? AND f.deleted_at IS NULL', [version, workspaceId, id]))[0]; return row ? { id: row.id, name: row.name, version, profile: parse(row.profile) } : null }
+  async fingerprints (workspaceId) { return (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND f.version=v.version WHERE f.workspace_id=? AND f.deleted_at IS NULL', [workspaceId])).map(row => ({ id: row.id, name: row.name, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at, profile: this.decodeFingerprint(row.profile) })) }
+  async fingerprint (workspaceId, id, version) { const row = (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND v.version=? WHERE f.workspace_id=? AND f.id=? AND f.deleted_at IS NULL', [version, workspaceId, id]))[0]; return row ? { id: row.id, name: row.name, version, profile: this.decodeFingerprint(row.profile) } : null }
   async saveFingerprint (workspaceId, userId, { id = crypto.randomUUID(), name, profile, expectedVersion = null }) {
     try {
       return await this.transaction(async () => {
@@ -167,7 +188,7 @@ class WorkspaceDatabase {
         const version = (current?.version || 0) + 1; const now = Date.now()
         if (current) await this.execute('UPDATE fingerprints SET name=?,version=?,updated_at=? WHERE id=? AND workspace_id=?', [name, version, now, id, workspaceId])
         else await this.execute('INSERT INTO fingerprints VALUES(?,?,?,?,?,?,?,NULL)', [id, workspaceId, name, version, userId, now, now])
-        await this.execute('INSERT INTO fingerprint_versions VALUES(?,?,?,?,?)', [id, version, JSON.stringify(profile), userId, now])
+        await this.execute('INSERT INTO fingerprint_versions VALUES(?,?,?,?,?)', [id, version, JSON.stringify(this.encodeFingerprint(profile)), userId, now])
         return await this.fingerprint(workspaceId, id, version)
       })
     } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('指纹被其他操作更新，请刷新后重试。', 409); throw error }

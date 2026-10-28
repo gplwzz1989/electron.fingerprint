@@ -619,35 +619,16 @@ const HARDWARE_TOPOLOGY_POOLS = {
  * 随机生成一套物理级绝对自洽的真实硬件参数组合
  * @param {object} [options]
  * @param {'Win32'|'MacIntel'|'Linux x86_64'} [options.platform='Win32'] 目标操作系统平台
- * @returns {object} 自洽硬件配置包 (hardware, graphics, screen, noise)
+ * @returns {Promise<object>} 服务端生成的自洽硬件配置包 (hardware, graphics, screen, noise)
  */
-function generateRandomHardwareProfile (options = {}) {
-  const platform = options.platform || 'Win32'
-  const pool = HARDWARE_TOPOLOGY_POOLS[platform] || HARDWARE_TOPOLOGY_POOLS.Win32
-  const chosenDevice = pool[Math.floor(Math.random() * pool.length)]
-
-  const chosenCpu = chosenDevice.cpus[Math.floor(Math.random() * chosenDevice.cpus.length)]
-  const chosenScreen = chosenDevice.screens[Math.floor(Math.random() * chosenDevice.screens.length)]
-  const seed = crypto.randomUUID().replace(/-/g, '')
-
-  return {
-    hardware: {
-      platform,
-      hardwareConcurrency: chosenCpu,
-      deviceMemory: 8
-    },
-    graphics: {
-      webglVendor: chosenDevice.vendor,
-      webglRenderer: chosenDevice.renderer
-    },
-    screen: { ...chosenScreen },
-    noise: {
-      seed,
-      canvas: true,
-      audio: true,
-      rects: true
-    }
-  }
+async function generateRandomHardwareProfile (options = {}) {
+  const sessionResponse = await fetch('/api/auth/me', { credentials: 'same-origin' })
+  const session = await sessionResponse.json()
+  if (!sessionResponse.ok || !session.ok) throw new Error('请先登录工作空间再生成指纹。')
+  const response = await fetch('/api/fingerprint-generate', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf }, body: JSON.stringify({ platform: options.platform || 'Win32' }), signal: AbortSignal.timeout(30000) })
+  const data = await response.json()
+  if (!response.ok || !data.ok) throw new Error(data.message || '云端指纹生成失败，请稍后重试。')
+  return data.parameters
 }
 
 return {

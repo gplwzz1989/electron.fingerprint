@@ -1,5 +1,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
+const { updateUrl } = require('./client-updater')
 
 function validateAppUrl (input) {
   let url
@@ -24,7 +26,13 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   if (!['dev', 'test', 'prod'].includes(environment)) throw new Error('客户端环境配置无效，请选择 dev、test 或 prod。')
   const input = (!packaged && env.FP_APP_URL) || config.appUrl || (!packaged && environment === 'dev' ? 'http://127.0.0.1:8088/' : '')
   if (!input) throw new Error('未配置工作空间地址，请在打包时指定正式页面 URL。')
-  return { appUrl: validateAppUrl(input), environment }
+  const appUrl = validateAppUrl(input)
+  if (config.updatesEnabled === true && !config.updatePublicKey) throw new Error('已开启自动更新，但未配置更新验签公钥。')
+  const updates = { enabled: Boolean(config.updatePublicKey) && config.updatesEnabled !== false, publicKey: config.updatePublicKey || '', channel: environment, url: config.updateUrl || new URL(`/api/client-updates/${environment}/win32/x64.json`, appUrl).href }
+  if (updates.enabled) {
+    try { if (crypto.createPublicKey(updates.publicKey).asymmetricKeyType !== 'ed25519') throw new Error(); updates.url = updateUrl(updates.url, environment) } catch { throw new Error('更新地址或验签公钥配置无效，请检查打包配置。') }
+  }
+  return { appUrl, environment, updates }
 }
 
 module.exports = { getClientConfig, validateAppUrl }

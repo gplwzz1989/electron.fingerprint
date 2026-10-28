@@ -5,12 +5,14 @@ const crypto = require('node:crypto')
 const { WorkspaceDatabase, UserError } = require('./mysql-database')
 const { verifyPassword } = require('./auth')
 const { checkProxy } = require('./proxy-check')
-const { createFingerprintProfile, getDefaultProfile } = require('../../fingerprint-browser/profile-store')
+const { createFingerprintProfile, getDefaultProfile, getPresetTemplateById } = require('../../fingerprint-browser/profile-store')
 const { auditGPUProfileConsistency, generateRandomHardwareProfile } = require('../../fingerprint-browser/webgl-topology')
 const { loadExternalService } = require('../../fingerprint-browser/external-service')
 const { RegistrationMailer } = require('./registration-mailer')
 const { normalizeEmail } = require('./email-address')
 const { BillingService } = require('./billing-service')
+const { sealLaunch, validateLaunchRequest } = require('../../fingerprint-browser/fingerprint-envelope')
+const { ClientUpdateService } = require('./client-update-service')
 
 const platforms = [{ key: 'wechat', name: '微信公众号', icon: 'assets/platforms/wechat.png' }, { key: 'douyin', name: '抖音', icon: 'assets/platforms/douyin.png' }, { key: 'weibo', name: '新浪微博', icon: 'assets/platforms/weibo.png' }]
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
@@ -54,11 +56,12 @@ function loadEnvironment (directory, environment) {
 }
 
 class WorkspaceServer {
-  constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile } = {}) {
+  constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile } = {}) {
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
     this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
+    this.clientUpdates = new ClientUpdateService(updateConfigFile)
     this.publicDirectory = path.join(__dirname, '../public'); this.rateLimits = new Map()
     this.server = http.createServer((req, res) => { this.handle(req, res).catch(() => { if (!res.headersSent) this.json(res, 500, { ok: false, message: '服务暂时不可用，请稍后重试。' }); else res.destroy() }) })
   }
@@ -80,6 +83,7 @@ class WorkspaceServer {
       if (req.headers.origin && req.headers.origin !== origin) throw new UserError('请求来源不受信任，请从工作空间页面重试。', 403)
       if (!pathname.startsWith('/api/')) return this.static(req, res, pathname)
       if (method === 'GET' && pathname === '/api/health') return send({ status: 'available' })
+      if (await this.clientUpdates.handle(req, res, pathname)) return
       const paymentNotification = pathname.match(/^\/api\/payments\/(wechat|alipay)\/notify$/)
       if (paymentNotification && method === 'POST') {
         const provider = paymentNotification[1]
@@ -129,7 +133,17 @@ class WorkspaceServer {
       const user = await this.database.user(session.user_id)
       if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf })
       if (method === 'POST' && pathname === '/api/auth/logout') { await this.database.logout(this.cookie(req)); res.setHeader('Set-Cookie', 'qijie_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return send({}) }
-      if (method === 'GET' && pathname === '/api/fingerprint-defaults') return send({ profile: getDefaultProfile() })
+      if (method === 'GET' && pathname === '/api/fingerprint-defaults') { const profile = getDefaultProfile(); profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID(); return send({ profile }) }
+      if (method === 'POST' && pathname === '/api/fingerprint-draft') {
+        const body = await this.body(req)
+        if (!['Win32', 'MacIntel', 'Linux x86_64'].includes(body.platform)) throw new UserError('请选择有效的平台类型。')
+        const preset = body.presetId ? getPresetTemplateById(body.presetId) : null
+        if (body.presetId && !preset) throw new UserError('所选指纹模板不存在。')
+        const profile = structuredClone(preset?.profile || getDefaultProfile())
+        Object.assign(profile, generateRandomHardwareProfile({ platform: body.platform }))
+        profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID(); profile.browser.userAgent = null; profile.modules.webrtc = true
+        return send({ profile: validateProfile(profile) })
+      }
       if (method === 'POST' && pathname === '/api/fingerprint-generate') {
         const body = await this.body(req)
         if (!['Win32', 'MacIntel', 'Linux x86_64'].includes(body.platform)) throw new UserError('请选择有效的平台类型。')
@@ -147,7 +161,10 @@ class WorkspaceServer {
           db.assertWrite(member)
           const body = await this.body(req)
           if (body.id && !(await db.fingerprints(workspaceId)).some(item => item.id === body.id && accessible(item))) throw new UserError('指纹不存在或无法编辑。', 404)
-          const saved = await this.billing.withCapacity(workspaceId, 'fingerprints', () => db.saveFingerprint(workspaceId, user.id, { ...body, name: text(body.name, '指纹名称'), profile: validateProfile(body.profile) }), !body.id)
+          // 最终运行标识与噪声种子只由服务端生成，不采信页面提交的种子。
+          const profile = validateProfile(body.profile)
+          profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID()
+          const saved = await this.billing.withCapacity(workspaceId, 'fingerprints', () => db.saveFingerprint(workspaceId, user.id, { ...body, name: text(body.name, '指纹名称'), profile }), !body.id)
           return send({ item: saved }, 201)
         }
         if (method === 'DELETE' && id) {
@@ -182,7 +199,7 @@ class WorkspaceServer {
       }
       if (resource === 'environments') {
         if (method === 'GET' && !id) return send({ items: (await db.list('environments', workspaceId)).filter(accessible).map(({ fingerprint, ...item }) => item) })
-        if (method === 'GET' && id) return send({ item: await getRecord('environments') })
+        if (method === 'GET' && id) { const { fingerprint, ...item } = await getRecord('environments'); return send({ item }) }
         if (method === 'POST' && !id) {
           db.assertWrite(member); const body = await this.body(req)
           const fingerprint = await db.fingerprint(workspaceId, body.fingerprintId, body.fingerprintVersion)
@@ -197,22 +214,26 @@ class WorkspaceServer {
             if (result.timezone !== fingerprint.profile.locale.timezone && body.timezoneAcknowledged !== true) throw new UserError('代理出口时区与指纹不同，请确认差异或更换指纹。', 409)
           }
           if (body.id) { const existing = await db.get('environments', workspaceId, body.id); if (!existing || !accessible(existing)) throw new UserError('环境不存在或无法编辑。', 404) }
-          const value = { name: text(body.name, '环境名称'), startUrl, fingerprintId: fingerprint.id, fingerprintVersion: fingerprint.version, fingerprint: fingerprint.profile, proxyId: proxy?.id || null, timezoneAcknowledged: Boolean(body.timezoneAcknowledged), updatedAt: Date.now() }
+          const value = { name: text(body.name, '环境名称'), startUrl, fingerprintId: fingerprint.id, fingerprintVersion: fingerprint.version, fingerprint: db.encodeFingerprint(fingerprint.profile), proxyId: proxy?.id || null, timezoneAcknowledged: Boolean(body.timezoneAcknowledged), updatedAt: Date.now() }
           const saved = await this.billing.withCapacity(workspaceId, 'environments', () => db.put('environments', workspaceId, body.id || crypto.randomUUID(), value, body.expectedRevision ?? null), !body.id)
-          return send({ item: saved }, 201)
+          const { fingerprint: sealedFingerprint, ...item } = saved
+          return send({ item }, 201)
         }
         if (method === 'POST' && id && action === 'launch') {
           db.assertWrite(member); const environment = await getRecord('environments'); let proxy = { mode: 'direct', server: '', username: '', password: '' }
+          const encryption = await this.body(req)
+          try { validateLaunchRequest(encryption) } catch (error) { throw new UserError(error.message) }
+          const fingerprint = db.decodeFingerprint(environment.fingerprint)
           await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
           if (environment.proxyId) {
             const item = await db.get('proxies', workspaceId, environment.proxyId)
             if (!item || !db.canAccess(member, item.id)) throw new UserError('环境代理已失效，启动已阻止。', 409)
             const credentials = JSON.parse(db.decrypt(item.credential)); const result = await checkProxy({ ...item, ...credentials }, { allowPrivate: this.allowPrivateProxy })
-            if (result.timezone !== environment.fingerprint.locale.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
+            if (result.timezone !== fingerprint.locale.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
             const host = item.host.includes(':') ? `[${item.host}]` : item.host
             proxy = { mode: item.protocol, server: `${item.protocol}://${host}:${item.port}`, ...credentials }
           }
-          return send({ profile: { id: environment.id, name: environment.name, url: environment.startUrl, fingerprint: environment.fingerprint, proxy } })
+          return send({ envelope: sealLaunch({ id: environment.id, name: environment.name, url: environment.startUrl, fingerprint, proxy }, encryption, { workspaceId, environmentId: id }) })
         }
         if (method === 'DELETE' && id) { db.assertWrite(member); await getRecord('environments'); await db.remove('environments', workspaceId, id); return send({}) }
       }

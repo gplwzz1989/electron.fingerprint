@@ -8,12 +8,12 @@ const browserApi = {
   toggleXPanel: 'x-grok:toggle-panel', getXStatus: 'x-grok:status', toggleX: 'x-grok:toggle', updateXConfig: 'x-grok:update-config', requestLocalApi: 'automation:request'
 }
 const workspaceBridge = {
-  runtime: 'workspace:runtime', launch: 'workspace:launch', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request'
+  runtime: 'workspace:runtime', launch: 'workspace:launch', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request', updateStatus: 'updates:status', checkUpdates: 'updates:check', installUpdate: 'updates:install'
 }
 const bridgeContract = { browserApi, workspaceBridge }
 const businessChannels = new Set([...Object.values(browserApi), ...Object.values(workspaceBridge)])
 const shellChannels = new Set(['tabs:list', 'tabs:select', 'tabs:close', 'tabs:reorder', 'tabs:navigate', 'tabs:dashboard', 'tabs:ordinary', 'tabs:devtools', 'window:action'])
-const managementChannels = new Set(['tabs:create-managed', 'tabs:set-capabilities'])
+const managementChannels = new Set(['tabs:create-managed', 'tabs:set-capabilities', 'updates:install'])
 const capabilityGroups = new Set(['workspace', 'presets', 'profiles', 'environments', 'groups', 'tabs', 'proxy', 'actions', 'tls', 'x-grok', 'automation'])
 const bridgeArguments = () => ['--qijie-api-contract=' + encodeURIComponent(JSON.stringify(bridgeContract))]
 module.exports = { bridgeContract, businessChannels, shellChannels, managementChannels, capabilityGroups, bridgeArguments }

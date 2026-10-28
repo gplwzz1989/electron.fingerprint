@@ -7,6 +7,7 @@ const crypto = require('node:crypto')
 const { WorkspaceServer } = require('../src/workspace-server')
 const { getDefaultProfile } = require('../../fingerprint-browser/profile-store')
 const { createSmtpMailbox } = require('./smtp-mailbox')
+const { createLaunchRequest } = require('../../fingerprint-browser/fingerprint-envelope')
 
 test('真实数据库、会话、权限和资源完整链路', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-workspace-acceptance-'))
@@ -40,6 +41,9 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
       const profile = getDefaultProfile(); profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID()
       fingerprint = (await api(`${base}/fingerprints`, { account: 'owner', method: 'POST', expected: 201, body: { name: '实际入库验收指纹', profile } })).data.item
       assert.equal(fingerprint.version, 1)
+      assert.notEqual(fingerprint.profile.noise.seed, profile.noise.seed, '页面不能指定最终运行种子。')
+      const rows = await server.database.execute('SELECT profile FROM fingerprint_versions WHERE fingerprint_id=?', [fingerprint.id])
+      assert(!JSON.stringify(rows).includes(fingerprint.profile.noise.seed)); assert(JSON.stringify(rows).includes('qijie-fingerprint-storage-v1'))
       const updated = (await api(`${base}/fingerprints`, { account: 'owner', method: 'POST', expected: 201, body: { id: fingerprint.id, name: fingerprint.name, profile, expectedVersion: 1 } })).data.item
       await api(`${base}/fingerprints`, { account: 'owner', method: 'POST', expected: 409, body: { id: fingerprint.id, name: fingerprint.name, profile, expectedVersion: 1 } })
       await api(`${base}/fingerprints`, { account: 'outsider', expected: 403 })
@@ -49,10 +53,19 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
     await t.test('环境锁定原指纹版本，服务器拒绝无效配置', async () => {
       environment = (await api(`${base}/environments`, { account: 'owner', method: 'POST', expected: 201, body: { name: '独立环境验收', fingerprintId: fingerprint.id, fingerprintVersion: 1, startUrl: origin + '/api/health' } })).data.item
       assert.equal(environment.fingerprintVersion, 1)
-      assert.equal(environment.fingerprint.noise.seed, fingerprint.profile.noise.seed)
-      const launch = await api(`${base}/environments/${environment.id}/launch`, { account: 'owner', method: 'POST', body: {} })
-      assert.equal(launch.data.profile.id, environment.id)
-      assert.equal(launch.data.profile.proxy.mode, 'direct')
+      assert.equal(environment.fingerprint, undefined)
+      await api(`${base}/environments/${environment.id}/launch`, { account: 'owner', method: 'POST', body: {}, expected: 400 })
+      const encryption = createLaunchRequest(accounts.owner.workspaceId, environment.id)
+      await api(`${base}/environments/${environment.id}/launch`, { account: 'outsider', method: 'POST', body: encryption.request, expected: 403 })
+      const launch = await api(`${base}/environments/${environment.id}/launch`, { account: 'owner', method: 'POST', body: encryption.request })
+      assert.equal(launch.data.profile, undefined)
+      assert(!JSON.stringify(launch.data).includes(fingerprint.profile.noise.seed))
+      const decrypted = encryption.open(launch.data.envelope)
+      assert.equal(decrypted.id, environment.id)
+      assert.equal(decrypted.proxy.mode, 'direct')
+      assert.equal(decrypted.fingerprint.noise.seed, fingerprint.profile.noise.seed)
+      const stored = (await server.database.execute("SELECT data FROM records WHERE kind='environments' AND id=?", [environment.id]))[0]
+      assert(!JSON.stringify(stored).includes(fingerprint.profile.noise.seed))
       await api(`${base}/fingerprints/${fingerprint.id}`, { account: 'owner', method: 'DELETE', expected: 409 })
       const invalid = getDefaultProfile(); invalid.screen.availWidth = invalid.screen.width + 1
       await api(`${base}/fingerprints`, { account: 'owner', method: 'POST', expected: 400, body: { name: '无效参数不得入库', profile: invalid } })
@@ -81,7 +94,17 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
     })
     await t.test('设置、会话及指纹在服务重启后仍然存在', async () => {
       await api(`${base}/settings`, { account: 'owner', method: 'PUT', body: { pageSize: 10, reduceMotion: true, expectedRevision: null } })
+      // 仅在隔离测试库还原旧明文格式，验证升级会迁移且不会改变历史运行种子。
+      await server.database.execute('UPDATE fingerprint_versions SET profile=? WHERE fingerprint_id=? AND version=1', [JSON.stringify(fingerprint.profile), fingerprint.id])
+      const oldEnvironment = await server.database.get('environments', accounts.owner.workspaceId, environment.id)
+      oldEnvironment.fingerprint = fingerprint.profile
+      await server.database.execute("UPDATE records SET data=? WHERE kind='environments' AND id=?", [JSON.stringify(oldEnvironment), environment.id])
       await server.stop(); server = new WorkspaceServer({ port: 0, dataDir: directory, databaseName, mailConfigFile: mailbox.configFile }); address = await server.start(); origin = `http://127.0.0.1:${address.port}`
+      const migrated = await server.database.execute('SELECT profile FROM fingerprint_versions WHERE fingerprint_id=? AND version=1', [fingerprint.id])
+      assert(!JSON.stringify(migrated).includes(fingerprint.profile.noise.seed)); assert(JSON.stringify(migrated).includes('qijie-fingerprint-storage-v1'))
+      const request = createLaunchRequest(accounts.owner.workspaceId, environment.id)
+      const launch = await api(`${base}/environments/${environment.id}/launch`, { account: 'owner', method: 'POST', body: request.request })
+      assert.equal(request.open(launch.data.envelope).fingerprint.noise.seed, fingerprint.profile.noise.seed)
       assert.equal((await api(`${base}/fingerprints`, { account: 'owner' })).data.items[0].version, 2)
       assert.equal((await api(`${base}/settings`, { account: 'owner' })).data.settings.reduceMotion, true)
       assert.equal((await api(`${base}/environments`, { account: 'owner' })).data.items[0].fingerprintVersion, 1)

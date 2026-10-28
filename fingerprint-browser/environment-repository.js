@@ -85,12 +85,13 @@ async function writeAtomicText (fileSystem, target, content) {
 }
 
 class EnvironmentRepository {
-  constructor (dataRoot, fileSystem = fs) {
+  constructor (dataRoot, fileSystem = fs, protection = null) {
     this.dataRoot = path.resolve(dataRoot)
     this.tabsRoot = path.join(this.dataRoot, 'tabs')
     this.filePath = path.join(this.dataRoot, 'environments.json')
     this.pendingDeletePath = path.join(this.dataRoot, 'environment-deletions.json')
     this.fileSystem = fileSystem
+    this.protection = protection
     this.records = []
     this.pending = Promise.resolve()
     this.loaded = false
@@ -109,11 +110,11 @@ class EnvironmentRepository {
     await this.processPendingDeletes()
     let records
     try {
-      records = JSON.parse(await this.fileSystem.readFile(this.filePath, 'utf8'))
+      records = this.decodeStorage(JSON.parse(await this.fileSystem.readFile(this.filePath, 'utf8')))
     } catch (error) {
       if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw new ProfileValidationError('环境记录无法读取，请检查应用数据目录。')
       try {
-        records = JSON.parse(await this.fileSystem.readFile(`${this.filePath}.bak`, 'utf8'))
+        records = this.decodeStorage(JSON.parse(await this.fileSystem.readFile(`${this.filePath}.bak`, 'utf8')))
       } catch (backupError) {
         if (error.code !== 'ENOENT' || backupError.code !== 'ENOENT') {
           throw new ProfileValidationError('环境记录和备份均无法读取，请保留原文件后检查应用数据目录。')
@@ -132,6 +133,12 @@ class EnvironmentRepository {
       return { ...environment, status: 'closed' }
     })
     this.loaded = true
+    if (this.protection) {
+      for (const record of this.records) {
+        const snapshotPath = path.join(record.dataDir, 'fingerprint.json')
+        try { const snapshot = this.decodeStorage(JSON.parse(await this.fileSystem.readFile(snapshotPath, 'utf8'))); await writeAtomicText(this.fileSystem, snapshotPath, JSON.stringify(this.encodeStorage(snapshot))) } catch (error) { if (error.code !== 'ENOENT') throw error }
+      }
+    }
     await this.persist(this.records)
     return { migrated: !records.length && this.records.length > 0 }
   }
@@ -142,7 +149,7 @@ class EnvironmentRepository {
     const dataDir = ensureEnvironmentPath(this.dataRoot, record?.id, record?.dataDir)
     let creationUrl = FALLBACK_CREATION_URL
     try {
-      const snapshot = JSON.parse(await this.fileSystem.readFile(path.join(dataDir, 'fingerprint.json'), 'utf8'))
+      const snapshot = this.decodeStorage(JSON.parse(await this.fileSystem.readFile(path.join(dataDir, 'fingerprint.json'), 'utf8')))
       if (snapshot?.url) creationUrl = normalizeUrl(String(snapshot.url).trim())
     } catch (error) {
       console.warn(`[迁移环境创建地址] ${record?.id || '未知环境'} 无法确认原始地址，已使用 about:blank。`)
@@ -203,7 +210,7 @@ class EnvironmentRepository {
       if (!entry.isDirectory() || entry.name.includes('..') || /[\\/]/.test(entry.name)) continue
       try {
         const dataDir = path.join(this.tabsRoot, entry.name)
-        const snapshot = JSON.parse(await this.fileSystem.readFile(path.join(dataDir, 'fingerprint.json'), 'utf8'))
+        const snapshot = this.decodeStorage(JSON.parse(await this.fileSystem.readFile(path.join(dataDir, 'fingerprint.json'), 'utf8')))
         const stat = await this.fileSystem.stat(dataDir)
         records.push(normalizeEnvironment({
           id: entry.name,
@@ -227,12 +234,14 @@ class EnvironmentRepository {
     return records
   }
 
+  encodeStorage (value) { return this.protection ? this.protection.encode(value) : value }
+  decodeStorage (value) { return this.protection ? this.protection.decode(value) : value }
   async persist (nextRecords) {
     await this.fileSystem.mkdir(this.dataRoot, { recursive: true })
     if (this.loaded) {
-      await writeAtomicText(this.fileSystem, `${this.filePath}.bak`, `${JSON.stringify(this.records, null, 2)}\n`)
+      await writeAtomicText(this.fileSystem, `${this.filePath}.bak`, `${JSON.stringify(this.encodeStorage(this.records), null, 2)}\n`)
     }
-    await writeAtomicText(this.fileSystem, this.filePath, `${JSON.stringify(nextRecords, null, 2)}\n`)
+    await writeAtomicText(this.fileSystem, this.filePath, `${JSON.stringify(this.encodeStorage(nextRecords), null, 2)}\n`)
     this.records = nextRecords.map(record => clone(record))
     this.loaded = true
   }
@@ -281,7 +290,7 @@ class EnvironmentRepository {
         updatedAt: now
       }, this.dataRoot)
       await this.fileSystem.mkdir(dataDir, { recursive: true })
-      await writeAtomicText(this.fileSystem, path.join(dataDir, 'fingerprint.json'), `${JSON.stringify(environmentProfile, null, 2)}\n`)
+      await writeAtomicText(this.fileSystem, path.join(dataDir, 'fingerprint.json'), `${JSON.stringify(this.encodeStorage(environmentProfile), null, 2)}\n`)
       try {
         await this.persist([...this.records, environment])
       } catch (error) {
@@ -371,7 +380,7 @@ class EnvironmentRepository {
         id,
         updatedAt: Date.now()
       }, this.dataRoot)
-      await writeAtomicText(this.fileSystem, path.join(current.dataDir, 'fingerprint.json'), `${JSON.stringify(profile, null, 2)}\n`)
+      await writeAtomicText(this.fileSystem, path.join(current.dataDir, 'fingerprint.json'), `${JSON.stringify(this.encodeStorage(profile), null, 2)}\n`)
       await this.persist(this.records.map(record => record.id === id ? next : record))
       return clone(next)
     })

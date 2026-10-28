@@ -27,6 +27,7 @@ const { randomBytes, timingSafeEqual } = require('node:crypto')
 
 class AutomationServer {
   constructor (options = {}) {
+    this.resolveCloudProfile = options.resolveCloudProfile || null
     this.port = options.port !== undefined
       ? Number(options.port)
       : (Number(process.env.FP_AUTOMATION_PORT) || DEFAULT_PORT)
@@ -554,7 +555,7 @@ class AutomationServer {
   }
 
   async handleCreateEnvironment (body) {
-    const record = createProfileRecord(body)
+    const record = this.resolveCloudProfile ? await this.resolveCloudProfile(body) : createProfileRecord(body)
     if (this.groupRepository && record.group) {
       await this.groupRepository.ensure(record.group)
     }

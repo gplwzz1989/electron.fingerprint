@@ -10,6 +10,13 @@
   const base = () => `/api/workspaces/${state.workspaceId}`
   let viewRevision = 0
   let nativeTabs = { tabs: [], activeId: null }
+  let clientUpdate = null
+  let fingerprintDefaultsRequest = null
+  async function loadFingerprintDefaults () {
+    if (fingerprintDefaultsRequest) return fingerprintDefaultsRequest
+    fingerprintDefaultsRequest = request('/api/fingerprint-defaults').then(data => { if (['fingerprint-create', 'fingerprint-protection'].includes(window.WorkspaceUI.getRoute()) && !state.editFingerprint) window.WorkspaceUI.setFingerprint(data.profile, '') }).finally(() => { fingerprintDefaultsRequest = null })
+    return fingerprintDefaultsRequest
+  }
   const registration = { emailDeliveryAvailable: null, email: '', resendAt: 0, timer: null }
   const payment = { workspaceId: '', planId: '', order: null, requestId: '', timer: null }
   const amountLabel = value => `¥${(value / 100).toFixed(2)}`
@@ -210,6 +217,12 @@
     const main = document.querySelector('.form-main'); if (!main) return
     const settings = state.lists.settings?.settings || { reduceMotion: false, pageSize: 20 }
     main.innerHTML = `<section class="form-section"><h2>团队界面设置</h2><div class="field-grid"><label class="field"><span>每页条数</span><select id="settings-page-size">${[10, 20, 50].map(size => `<option ${settings.pageSize === size ? 'selected' : ''}>${size}</option>`).join('')}</select></label><label class="field"><span>界面动效</span><select id="settings-motion"><option value="false">标准动效</option><option value="true" ${settings.reduceMotion ? 'selected' : ''}>减少动效</option></select></label></div></section><footer class="form-footer"><span>设置按团队保存。</span><button class="button primary" data-operation="save-settings" ${!canAdmin() ? 'disabled' : ''}>保存设置</button></footer>`
+    if (window.workspaceBridge?.updateStatus) { main.insertAdjacentHTML('beforeend', '<section class="form-section client-update-panel" aria-live="polite"></section>'); renderClientUpdates() }
+  }
+  function renderClientUpdates () {
+    const panel = document.querySelector('.client-update-panel'); if (!panel) return
+    const update = clientUpdate || { status: 'checking', message: '正在读取客户端更新状态。' }
+    panel.innerHTML = `<h2>客户端更新</h2><p>当前版本：${escape(update.currentVersion || '读取中')}${update.version ? ` · 可用版本：${escape(update.version)}` : ''}</p><p class="${update.status === 'error' ? 'error' : ''}" ${update.status === 'error' ? 'role="alert"' : ''}>${escape(update.message)}${update.status === 'downloading' ? ` ${Number(update.progress) || 0}%` : ''}</p>${update.notes ? `<p>${escape(update.notes)}</p>` : ''}<button class="button" data-operation="check-client-updates" ${['disabled', 'checking', 'downloading', 'installing'].includes(update.status) ? 'disabled' : ''}>检查更新</button> <button class="button primary" data-operation="install-client-update" ${update.status === 'ready' ? '' : 'disabled'}>安装更新</button>`
   }
   function renderBilling () {
     const billing = state.lists.billing
@@ -264,6 +277,10 @@
   }
   async function render () {
     const revision = ++viewRevision; const route = window.WorkspaceUI.getRoute()
+    if (['fingerprint-create', 'fingerprint-protection'].includes(route) && state.user && !window.WorkspaceUI.getFingerprint().profile.id) {
+      await loadFingerprintDefaults()
+      if (revision !== viewRevision) return
+    }
     const requiresContext = {
       'fingerprint-detail': 'fingerprints', 'fingerprint-compatibility': 'fingerprints', 'environment-detail': 'environments', 'timezone-conflict': 'environments', 'proxy-failure': 'proxies',
       'account-authorize': 'accounts', 'account-login': 'accounts', 'account-confirm': 'accounts', 'account-save-error': 'accounts', 'account-reauthorize': 'accounts', 'account-mismatch': 'accounts', 'payment-pending': 'billing'
@@ -273,7 +290,7 @@
     if (route === 'overview') document.querySelector('#page h1').textContent = state.user ? `欢迎回来，${state.user.name}` : '欢迎使用栖界'
     if (state.user) document.querySelectorAll('#page .form-footer>span').forEach(node => { if (node.textContent.includes('登录后')) node.textContent = canWrite() ? '修改将保存到当前团队。' : '当前角色为只读，无法保存修改。' })
     prepareFilters(route)
-    assignAction('保存到指纹库', 'save-fingerprint', Boolean(state.user && canWrite()))
+    assignAction('保存到指纹库', 'save-fingerprint', Boolean(state.user && canWrite() && window.WorkspaceUI.getFingerprint().profile.id && !window.WorkspaceUI.getFingerprint().generating))
     assignAction('发送邀请', 'invite-member', Boolean(state.user && canAdmin()))
     assignAction('创建邀请', 'invite-member', Boolean(state.user && canAdmin()))
     if (['overview', 'fingerprints', 'environments', 'proxies', 'accounts', 'members'].includes(route)) populateTable(route)
@@ -356,6 +373,16 @@
   }
   async function run (operation, button) {
     const route = window.WorkspaceUI.getRoute(); const id = button?.dataset.id
+    if (operation === 'check-client-updates') {
+      const result = await window.workspaceBridge.checkUpdates()
+      if (!result.ok) throw new Error(result.error || '检查更新失败。')
+      clientUpdate = result; renderClientUpdates(); return
+    }
+    if (operation === 'install-client-update') {
+      const result = await window.workspaceBridge.installUpdate()
+      if (!result.ok) throw new Error(result.error || '安装更新失败。')
+      return
+    }
     if (operation === 'login') return window.WorkspaceUI.openSignin(button)
     if (operation === 'show-register') return registerForm()
     if (operation === 'show-signin') { window.WorkspaceUI.closeDialog(false); return window.WorkspaceUI.openSignin(button) }
@@ -398,6 +425,7 @@
     if (operation === 'logout') { await closeNativeTabs(); await request('/api/auth/logout', 'POST', {}); Object.assign(state, { user: null, csrf: '', lists: {}, workspaceId: '' }); window.WorkspaceUI.render(); return }
     if (operation === 'save-fingerprint') {
       const draft = window.WorkspaceUI.getFingerprint()
+      if (draft.generating || !draft.profile.id) throw new Error('请等待云端指纹生成完成。')
       if (!draft.name.trim()) throw new Error('请填写指纹名称。')
       await request(`${base()}/fingerprints`, 'POST', { name: draft.name, profile: draft.profile, ...(state.editFingerprint ? { id: state.editFingerprint.id, expectedVersion: state.editFingerprint.version } : {}) })
       state.editFingerprint = null; await reload(); routeTo('fingerprints'); noticeResult('指纹已保存到团队数据库。'); return
@@ -447,13 +475,14 @@
     if (operation === 'page-back' || operation === 'page-next') { state.page += operation === 'page-next' ? 1 : -1; if (route === 'billing') renderBilling(); else populateTable(route) }
   }
   document.addEventListener('workspace:render', () => { void render().catch(error => showError(error.message)) })
+  document.addEventListener('workspace:error', event => showError(event.detail))
   document.addEventListener('workspace:dialog', event => prepareDialog(event.detail.pageId))
   document.addEventListener('click', event => {
     const destination = event.target.closest('[data-route]')
     if (destination?.dataset.route === 'fingerprint-create' && /创建|新建/.test(destination.textContent) && !['fingerprint-create', 'fingerprint-protection'].includes(window.WorkspaceUI.getRoute())) {
       state.editFingerprint = null
-      const profile = window.QijieFingerprintEngine.getDefaultProfile(); profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID().replace(/-/g, '')
-      window.WorkspaceUI.setFingerprint(profile, '')
+      window.WorkspaceUI.resetFingerprint()
+      void loadFingerprintDefaults().catch(error => showError(error.message))
     }
     if (destination?.dataset.route === 'environment-create' && /新建|建立/.test(destination.textContent)) { state.editEnvironment = null; window.WorkspaceUI.resetDraft('environment-create') }
     const native = event.target.closest('[data-native-operation]')
@@ -498,6 +527,10 @@
         }
         window.workspaceBridge.onTabsChanged(snapshot => { renderNativeTabs(snapshot); if (['overview', 'environments'].includes(window.WorkspaceUI.getRoute())) populateTable(window.WorkspaceUI.getRoute()) })
         const snapshot = await window.workspaceBridge.tabs(); renderNativeTabs(snapshot)
+        if (window.workspaceBridge.updateStatus) {
+          clientUpdate = await window.workspaceBridge.updateStatus()
+          window.workspaceBridge.onUpdateChanged(update => { clientUpdate = update; renderClientUpdates() })
+        }
       }
       const catalog = (await request('/api/platforms')).platforms
       window.QijieProductDesign.pages.find(page => page.id === 'account-platforms').platforms.forEach(item => { const actual = catalog.find(platform => platform.key === item.key); item.disabled = !actual?.enabled; item.status = actual?.reason || '' })

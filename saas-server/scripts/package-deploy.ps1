@@ -11,9 +11,9 @@ $payload = Join-Path $outputDirectory 'qijie-saas-server'
 $server = Join-Path $payload 'saas-server'
 $fingerprint = Join-Path $payload 'fingerprint-browser'
 New-Item -ItemType Directory -Path (Join-Path $server 'src'), $fingerprint -Force | Out-Null
-$sourceFiles = @('auth.js','billing-service.js','email-address.js','mysql-database.js','payment-providers.js','proxy-check.js','registration-mailer.js','server-config.js','workspace-server.js')
+$sourceFiles = @('auth.js','billing-service.js','client-update-service.js','email-address.js','mysql-database.js','payment-providers.js','proxy-check.js','registration-mailer.js','server-config.js','workspace-server.js')
 foreach ($file in $sourceFiles) { Copy-Item -LiteralPath (Join-Path $serverRoot "src/$file") -Destination (Join-Path $server "src/$file") }
-foreach ($file in @('profile-store.js','webgl-topology.js','external-service.js')) { Copy-Item -LiteralPath (Join-Path $workspaceRoot "fingerprint-browser/$file") -Destination (Join-Path $fingerprint $file) }
+foreach ($file in @('profile-store.js','webgl-topology.js','external-service.js','fingerprint-envelope.js')) { Copy-Item -LiteralPath (Join-Path $workspaceRoot "fingerprint-browser/$file") -Destination (Join-Path $fingerprint $file) }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'public') -Destination $server -Recurse
 foreach ($file in @('.env.example','README.md')) { Copy-Item -LiteralPath (Join-Path $serverRoot $file) -Destination (Join-Path $server $file) }
 foreach ($file in @('README.md','start.ps1','start.sh')) { Copy-Item -LiteralPath (Join-Path $serverRoot "deploy/$file") -Destination (Join-Path $payload $file) }
