@@ -1,6 +1,6 @@
 const crypto = require('node:crypto')
 
-const DEFAULT_SECRET = process.env.SAAS_JWT_SECRET || 'qijie-fp-saas-dev-secret-key-2026'
+const DEFAULT_SECRET = process.env.SAAS_JWT_SECRET || crypto.randomBytes(32).toString('hex')
 
 function base64UrlEncode (str) {
   return Buffer.from(str)
@@ -19,15 +19,19 @@ function base64UrlDecode (str) {
 }
 
 function hashPassword (password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 32, 'sha256').toString('hex')
-  return `${salt}:${hash}`
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex')
+  return `scrypt:${salt}:${hash}`
 }
 
 function verifyPassword (password, combined) {
-  if (typeof combined !== 'string' || !combined.includes(':')) return false
-  const [salt, originalHash] = combined.split(':')
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 32, 'sha256').toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(originalHash))
+  if (typeof password !== 'string' || typeof combined !== 'string') return false
+  const parts = combined.split(':')
+  const modern = parts[0] === 'scrypt' && parts.length === 3
+  const [salt, originalHash] = modern ? parts.slice(1) : parts
+  if (!salt || !/^[a-f0-9]+$/i.test(originalHash || '')) return false
+  const hash = modern ? crypto.scryptSync(password, salt, 64) : crypto.pbkdf2Sync(password, salt, 1000, 32, 'sha256')
+  const expected = Buffer.from(originalHash, 'hex')
+  return hash.length === expected.length && crypto.timingSafeEqual(hash, expected)
 }
 
 function signToken (payload, secret, expiresInSeconds = 7 * 24 * 3600) {
@@ -68,11 +72,13 @@ function verifyToken (token, secret) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
 
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+  if (signature.length !== expectedSignature.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
     throw new Error('Token 签名无效')
   }
 
   const payload = JSON.parse(base64UrlDecode(encodedPayload))
+  const header = JSON.parse(base64UrlDecode(encodedHeader))
+  if (header.alg !== 'HS256' || !Number.isInteger(payload.exp)) throw new Error('登录凭证无效。')
   const now = Math.floor(Date.now() / 1000)
   if (payload.exp && payload.exp < now) {
     throw new Error('Token 已过期')

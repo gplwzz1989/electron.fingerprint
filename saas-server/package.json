@@ -2,13 +2,18 @@
   "name": "@qijie/saas-server",
   "version": "0.1.0",
   "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
-  "main": "src/server.js",
+  "main": "src/workspace-server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "test": "node test/server.test.js"
+    "start": "node src/workspace-server.js",
+    "test": "node --test test/workspace.test.js test/registration.test.js test/billing.test.js"
   },
   "engines": {
     "node": ">=20"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "mysql2": "3.24.6",
+    "nodemailer": "10.2.1",
+    "qrcode": "1.5.4"
+  }
 }

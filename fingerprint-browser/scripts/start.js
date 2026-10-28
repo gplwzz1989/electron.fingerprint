@@ -2,6 +2,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
 const { dataRoot: resolveDataRoot } = require('../data-directory')
+const { getClientConfig } = require('../client-config')
 
 const projectRoot = path.resolve(__dirname, '..')
 
@@ -13,7 +14,9 @@ function runtimeExecutable (root, platform = process.platform) {
 
 function getLaunchOptions (env = process.env, extraArgs = []) {
   const runtimeRoot = env.FP_ELECTRON_RUNTIME || env.ELECTRON_OVERRIDE_DIST_PATH || path.resolve(projectRoot, '..', '..', 'electron-fp-build', 'src', 'out', 'Release')
-  const dataRoot = resolveDataRoot(env)
+  const config = getClientConfig({ env, directory: projectRoot })
+  const baseDataRoot = resolveDataRoot(env)
+  const dataRoot = env.FP_BROWSER_DATA_DIR || config.environment === 'prod' ? baseDataRoot : path.join(baseDataRoot, config.environment)
   return {
     executable: runtimeExecutable(runtimeRoot),
     args: [projectRoot, ...extraArgs, `--user-data-dir=${dataRoot}`],

@@ -16,10 +16,10 @@ try {
   }
 }
 
-// 引入本地独立模块 nodeservice
+// 引入本地独立模块 nodeservice：已改为部署者配置的外部模块，不再内嵌代码。
 let nodeService = null
 try {
-  nodeService = require('../nodeservice/dist/index.js')
+  nodeService = require('../external-service').loadExternalService()
 } catch (err) {
   console.error('[NodeServicePublisher] 加载 nodeservice 模块失败:', err)
 }

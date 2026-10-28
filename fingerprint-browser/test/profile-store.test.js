@@ -108,7 +108,7 @@ function run () {
   assert.equal(defaultDataRoot({}, 'darwin', '/用户'), '/用户/Library/Application Support/栖界/指纹浏览器')
   assert.equal(defaultDataRoot({ XDG_CONFIG_HOME: '/配置' }, 'linux', '/用户'), '/配置/栖界/指纹浏览器')
   assert.equal(defaultDataRoot({}, 'linux', '/用户'), '/用户/.config/栖界/指纹浏览器')
-  assert.equal(getLaunchOptions({}).dataRoot, dataRoot({}))
+  assert.equal(getLaunchOptions({}).dataRoot, path.join(dataRoot({}), 'dev'))
   assert.equal(getLaunchOptions({}).executable, runtimeExecutable(path.resolve(__dirname, '..', '..', '..', 'electron-fp-build', 'src', 'out', 'Release')))
   assert.equal(getLaunchOptions({ ELECTRON_OVERRIDE_DIST_PATH: './兼容运行时' }).executable, runtimeExecutable('./兼容运行时'))
   assert.equal(runtimeExecutable('内核', 'darwin'), path.join('内核', 'Electron.app', 'Contents', 'MacOS', 'Electron'))

@@ -2,3 +2,5 @@
 bin/*
 !bin/.gitkeep
 scratch/
+build-config.json
+client-config.json

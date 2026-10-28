@@ -1,0 +1,26 @@
+[
+  {
+    "platform": "wechat",
+    "sourcePage": "https://mp.weixin.qq.com/",
+    "assetUrl": "https://res.wx.qq.com/a/wx_fed/assets/res/OTE0YTAw.png",
+    "width": 180,
+    "height": 180,
+    "contentType": "image/png"
+  },
+  {
+    "platform": "douyin",
+    "sourcePage": "https://creator.douyin.com/",
+    "assetUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/yvahlyj_upfbvk_zlp/ljhwZthlaukjlkulzlp/pc_creator/favicon_v2_7145ff0.ico",
+    "width": 32,
+    "height": 32,
+    "contentType": "image/vnd.microsoft.icon"
+  },
+  {
+    "platform": "weibo",
+    "sourcePage": "https://weibo.com/",
+    "assetUrl": "https://weibo.com/favicon.ico",
+    "width": 32,
+    "height": 32,
+    "contentType": "image/x-icon"
+  }
+]

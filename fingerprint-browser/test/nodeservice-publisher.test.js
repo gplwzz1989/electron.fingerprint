@@ -31,22 +31,10 @@ test('NodeServicePublisher 8大发布类型元数据完整性', () => {
   }
 })
 
-test('nodeservice 独立模块可成功引入并导出核心 SDK', () => {
-  const ns = require('../nodeservice/dist/index.js')
-  assert.ok(ns, 'nodeservice 模块应正常加载')
-  assert.ok(ns.Weixingongzhonghao, '必须导出 Weixingongzhonghao 对象')
-  assert.ok(typeof ns.Weixingongzhonghao.publishArticle === 'function', '公众号应支持 publishArticle')
-  assert.ok(typeof ns.Weixingongzhonghao.getWeixingongzhonghaoUserInfo === 'function', '公众号应支持 getWeixingongzhonghaoUserInfo')
-
-  assert.ok(ns.Douyin, '必须导出 Douyin 对象')
-  assert.ok(typeof ns.Douyin.publishVideo === 'function', '抖音应支持 publishVideo')
-  assert.ok(typeof ns.Douyin.publishDynamic === 'function', '抖音应支持 publishDynamic')
-  assert.ok(typeof ns.Douyin.publishArticle === 'function', '抖音应支持 publishArticle')
-
-  assert.ok(ns.Xinlangweibo, '必须导出 Xinlangweibo 对象')
-  assert.ok(typeof ns.Xinlangweibo.publishVideo === 'function', '微博应支持 publishVideo')
-  assert.ok(typeof ns.Xinlangweibo.publishDynamic === 'function', '微博应支持 publishDynamic')
-  assert.ok(typeof ns.Xinlangweibo.publishArticle === 'function', '微博应支持 publishArticle')
+test('未配置外部平台服务时保持未接入状态', () => {
+  const { loadExternalService } = require('../external-service')
+  assert.equal(loadExternalService(''), null)
+  assert.throws(() => loadExternalService('relative-service.js'), /外部平台服务配置无效/)
 })
 
 test('NodeServicePublisher.formatCookies Cookie 格式化转换', () => {
@@ -96,8 +84,8 @@ test('publishMultiAccounts 异常前置拦截与配置合并校验', async () =>
     /请至少选择一个要发布的账号/
   )
 
-  // 3. 验证无有效 Cookie 时友好提示
-  const summary = await publisher.publishMultiAccounts({
+  // 3. 验证无有效 Cookie 时友好提示；外部引擎未配置时优先阻止发布。
+  await assert.rejects(publisher.publishMultiAccounts({
     publishType: 'wechat-article',
     targetAccounts: [
       {
@@ -117,11 +105,7 @@ test('publishMultiAccounts 异常前置拦截与配置合并校验', async () =>
         title: '独立专属标题-定制'
       }
     }
-  })
-
-  assert.equal(summary.totalCount, 1)
-  assert.equal(summary.failCount, 1)
-  assert.match(summary.results[0].message, /未获取到该环境账号的有效 Cookie/)
+  }), /发布引擎尚未正确加载/)
 })
 
 test('customCookieStore 手动凭据管理与持久化缓存', () => {

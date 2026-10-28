@@ -30,264 +30,359 @@
     close: '<path d="m6 6 12 12M18 6 6 18"/>'
   }
 
-  const pageTitles = {
-    overview: '工作台',
-    environments: '环境列表',
-    'create-basic': '新建环境',
-    'create-network': '新建环境',
-    'create-fingerprint': '新建环境',
-    detail: '环境详情',
-    browser: '环境浏览器',
-    proxies: '代理资源',
-    'creator-video': 'AI 创作',
-    'creator-article': 'AI 创作',
-    'creator-post': 'AI 创作',
-    'creator-assets': 'AI 创作',
-    'creator-publish': 'AI 创作',
-    members: '团队成员',
-    audit: '操作记录',
-    billing: '订阅计费',
-    settings: '系统设置',
-    onboarding: '首次使用',
-    'proxy-error': '代理连接诊断',
-    search: '搜索',
-    'media-panel': '媒体提取中心',
-    'media-queue': '媒体下载队列',
-    'x-grok-panel': 'X 发帖控制'
+  Object.assign(icons, {
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    fingerprint: '<path d="M6 19c2-3 1-7 2-10a4.3 4.3 0 0 1 8 .1c1 3 0 7-1 10M3 16c1-2 0-5 1-8a8.5 8.5 0 0 1 16 0c1 3 .5 6 0 9M11 21c2-4 1-8 1-11M8 22c2-3 2-6 2-9M17 22c1-2 2-4 2-6"/>',
+    team: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21v-3a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3M16 5a3 3 0 0 1 0 6M22 21v-3a5 5 0 0 0-3-4.6"/>'
+  })
+  const data = window.QijieProductDesign
+  const drafts = new Map()
+  let currentRoute = ''
+  let environmentReturn = false
+  let platformPickerTrigger = null
+  let platformPickerInert = []
+  let selectedPlatform = null
+  let modalPageId = ''
+  let modalReturnRoute = ''
+  let authorizationReturn = false
+  const expandedGroups = new Set()
+  const formCategories = new Map()
+  const fingerprintEngine = window.QijieFingerprintEngine
+  const fingerprintDraft = fingerprintEngine.getDefaultProfile()
+  fingerprintDraft.id = window.crypto.randomUUID()
+  fingerprintDraft.noise.seed = window.crypto.randomUUID().replace(/-/g,'')
+  let fingerprintName = ''
+  const getProfileValue = path => path === 'name' ? fingerprintName : path.split('.').reduce((value,key)=>value?.[key],fingerprintDraft)
+  const categoriesEnabled = (items,scope) => items?.length > 1 && !['environment-create','proxy-create','signin'].includes(scope)
+  const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char])
+  const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.file}</svg>`
+  const button = item => {
+    if (!item) return ''
+    const cls = `button${item.primary ? ' primary' : ''}`
+    return item.target
+      ? `<a class="${cls}" href="#${escapeHTML(item.target)}" data-route="${escapeHTML(item.target)}">${escapeHTML(item.label)}</a>`
+      : `<button class="${cls}" type="button" ${item.action ? `data-action="${escapeHTML(item.action)}"` : ''} ${item.closeDialog ? 'data-close-platforms' : ''} ${item.disabled ? 'disabled' : ''}>${escapeHTML(item.label)}</button>`
   }
-
-  const creatorTabs = [
-    ['creator-video', '视频创作', 'video'],
-    ['creator-article', '长文排版', 'article'],
-    ['creator-post', '图文笔记', 'image'],
-    ['creator-assets', '作品库', 'folder'],
-    ['creator-publish', '发布配置', 'arrow']
-  ]
-
-  function icon (name, extraClass = '') {
-    return `<svg class="${extraClass}" viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.file}</svg>`
+  const notice = item => item ? `<div class="notice ${escapeHTML(item.tone || 'info')}" ${item.tone === 'error' ? 'role="alert"' : ''}>${icon(item.tone === 'error' || item.tone === 'warning' ? 'warning' : 'shield')}<div><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.text)}</p></div></div>` : ''
+  const tabs = items => items?.length ? `<nav class="tabs" aria-label="页面分类">${items.map(([label,id]) => `<a class="tab ${id === currentRoute ? 'active' : ''}" href="#${id}" data-route="${id}" ${id === currentRoute ? 'aria-current="page"' : ''}>${escapeHTML(label)}</a>`).join('')}</nav>` : ''
+  const summary = item => item ? `<aside class="summary surface" aria-label="${escapeHTML(item.title)}"><h2>${escapeHTML(item.title)}</h2><dl>${(item.rows || []).map(([key,value])=>`<div><dt>${escapeHTML(key)}</dt><dd data-summary-label="${escapeHTML(key)}">${escapeHTML(value)}</dd></div>`).join('')}</dl><p>${escapeHTML(item.text)}</p></aside>` : ''
+  function field(item, index, display, scope = currentRoute) {
+    const id = `field-${scope}-${index}`
+    let control
+    if (display || item.type === 'display') control = `<output class="read-value" id="${id}">—</output>`
+    else if (item.type === 'select') control = `<select id="${id}">${(item.options || []).map(value=>`<option value="${escapeHTML(value.value ?? value)}">${escapeHTML(value.label ?? value)}</option>`).join('')}</select>`
+    else if (item.type === 'textarea') control = `<textarea id="${id}" placeholder="${escapeHTML(item.placeholder)}"></textarea>`
+    else control = `<input id="${id}" type="${escapeHTML(item.type || 'text')}" ${item.readonly ? 'readonly' : ''} placeholder="${escapeHTML(item.placeholder)}" autocomplete="${scope==='signin' ? item.type==='password' ? 'current-password' : 'username' : item.type === 'password' ? 'new-password' : 'off'}">`
+    return `<label class="field${item.full ? ' full' : ''}" for="${id}" ${item.profilePath ? `data-profile-path="${escapeHTML(item.profilePath)}"` : ''}><span>${escapeHTML(item.label)}</span>${control}${item.help ? `<small>${escapeHTML(item.help)}</small>` : ''}</label>`
   }
-
-  function button (text, route, style = '') {
-    if (route) return `<a class="button ${style}" href="#${route}" data-route="${route}">${text}</a>`
-    return `<button class="button ${style}" type="button" data-action="notice">${text}</button>`
+  function groups(items, display=false, scope=currentRoute) {
+    const categorized = categoriesEnabled(items,scope)
+    const active = formCategories.get(scope) || 0
+    return (categorized ? `<nav class="form-categories" aria-label="配置分类">${items.map((item,index)=>`<button type="button" data-form-category="${index}" data-form-scope="${scope}" aria-pressed="${active===index}">${escapeHTML(item.title)}</button>`).join('')}</nav>` : '') + (items || []).map((item,groupIndex)=>{
+      const key = `${scope}-${groupIndex}`
+      const heading = `<div><h2>${escapeHTML(item.title)}</h2>${item.description ? `<p>${escapeHTML(item.description)}</p>` : ''}</div>`
+      const fields = `<div class="field-grid">${item.fields.map((item,index)=>field(item,`${groupIndex}-${index}`,display,scope)).join('')}</div>`
+      return item.collapsible && !categorized ? `<details class="surface form-section advanced-section" data-group-key="${key}" ${expandedGroups.has(key) ? 'open' : ''}><summary>${heading}<span>展开配置</span></summary>${fields}</details>` : `<section class="surface form-section" data-group-panel="${groupIndex}" data-form-scope="${scope}" ${categorized && active!==groupIndex ? 'hidden' : ''}><header>${heading}${button(item.action)}</header>${fields}</section>`
+    }).join('')
   }
-
-  function pageHeading (eyebrow, title, description, actions = '') {
-    return `<header class="page-heading"><div class="page-heading-main"><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="page-description">${description}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</header>`
+  const authorizationFlow = stage => `<ol class="authorization-flow" aria-label="账号授权进度">${['选择环境','平台登录','确认身份','保存授权'].map((label,index)=>`<li class="${index === stage ? 'current' : ''}" ${index === stage ? 'aria-current="step"' : ''}><span>${index+1}</span>${label}</li>`).join('')}</ol>`
+  function steps(items) {
+    return items?.length ? `<section class="surface steps-panel"><h2>处理步骤</h2><ol>${items.map(([title,text],index)=>`<li><span class="step-number">${index+1}</span><div><b>${escapeHTML(title)}</b><p>${escapeHTML(text)}</p></div></li>`).join('')}</ol></section>` : ''
   }
-
-  function emptyIllustration () {
-    return `<div class="empty-illustration" aria-hidden="true"><div class="empty-window"></div><span class="empty-plus">＋</span></div>`
+  function rows(items) {
+    return items?.length ? `<dl class="surface value-list">${items.map(([key,value])=>`<div><dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>` : ''
   }
-
-  function emptyState (title, text, action = '', className = '') {
-    return `<div class="empty-state ${className}">${emptyIllustration()}<h2>${title}</h2><p>${text}</p>${action ? `<div class="empty-actions">${action}</div>` : ''}</div>`
+  function table(item, filters) {
+    if (!item) return ''
+    return `<section class="surface table-panel">${filters?.length ? `<div class="table-tools"><label class="search-field">${icon('search')}<input id="search-${currentRoute}" aria-label="搜索列表" placeholder="搜索名称或编号"></label>${filters.map((value,index)=>`<select id="filter-${currentRoute}-${index}" aria-label="${escapeHTML(value)}">${(currentRoute==='accounts' && value==='全部平台' ? ['全部平台',...data.pages.find(item=>item.id==='account-platforms').platforms.map(item=>item.name)] : currentRoute==='accounts' && value==='授权状态' ? ['全部授权状态','授权有效','待重新授权','授权异常'] : [value]).map(option=>`<option>${escapeHTML(option)}</option>`).join('')}</select>`).join('')}</div>` : ''}<div class="table-scroll"><table><thead><tr>${item.columns.map(label=>`<th scope="col">${escapeHTML(label)}</th>`).join('')}</tr></thead><tbody><tr><td colspan="${item.columns.length}"><div class="empty-state"><span class="empty-icon">${icon('folder')}</span><h2>${escapeHTML(item.emptyTitle)}</h2><p>${escapeHTML(item.emptyText)}</p>${button(item.action)}</div></td></tr></tbody></table></div></section>`
   }
-
-  function stepper (active) {
-    const labels = ['基本信息', '网络连接', '指纹配置']
-    return `<div class="stepper" aria-label="环境创建进度">${labels.map((label, index) => `<div class="step ${index + 1 === active ? 'active' : index + 1 < active ? 'done' : ''}"><span class="step-number">${index + 1 < active ? '✓' : index + 1}</span><span>${label}</span></div>${index < labels.length - 1 ? '<span class="step-line"></span>' : ''}`).join('')}</div>`
-  }
-
-  function creatorShell (route, body) {
-    const current = creatorTabs.find(item => item[0] === route) || creatorTabs[0]
-    return `<div class="creator-header"><div><p class="eyebrow">可选工具</p><h1>AI 创作中心</h1><p>按需使用视频、长文、图文与发布工具；不影响环境创建和浏览。</p></div><span class="tag neutral">扩展工具</span></div><nav class="creator-tabs" aria-label="创作工作区">${creatorTabs.map(([id, label, symbol]) => `<a class="creator-tab ${id === current[0] ? 'active' : ''}" href="#${id}" data-route="${id}" role="tab" aria-selected="${id === current[0]}">${icon(symbol)}${label}</a>`).join('')}</nav>${body}`
-  }
-
-  function renderOverview () {
-    return `${pageHeading('本机工作空间', '工作台', '集中管理独立浏览环境、代理连接与会话状态。每项业务从一个清晰、可控的环境开始。', button('<span class="button-icon">＋</span>新建环境', 'create-basic', 'primary'))}
-      <section class="hero"><div class="hero-copy"><p class="eyebrow">栖界 · 独立浏览环境</p><h1>让每个账号，<br>都有自己的工作空间。</h1><p>为不同业务隔离登录状态和浏览数据。按需配置代理，在同一处查看环境、连接与会话状态。</p><div class="hero-actions">${button('<span class="button-icon">＋</span>创建浏览环境', 'create-basic', 'primary')}${button('浏览产品工作方式', 'onboarding', 'ghost')}</div></div><div class="hero-visual" aria-hidden="true"><div class="browser-illustration"><div class="illustration-sidebar"></div><div class="illustration-content"><div class="illustration-card"></div></div></div><div class="floating-chip one"><i></i> 独立会话</div><div class="floating-chip two"><i></i> 本地数据</div></div></section>
-      <div class="home-grid"><section class="surface home-panel"><div class="section-title"><div><h2>从这里开始</h2><p>创建并启动一个隔离的浏览环境</p></div><a class="text-link" href="#environments" data-route="environments">环境管理 <span aria-hidden="true">→</span></a></div><div class="workflow"><div class="workflow-step current"><span class="step-number">1</span><b>建立环境</b><p>设置业务名称、启动网址和本机数据位置。</p></div><div class="workflow-step"><span class="step-number">2</span><b>确认连接</b><p>选择网络方式。代理无法连接时会阻止启动。</p></div><div class="workflow-step"><span class="step-number">3</span><b>开始工作</b><p>在独立会话中访问网站，登录状态与其他环境隔离。</p></div></div></section>
-      <section class="surface home-panel"><div class="section-title"><div><h2>默认保护</h2><p>让关键边界清晰可见</p></div>${icon('shield')}</div><div class="local-principles"><div class="principle"><span class="principle-icon">${icon('folder')}</span><div><b>数据优先保存在本机</b><p>登录信息和环境数据不会默认上传。</p></div></div><div class="principle"><span class="principle-icon">${icon('globe')}</span><div><b>代理失败不自动直连</b><p>连接异常时明确提示，保留当前配置。</p></div></div><div class="principle"><span class="principle-icon">${icon('lock')}</span><div><b>环境之间相互隔离</b><p>同一环境的标签共享会话，不同环境独立。</p></div></div></div></section></div>
-      <div class="home-bottom"><section class="surface home-panel"><div class="section-title"><div><h2>最近使用的环境</h2><p>创建后会显示在这里</p></div><a class="text-link" href="#environments" data-route="environments">查看全部</a></div>${emptyState('尚未创建浏览环境', '先为一项业务建立独立会话。创建过程会分步说明数据保存、网络和指纹配置。', button('新建环境', 'create-basic', 'primary'), 'recent-empty')}</section><section class="surface home-panel"><div class="section-title"><div><h2>需要帮助？</h2><p>快速了解产品与数据边界</p></div>${icon('file')}</div><div class="local-principles"><div class="principle"><span class="principle-icon">${icon('browser')}</span><div><b>环境与浏览器标签</b><p>了解环境、会话与多标签页之间的关系。</p></div></div><div class="principle"><span class="principle-icon">${icon('warning')}</span><div><b>代理连接异常</b><p>查看检查失败后的处理方式。</p></div></div></div><div style="margin-top:13px">${button('打开首次使用指南', 'onboarding', 'soft small')}</div></section></div>`
-  }
-
-  function renderEnvironments () {
-    return `${pageHeading('核心工作 / 隔离会话', '环境列表', '每个环境拥有独立的浏览会话、配置快照与启动网址。', button('<span class="button-icon">＋</span>新建环境', 'create-basic', 'primary'))}
-      <section class="surface"><div class="tabs" role="tablist" aria-label="环境状态筛选"><button class="tab active" type="button" role="tab" aria-selected="true">全部环境</button><button class="tab" type="button" role="tab" aria-selected="false">正在运行</button><button class="tab" type="button" role="tab" aria-selected="false">需要处理</button></div><div class="filter-bar"><label class="search-field">${icon('search')}<input aria-label="搜索环境" placeholder="搜索环境名称或编号"></label><select class="select-field" aria-label="按分组筛选"><option>全部分组</option><option>未分组</option></select><select class="select-field" aria-label="环境排序"><option>最近使用</option><option>按名称排序</option></select><button class="button small" type="button" data-action="notice">管理分组</button></div>${emptyState('这里还没有环境', '为一项业务创建独立环境。浏览数据和登录状态会与其他环境隔离。', `${button('创建第一个环境', 'create-basic', 'primary')}${button('了解环境隔离', 'onboarding', 'soft')}`, 'env-empty')}<div class="list-foot"><span>环境名称、代理和运行状态会在创建后显示。</span><span>本机数据</span></div></section>`
-  }
-
-  function renderCreate (active) {
-    const route = active === 1 ? 'create-basic' : active === 2 ? 'create-network' : 'create-fingerprint'
-    const title = active === 1 ? '先建立业务环境' : active === 2 ? '选择网络连接方式' : '确认浏览器配置'
-    const description = active === 1 ? '为环境命名并选择本机保存方式。后续可单独修改启动网址。' : active === 2 ? '可以直接连接，也可以按需配置代理。连接检查会在创建前执行。' : '选择内核默认配置或按需填写参数。可用能力以实际运行时检查结果为准。'
+  function renderPage(page) {
+    const top = `<header class="page-heading"><div><h1>${escapeHTML(page.title)}</h1><p class="page-description">${escapeHTML(page.description)}</p></div><div class="page-actions">${(page.actions || []).map(button).join('')}</div></header>`
     let content = ''
-    if (active === 1) {
-      content = `<div class="form-stack"><label class="field"><span>环境名称<span class="required">*</span></span><input autocomplete="off" placeholder="输入便于识别的名称"><small>建议按业务用途命名，方便以后查找。</small></label><div class="form-grid"><label class="field"><span>业务分组</span><select><option>暂不分组</option></select><small>可以稍后建立或调整分组。</small></label><label class="field"><span>启动网址</span><input inputmode="url" placeholder="https://"><small>留空时可在启动后输入网址。</small></label></div><div class="divider"></div><div><label class="field"><span>数据保存方式</span></label><div class="radio-options" style="margin-top:8px"><label class="radio-option selected"><input type="radio" name="storage" checked><span><b>保存在本机</b><small>登录状态和环境数据仅保存在这台设备。</small></span></label><label class="radio-option"><input type="radio" name="storage" disabled><span><b>跨设备同步</b><small>需要工作空间同步服务接入后使用。</small></span></label></div></div></div>`
-    } else if (active === 2) {
-      content = `<div class="form-stack"><div><label class="field"><span>网络方式</span></label><div class="radio-options" style="margin-top:8px"><label class="radio-option selected"><input type="radio" name="network" checked><span><b>直接连接</b><small>使用当前设备网络。适合不需要独立出口的场景。</small></span></label><label class="radio-option"><input type="radio" name="network"><span><b>使用代理</b><small>连接指定代理。无法连接时不会自动改为直连。</small></span></label></div></div><div class="notice">${icon('shield')}代理连接检查会在保存前执行。凭据只在需要时显示，保存后默认掩码。</div><div class="form-grid"><label class="field"><span>代理协议</span><select><option>选择协议</option><option>HTTP / HTTPS</option><option>SOCKS5</option></select></label><label class="field"><span>代理地址</span><input placeholder="主机名或 IP 地址"></label><label class="field"><span>端口</span><input inputmode="numeric" placeholder="端口号"></label><label class="field"><span>用户名（可选）</span><input autocomplete="off" placeholder="代理用户名"></label><label class="field"><span>密码（可选）</span><input type="password" autocomplete="new-password" placeholder="代理密码"></label></div><div class="field-error" aria-live="polite" hidden>代理连接失败时会在此显示处理说明。</div><button class="button soft" type="button" data-action="notice">检查代理连接</button></div>`
-    } else {
-      content = `<div class="form-stack"><div><label class="field"><span>指纹配置方式</span></label><div class="radio-options" style="margin-top:8px"><label class="radio-option selected"><input type="radio" name="fingerprint" checked><span><b>使用内核默认配置</b><small>使用当前运行时提供的默认值。</small></span></label><label class="radio-option"><input type="radio" name="fingerprint"><span><b>自定义配置</b><small>按需调整语言、时区、屏幕和硬件参数。</small></span></label></div></div><div class="surface-flat" style="padding:14px"><div class="section-title" style="margin-bottom:11px"><div><h2>配置摘要</h2><p>首次启动前保存为稳定快照</p></div><span class="tag blue">待运行时校验</span></div><div class="summary-list"><div class="summary-row"><span>浏览器内核</span><b>由当前运行时提供</b></div><div class="summary-row"><span>语言与时区</span><b>使用设备默认值</b></div><div class="summary-row"><span>屏幕与图形参数</span><b>按运行时能力检查</b></div></div></div><div class="notice">${icon('lock')}创建后，指纹配置会随环境保存。修改前需要关闭正在运行的环境。</div></div>`
+    if (page.kind === 'dashboard') {
+      content = `<section class="workflow-banner"><div><h2>从指纹资源到独立会话</h2><p>指纹可复用，环境独立保存登录数据，平台账号由系统完成授权与更新。</p></div><span>${icon('fingerprint')}<i></i>${icon('browser')}<i></i>${icon('users')}</span></section><div class="task-grid">${page.tiles.map(item=>`<a class="surface task-card" href="#${item.target}" data-route="${item.target}"><span class="task-icon">${icon(item.icon)}</span><h2>${escapeHTML(item.title)}</h2><p>${escapeHTML(item.text)}</p><span class="task-arrow">${icon('arrow')}</span></a>`).join('')}</div><div class="section-heading"><h2>最近使用的环境</h2><a href="#environments" data-route="environments">全部环境 →</a></div>${table(page.table)}`
+    } else if (page.kind === 'list' || page.kind === 'plans') content = `${notice(page.notice)}${table(page.table,page.filters)}`
+    else if (['form','details','settings','authorize','signin'].includes(page.kind)) {
+      content = `${Number.isInteger(page.authorizationStage) ? authorizationFlow(page.authorizationStage) : ''}<div class="form-layout ${page.summary ? '' : 'single'}"><div class="form-main">${notice(page.notice)}${rows(page.rows)}${groups(page.groups,page.kind==='details')}${['fingerprint-create','fingerprint-protection'].includes(page.id) ? '<div class="fingerprint-validation" id="fingerprint-validation" role="status" aria-live="polite"></div>' : ''}${page.inlineActions ? `<div class="inline-actions">${page.inlineActions.map(button).join('')}</div>` : ''}${steps(page.steps)}${page.footer ? `<footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${environmentReturn && page.id.startsWith('fingerprint-') ? button({label:'返回环境草稿',target:'environment-create'}) : ''}${page.footer.map(item=>button(authorizationReturn && page.id==='environment-create' && item.target==='environments' ? {label:'返回授权流程',target:'account-authorize'} : item)).join('')}</div></footer>` : ''}</div>${summary(page.summary)}</div>`
+    } else if (page.kind === 'state') content = `<div class="state-content">${notice(page.notice)}${rows(page.rows)}${steps(page.steps)}${page.acknowledge ? `<label class="acknowledge"><input type="checkbox">${escapeHTML(page.acknowledge)}</label>` : ''}</div>`
+    else if (page.kind === 'permissions') content = `${notice(page.notice)}<section class="surface permission-panel"><table><thead><tr>${page.permissionColumns.map(item=>`<th>${escapeHTML(item)}</th>`).join('')}</tr></thead><tbody>${page.permissionRows.map(row=>`<tr>${row.map((cell,index)=>`<${index?'td':'th'}>${escapeHTML(cell)}</${index?'td':'th'}>`).join('')}</tr>`).join('')}</tbody></table></section>`
+    else if (page.kind === 'billing') content = `${notice(page.notice)}<div class="usage-grid">${page.rows.map(([label,value])=>`<div class="surface usage-card"><span>${escapeHTML(label)}</span><b>${escapeHTML(value)}</b></div>`).join('')}</div><div class="section-heading"><h2>订阅订单</h2></div>${table(page.table)}`
+    else if (page.kind === 'payment') content = `<div class="form-layout"><section class="surface payment-panel"><h2>确认订单</h2>${rows(page.rows)}<h2>选择付款方式</h2><div class="payment-methods">${page.methods.map(item=>`<label><input type="radio" name="payment-method">${icon('card')}<b>${escapeHTML(item)}</b></label>`).join('')}</div><div class="payment-code">${icon('card')}<h3>选择套餐后生成支付码</h3><p>订单与支付码生成后，使用对应应用扫码付款。</p></div><footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${(page.footer||[]).map(button).join('')}</div></footer></section>${summary(page.summary)}</div>`
+    return top + tabs(page.tabs) + content
+  }
+  function closePlatformPicker(restoreFocus = true, normalizeRoute = true) {
+    const root = document.getElementById('modal-root')
+    if (!root.firstElementChild) return
+    if (['proxy-create','signin'].includes(modalPageId)) {
+      const values = {}
+      root.querySelectorAll('input[id],select[id]').forEach(input=>{if(modalPageId!=='signin'||input.type!=='password') values[input.id]={value:input.value,checked:input.checked}})
+      drafts.set(modalPageId,values)
     }
-    const forward = active === 1 ? 'create-network' : 'create-fingerprint'
-    const actionText = active === 3 ? '创建环境' : '继续'
-    return `${pageHeading('环境列表 / 新建', '新建环境', '用三步建立一个可独立管理的浏览环境。')}${stepper(active)}<div class="step-layout"><section class="surface form-card"><div class="form-card-head"><div><h2>${title}</h2><p>${description}</p></div><span class="tag neutral">第 ${active} 步 / 共 3 步</span></div>${content}<div class="flow-footer"><small>环境数据默认保存在本机。</small><div class="flow-actions">${active > 1 ? button('上一步', active === 2 ? 'create-basic' : 'create-network', 'soft') : button('取消', 'environments', 'ghost')}${active < 3 ? button(`继续 ${icon('arrow')}`, forward, 'primary') : `<button class="button primary" type="button" data-action="notice">${actionText} ${icon('arrow')}</button>`}</div></div></section><aside class="surface aside-card"><h3>${active === 1 ? '创建前了解' : active === 2 ? '网络连接规则' : '指纹配置原则'}</h3><p>${active === 1 ? '环境是独立会话的边界。每个环境拥有自己的 Cookie、缓存和浏览数据。' : active === 2 ? '只有连接检查成功后，使用代理的环境才会启动。失败时保留代理配置并提示修复。' : '模板仅提供配置起点。实际支持能力由当前运行时决定，不以页面选项代替验证。'}</p><ul class="check-list"><li><span class="check-icon">✓</span><span>${active === 1 ? '不同环境的登录状态相互隔离' : active === 2 ? '代理认证信息默认以掩码显示' : '关闭环境后才能编辑配置'}</span></li><li><span class="check-icon">✓</span><span>${active === 1 ? '环境可以稍后编辑和分组' : active === 2 ? '失败时不会自动切换成本机网络' : '未配置时保持内核原生行为'}</span></li></ul><div class="divider" style="margin:16px 0 12px"></div><a class="text-link" href="#proxy-error" data-route="proxy-error">查看连接失败示例 →</a></aside></div>`
+    root.replaceChildren()
+    platformPickerInert.forEach(({ node, inert }) => { node.inert = inert })
+    platformPickerInert = []
+    document.body.classList.remove('platform-modal-open')
+    if (normalizeRoute && location.hash.split('?')[0] === `#${modalPageId}`) history.replaceState(null, '', `#${modalReturnRoute}`)
+    if (restoreFocus && platformPickerTrigger?.isConnected) platformPickerTrigger.focus()
+    platformPickerTrigger = null
+    modalPageId = ''
   }
-
-  function renderDetail () {
-    return `${pageHeading('环境列表 / 环境详情', '环境详情', '环境名称、连接方式、指纹快照与使用状态集中查看。', button('返回环境列表', 'environments', 'soft'))}<div class="split-layout"><div class="detail-sections"><section class="surface detail-section"><h2>基础信息</h2><div class="placeholder-row"><span>环境名称</span><b>选择环境后显示真实名称</b></div><div class="placeholder-row"><span>环境编号</span><b>由系统读取，不在评审稿中生成</b></div><div class="placeholder-row"><span>数据位置</span><b>读取本机配置</b></div><div class="placeholder-row"><span>最近使用</span><b>由真实运行记录提供</b></div></section><section class="surface detail-section"><h2>网络与代理</h2><div class="placeholder-row"><span>连接方式</span><b>选择环境后显示真实配置</b></div><div class="placeholder-row"><span>代理地址</span><b>认证信息默认掩码</b></div><div class="placeholder-row"><span>连接检查</span><b>尚未执行</b></div></section><section class="surface detail-section"><h2>指纹配置快照</h2><div class="placeholder-row"><span>配置来源</span><b>读取当前环境快照</b></div><div class="placeholder-row"><span>兼容性</span><b>由实际运行时检查</b></div></section></div><aside class="surface detail-aside"><h3>先选择一个环境</h3><p>环境详情只呈现已保存的真实配置。这里不预填演示名称、代理地址、运行记录或指纹值。</p>${button('打开环境列表', 'environments', 'primary small')}<div class="divider" style="margin:16px 0"></div><div class="summary-row"><span>浏览会话</span><b>按环境隔离</b></div><div class="summary-row"><span>配置修改</span><b>运行中时锁定</b></div></aside></div>`
+  function activateDialog(trigger, pageId, returnRoute) {
+    modalPageId = pageId
+    modalReturnRoute = returnRoute
+    platformPickerTrigger = trigger || document.activeElement
+    platformPickerInert = Array.from(document.querySelectorAll('.sidebar, .shell'), node => ({ node, inert: node.inert }))
+    platformPickerInert.forEach(({ node }) => { node.inert = true })
+    document.body.classList.add('platform-modal-open')
+    document.querySelector('#modal-root .platform-picker-close').focus()
   }
-
-  function renderBrowser () {
-    return `${pageHeading('环境列表 / 浏览器窗口', '环境浏览器', '在独立会话中访问网站。同一环境的网页标签共享登录状态。', button('返回环境列表', 'environments', 'soft'))}<section class="surface browser-page-card"><div class="browser-envbar"><div class="browser-envbar-left">${icon('browser')}<b>尚未选择环境</b><span class="tag neutral">会话未启动</span></div><div class="browser-envbar-right"><span class="tag blue">本机浏览器</span></div></div><div class="browser-toolbar-inner"><button class="browser-tool-button" aria-label="后退" disabled>${icon('back')}</button><button class="browser-tool-button" aria-label="刷新" disabled>↻</button><div class="browser-address">${icon('lock')}<span>选择环境后输入网址</span></div><button class="browser-tool-button" aria-label="下载" disabled>${icon('download')}</button></div><div class="browser-web-empty">${emptyIllustration()}<h2>选择一个环境开始浏览</h2><p>每个环境拥有独立的 Cookie、缓存和网络配置。当前页面不会打开外部网站。</p>${button('前往环境列表', 'environments', 'primary small')}</div><div class="browser-footnote">不同环境使用不同会话；同一环境中的网页标签共享登录状态。</div></section>`
+  function openProxyDialog(trigger) {
+    const root = document.getElementById('modal-root')
+    if (root.firstElementChild) return
+    const page = data.pages.find(item=>item.id==='proxy-create')
+    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker proxy-picker" role="dialog" aria-modal="true" aria-labelledby="proxy-picker-title" aria-describedby="proxy-picker-description"><header class="platform-picker-header"><div><h2 id="proxy-picker-title">${escapeHTML(page.title)}</h2><p id="proxy-picker-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭添加代理弹框">${icon('close')}</button></header><div class="proxy-picker-body">${groups(page.groups,false,page.id)}<div class="proxy-checks"><b>连接检测</b><span>可用性：未检测</span><span>连通性：未检测</span><span>出口时区：尚未获取</span></div></div><footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${page.footer.map(button).join('')}</div></footer></section></div>`
+    const saved = drafts.get(page.id)
+    if (saved) root.querySelectorAll('input[id],select[id]').forEach(input=>{if(saved[input.id]) input.value=saved[input.id].value})
+    activateDialog(trigger,page.id,currentRoute)
   }
-
-  function renderProxies () {
-    return `${pageHeading('网络资源', '代理资源', '集中检查代理连接，并查看环境绑定关系。代理异常时不会静默改用本机网络。', `<button class="button" type="button" data-action="notice">导入代理</button><button class="button primary" type="button" data-action="notice"><span class="button-icon">＋</span>添加代理</button>`)}
-      <div class="proxy-summary"><section class="surface summary-tile"><small>代理条目</small><b>连接后显示</b></section><section class="surface summary-tile"><small>连接状态</small><b>按需执行检查</b></section><section class="surface summary-tile"><small>认证凭据</small><b>默认掩码显示</b></section></div>
-      <section class="surface"><div class="table-head"><span>代理名称</span><span>类型与地址</span><span>出口地区</span><span>绑定环境</span><span>连接状态</span></div>${emptyState('尚未添加代理资源', '添加前准备好代理协议、服务器地址和端口。保存后可以执行连接检查。', `<button class="button primary" type="button" data-action="notice"><span class="button-icon">＋</span>添加代理</button><button class="button soft" type="button" data-route="proxy-error" data-action="route">查看异常处理</button>`, 'table-empty')}<div class="list-foot"><span>代理凭据不会显示在列表中。</span><span>本机管理</span></div></section>`
+  function openSigninDialog(trigger) {
+    const root = document.getElementById('modal-root')
+    if (root.firstElementChild) return
+    const page = data.pages.find(item=>item.id==='signin')
+    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker signin-picker" role="dialog" aria-modal="true" aria-labelledby="signin-title" aria-describedby="signin-description"><header class="platform-picker-header"><div><h2 id="signin-title">${escapeHTML(page.title)}</h2><p id="signin-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭登录框">${icon('close')}</button></header><form class="signin-form">${groups(page.groups,false,page.id)}<footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${button({label:'取消',closeDialog:true})}${page.footer.map(button).join('')}</div></footer></form></section></div>`
+    const saved = drafts.get(page.id)
+    if(saved) root.querySelectorAll('input[id]').forEach(input=>{if(saved[input.id]) input.value=saved[input.id].value})
+    activateDialog(trigger,page.id,currentRoute)
+    root.querySelector('input[type="email"]').focus()
   }
-
-  function renderCreatorVideo () {
-    return creatorShell('creator-video', `<div class="creator-workspace"><section class="surface creator-pane"><div class="pane-head"><h2>视频项目设置</h2><span class="tag green">本地渲染</span></div><div class="pane-content"><div class="upload-zone">${icon('video')}<b>选择本地视频素材</b><small>添加后会显示真实文件名与大小，不预置演示素材。</small><button class="button small" type="button" data-action="notice">浏览本机文件</button></div><label class="field"><span>创作主题</span><input placeholder="输入视频主题或要点"></label><div class="form-grid"><label class="field"><span>视频时长</span><select><option>选择时长</option><option>15 秒</option><option>30 秒</option><option>60 秒</option></select></label><label class="field"><span>画面比例</span><select><option>选择比例</option><option>9:16 竖屏</option><option>16:9 横屏</option></select></label></div><label class="field"><span>字幕</span><select><option>按需添加字幕</option><option>开启</option><option>关闭</option></select></label></div><div class="pane-actions"><small>渲染使用本机 FFmpeg。</small><button class="button primary small" type="button" data-action="notice" disabled>生成分镜</button></div></section><section class="surface creator-pane"><div class="pane-head"><h2>预览与分镜</h2><span class="tag neutral">等待素材</span></div><div class="preview-canvas"><span class="preview-icon">${icon('video')}</span><h3>预览将在这里生成</h3><p>添加素材并填写创作主题后，可检查分镜、字幕和视频画面。</p></div></section></div>`)
-  }
-
-  function renderCreatorArticle () {
-    return creatorShell('creator-article', `<div class="creator-workspace"><section class="surface creator-pane"><div class="pane-head"><h2>文章设置</h2><span class="tag blue">公众号排版</span></div><div class="pane-content"><label class="field"><span>文章主题</span><input placeholder="输入文章主题"></label><div class="form-grid"><label class="field"><span>内容风格</span><select><option>选择内容风格</option><option>知识分享</option><option>产品介绍</option><option>新闻简报</option></select></label><label class="field"><span>目标平台</span><select><option>选择发布平台</option><option>微信公众号</option></select></label></div><label class="field"><span>关键词（选填）</span><input placeholder="添加有助于表达重点的关键词"></label><div class="notice">${icon('file')}生成内容需要人工检查。排版预览不代表已经发布。</div></div><div class="pane-actions"><small>支持 Markdown 编辑与排版预览。</small><button class="button primary small" type="button" data-action="notice" disabled>开始撰写</button></div></section><section class="surface creator-pane"><div class="pane-head"><h2>文章预览</h2><button class="button small" type="button" data-action="notice" disabled>复制排版</button></div><div class="preview-canvas"><span class="preview-icon">${icon('article')}</span><h3>文章预览区</h3><p>填写主题并生成或编辑内容后，在此检查标题、正文与排版效果。</p></div></section></div>`)
-  }
-
-  function renderCreatorPost () {
-    return creatorShell('creator-post', `<div class="creator-workspace"><section class="surface creator-pane"><div class="pane-head"><h2>图文内容</h2><span class="tag blue">多图笔记</span></div><div class="pane-content"><label class="field"><span>笔记标题</span><input placeholder="输入笔记标题"></label><label class="field"><span>正文内容</span><textarea placeholder="写下你的内容"></textarea></label><div class="upload-zone">${icon('image')}<b>添加图片</b><small>从本机选择图片。支持拖动调整顺序和封面。</small><button class="button small" type="button" data-action="notice">选择图片</button></div><label class="field"><span>发布平台</span><select><option>选择发布平台</option><option>小红书</option><option>抖音</option></select></label></div><div class="pane-actions"><small>发布前请检查图片和平台格式。</small><button class="button primary small" type="button" data-action="notice" disabled>预览图文</button></div></section><section class="surface creator-pane"><div class="pane-head"><h2>移动端预览</h2><span class="tag neutral">暂无内容</span></div><div class="preview-canvas"><div class="phone-preview"><div class="phone-notch"></div><div class="phone-screen"><span class="preview-icon">${icon('image')}</span><b>内容预览</b><small>添加标题与图片后显示真实内容</small></div></div></div></section></div>`)
-  }
-
-  function renderCreatorAssets () {
-    return creatorShell('creator-assets', `<section class="surface"><div class="filter-bar"><label class="search-field">${icon('search')}<input aria-label="搜索作品" placeholder="搜索作品名称"></label><select class="select-field" aria-label="作品类型"><option>全部类型</option><option>视频</option><option>长文</option><option>图文</option></select><button class="button small" type="button" data-action="notice">刷新作品库</button></div>${emptyState('作品库暂时为空', '本机生成或保存的作品会在这里整理。当前没有预置示例内容。', button('开始创作', 'creator-video', 'primary'), 'table-empty')}<div class="list-foot"><span>作品和素材保存在本机。</span><span>本地资产</span></div></section>`)
-  }
-
-  function renderCreatorPublish () {
-    return creatorShell('creator-publish', `<div class="publish-layout"><section class="surface"><div class="pane-head"><h2>选择发布账号</h2><span class="tag neutral">由环境登录状态提供</span></div>${emptyState('没有可用的发布账号', '请先在目标浏览环境中登录平台账号。账号状态读取成功后，会列在这里供你选择。', button('前往环境列表', 'environments', 'primary small'), 'account-empty')}<div class="list-foot"><span>不会从其他环境读取登录状态。</span><span>账号按环境隔离</span></div></section><section class="surface"><div class="pane-head"><h2>发布内容</h2><span class="tag neutral">待选择账号</span></div><div class="publish-options"><label class="field"><span>发布平台</span><select disabled><option>选择已关联账号后可用</option></select></label><label class="field"><span>发布时间</span><select disabled><option>选择立即发布或定时发布</option></select></label><div class="notice">${icon('lock')}账号授权、内容预览和发布结果会按每个目标账号分别确认。</div><button class="button primary" type="button" disabled>确认发布</button></div></section></div>`)
-  }
-
-  function renderMembers () {
-    return `${pageHeading('协作与管理', '团队成员', '按成员与环境范围管理访问权限。成员变更应留下可追溯记录。', `<button class="button primary" type="button" data-action="notice">邀请成员</button>`)}<section class="surface"><div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true">成员</button><button class="tab" role="tab" aria-selected="false">角色与权限</button><button class="tab" role="tab" aria-selected="false">邀请记录</button></div><div class="filter-bar"><label class="search-field">${icon('search')}<input aria-label="搜索成员" placeholder="搜索成员姓名或邮箱"></label><select class="select-field" aria-label="成员角色"><option>所有角色</option></select><button class="button small" type="button" data-action="notice">权限说明</button></div>${emptyState('还没有邀请团队成员', '邀请成员后，可以按角色和环境范围授予权限。敏感操作应明确授权并记录。', button('邀请成员', null, 'primary'), 'table-empty')}<div class="list-foot"><span>成员列表只显示真实工作空间成员。</span><span>权限变更可审计</span></div></section>`
-  }
-
-  function renderAudit () {
-    return `${pageHeading('协作与管理', '操作记录', '按时间、成员和结果查找关键变更。记录不包含 Cookie、代理密码或网页正文。', `<button class="button" type="button" data-action="notice">导出记录</button>`)}<section class="surface"><div class="record-filters"><span class="filter-caption">筛选记录</span><select class="select-field" aria-label="日期范围"><option>选择时间范围</option></select><select class="select-field" aria-label="操作人"><option>所有成员</option></select><select class="select-field" aria-label="操作类型"><option>所有操作</option></select><select class="select-field" aria-label="操作结果"><option>所有结果</option></select><button class="button small" type="button" data-action="notice">清除筛选</button></div><div class="audit-table"><span>发生时间</span><span>成员</span><span>操作</span><span>目标</span><span>结果</span></div>${emptyState('暂无操作记录', '环境、网络和权限变更将在操作发生后写入记录。当前不显示虚构的成员或事件。', '', 'table-empty')}<div class="list-foot"><span>敏感数据默认脱敏。</span><span>记录由真实操作生成</span></div></section>`
-  }
-
-  function renderBilling () {
-    return `${pageHeading('协作与管理', '订阅计费', '查看工作空间的订阅权益和用量。仅展示服务端确认的套餐、价格与账单。')}<section class="billing-state"><div class="billing-icon">${icon('card')}</div><div><span class="tag orange">服务尚未连接</span><h2 style="margin-top:10px">订阅与在线计费暂不可用</h2><p>当前评审稿不展示套餐价格、账单金额或配额数字。计费服务接入后，页面会读取真实订阅状态和用量。</p></div></section><div class="billing-grid"><section class="surface billing-card"><h3>工作空间权益</h3><p>由订阅服务返回当前可用环境数、成员席位和同步空间。套餐详情未接入前不显示虚构权益。</p><div style="margin-top:14px"><button class="button small" type="button" data-action="notice" disabled>查看套餐</button></div></section><section class="surface billing-card"><h3>发票与付款方式</h3><p>付款记录、发票信息和续费状态将在安全的计费服务接入后显示。</p><div style="margin-top:14px"><button class="button small" type="button" data-action="notice" disabled>管理付款方式</button></div></section></div>`
-  }
-
-  function renderSettings () {
-    return `${pageHeading('协作与管理', '系统设置', '调整本地数据保护、代理检查、更新与诊断。')}<div class="settings-layout"><div class="settings-list"><section class="surface setting-section"><h2>环境与数据</h2><div class="setting-row"><div><b>关闭环境前创建恢复点</b><p>保留可恢复状态。磁盘空间不足时显示明确提醒。</p></div><button class="switch on" role="switch" aria-checked="true" aria-label="关闭环境前创建恢复点"></button></div><div class="setting-row"><div><b>启动前检查代理连接</b><p>代理无法连接时阻止启动，不静默切换到本机网络。</p></div><button class="switch on" role="switch" aria-checked="true" aria-label="启动前检查代理连接"></button></div><div class="setting-row"><div><b>环境数据位置</b><p>显示由应用实际配置的本机存储路径。</p></div><button class="button small" type="button" data-action="notice">查看位置</button></div></section><section class="surface setting-section"><h2>更新与诊断</h2><div class="setting-row"><div><b>检查更新</b><p>检查客户端与内核版本，并保留环境数据。</p></div><button class="button small" type="button" data-action="notice">检查更新</button></div><div class="setting-row"><div><b>导出诊断信息</b><p>导出前预览具体字段，不包含登录数据、代理密码或网页正文。</p></div><button class="button small" type="button" data-action="notice">预览内容</button></div><div class="setting-row"><div><b>减少界面动效</b><p>可跟随系统偏好设置。</p></div><span class="setting-value">跟随系统</span></div></section></div><aside><section class="surface settings-aside"><div class="billing-icon" style="margin-bottom:12px">${icon('shield')}</div><h3>能力以实际运行时为准</h3><p>内核版本、平台架构和指纹能力通过本机运行时读取。页面选项不代表能力已经验证。</p><div class="summary-row"><span>运行时信息</span><b>由客户端提供</b></div><div class="summary-row"><span>能力检查</span><b>启动时读取</b></div><div style="margin-top:13px">${button('查看产品工作方式', 'onboarding', 'soft small')}</div></section></aside></div>`
-  }
-
-  function renderOnboarding () {
-    return `${pageHeading('开始使用', '了解栖界', '从独立环境和会话隔离开始，按需管理代理、数据和团队访问。', button('创建浏览环境', 'create-basic', 'primary'))}<section class="onboarding-hero"><div><p class="eyebrow">先本地，后协作</p><h1>工作空间清晰，<br>每个环境彼此独立。</h1><p>栖界围绕浏览环境组织日常工作：先为业务创建独立会话，再选择网络和指纹配置。可选工具与团队权限不会改变环境隔离边界。</p></div><div class="onboarding-art" aria-hidden="true"><span class="ring">${icon('shield')}</span></div></section><div class="onboarding-grid"><section class="surface onboarding-card"><span class="principle-icon">${icon('browser')}</span><h2>1. 建立浏览环境</h2><p>每个环境拥有独立的 Cookie、缓存和登录状态，便于分开管理不同业务。</p></section><section class="surface onboarding-card"><span class="principle-icon">${icon('globe')}</span><h2>2. 检查网络连接</h2><p>直连或指定代理由你选择。代理检查失败时，会告诉你如何恢复。</p></section><section class="surface onboarding-card"><span class="principle-icon">${icon('folder')}</span><h2>3. 管理本机数据</h2><p>数据默认留在本机。同步与计费状态只在服务实际可用时展示。</p></section></div>`
-  }
-
-  function renderProxyError () {
-    return `${pageHeading('环境列表 / 网络诊断', '代理连接诊断', '失败信息应说明问题并给出下一步，不暴露原始错误对象。', button('返回新建流程', 'create-network', 'soft'))}<div class="error-page"><section class="error-banner"><span class="error-symbol">${icon('warning')}</span><div><h2>无法连接此代理</h2><p>请检查代理协议、服务器地址、端口和认证信息，然后重新检查。当前配置已保留，浏览器不会自动改用本机网络。</p></div></section><section class="surface error-recovery"><h3>你可以这样处理</h3><ul class="recovery-list"><li><i>1</i><span>确认代理地址和端口没有输入错误。</span></li><li><i>2</i><span>确认代理账户仍可用；认证信息默认以掩码显示。</span></li><li><i>3</i><span>检查代理服务商是否允许当前设备连接。</span></li><li><i>4</i><span>修复后重新执行连接检查，再启动环境。</span></li></ul><div class="flow-footer"><small>未发起真实网络请求。</small><div class="flow-actions"><button class="button" type="button" data-route="create-network" data-action="route">返回检查设置</button><button class="button primary" type="button" data-action="notice">重新检测</button></div></div></section></div>`
-  }
-
-  function renderSearch () {
-    return `<div class="search-overlay"><label class="search-overlay-input">${icon('search')}<input autofocus aria-label="搜索环境、分组和操作" placeholder="搜索环境、分组和操作"></label><div class="search-suggestions"><div class="suggestion-label">快速前往</div><a class="suggestion" href="#environments" data-route="environments">${icon('browser')}环境列表<kbd>Enter</kbd></a><a class="suggestion" href="#proxies" data-route="proxies">${icon('globe')}代理资源</a><a class="suggestion" href="#creator-video" data-route="creator-video">${icon('sparkle')}可选工具 · AI 创作</a><div class="suggestion-label">创建</div><a class="suggestion" href="#create-basic" data-route="create-basic">${icon('plus')}新建浏览环境</a><a class="suggestion" href="#settings" data-route="settings">${icon('settings')}系统设置</a></div></div><p style="margin:0 auto;max-width:680px;color:#83909d;font-size:9px">搜索仅匹配当前工作空间可见的真实记录。</p>`
-  }
-
-  function renderMediaPanel (tasks = false) {
-    const current = tasks ? 'media-queue' : 'media-panel'
-    return `<section class="aux-preview media-panel"><header class="aux-head"><span class="aux-brand">${icon('image')}</span><b>媒体提取中心</b><button type="button" class="aux-close" aria-label="收起" data-route="browser">×</button></header><nav class="aux-tabs" aria-label="媒体任务"><a href="#media-panel" data-route="media-panel" class="${tasks ? '' : 'active'}">已捕获媒体</a><a href="#media-queue" data-route="media-queue" class="${tasks ? 'active' : ''}">下载队列</a></nav>${tasks ? '' : `<div class="aux-filters"><button class="active" type="button">全部</button><button type="button">视频</button><button type="button">音频</button><button type="button">图片</button></div>`}<div class="aux-empty">${icon(tasks ? 'download' : 'image')}<h2>${tasks ? '暂无下载任务' : '当前页面没有捕获到媒体'}</h2><p>${tasks ? '从已捕获媒体中选择资源后，下载进度与结果会显示在这里。' : '开始播放或刷新当前页面后，检测到的视频、音频和图片会显示在这里。'}</p>${tasks ? '' : '<button class="button small" type="button" data-action="notice">刷新当前页面</button>'}</div><footer class="aux-foot"><span>${icon('shield')}下载遵循当前环境代理</span><a href="#browser" data-route="browser">收起</a></footer></section>`
-  }
-
-  function renderXGrokPanel () {
-    const prompt = '请写一条关于最新科技、AI或数字化生活的精简推文（X post）。语言幽默有趣或富有洞察力，字数在120字以内。直接输出推文正文，严禁输出任何引号、前缀说明或解释。'
-    return `<section class="aux-preview grok-panel"><header class="aux-head"><span class="aux-brand">${icon('sparkle')}</span><b>X 发帖控制</b><button type="button" class="aux-close" aria-label="关闭" data-route="browser">×</button></header><div class="grok-panel-content"><section class="grok-status"><span class="tag orange">未连接</span><h2>当前没有可用的 X 浏览环境</h2><p>先在目标环境中登录 X，再打开此控制面板。</p></section><section class="grok-stat"><div><b>发帖状态</b><span>未启动 · 等待环境</span></div><strong>--:--</strong></section><section class="grok-stat"><div><b>发布周期</b><span>可选 5、10、15 或 30 分钟</span></div><select aria-label="发帖间隔"><option>10 分钟 / 次</option><option>5 分钟 / 次</option><option>15 分钟 / 次</option><option>30 分钟 / 次</option></select></section><div class="grok-actions"><button class="button primary small" type="button" disabled>启动定时发帖</button><button class="button small" type="button" disabled>立即发帖</button></div><label class="field grok-prompt"><span>Grok 创作提示词</span><textarea readonly>${prompt}</textarea></label><a class="text-link grok-save" href="#x-grok-panel" data-action="notice">保存提示词</a><div class="grok-log"><b>执行日志</b><p>暂无发帖日志。启动后记录真实任务状态。</p></div></div></section>`
-  }
-
-  const renderers = {
-    overview: renderOverview,
-    environments: renderEnvironments,
-    'create-basic': () => renderCreate(1),
-    'create-network': () => renderCreate(2),
-    'create-fingerprint': () => renderCreate(3),
-    detail: renderDetail,
-    browser: renderBrowser,
-    proxies: renderProxies,
-    'creator-video': renderCreatorVideo,
-    'creator-article': renderCreatorArticle,
-    'creator-post': renderCreatorPost,
-    'creator-assets': renderCreatorAssets,
-    'creator-publish': renderCreatorPublish,
-    members: renderMembers,
-    audit: renderAudit,
-    billing: renderBilling,
-    settings: renderSettings,
-    onboarding: renderOnboarding,
-    'proxy-error': renderProxyError,
-    search: renderSearch,
-    'media-panel': () => renderMediaPanel(false),
-    'media-queue': () => renderMediaPanel(true),
-    'x-grok-panel': renderXGrokPanel
-  }
-
-  function activeNav (route) {
-    if (route.startsWith('creator-')) return 'creator-video'
-    if (route.startsWith('create-') || ['detail', 'browser', 'proxy-error'].includes(route)) return 'environments'
-    return route
-  }
-
-  function render () {
-    const route = location.hash.slice(1) || 'overview'
-    const renderer = renderers[route] || renderOverview
-    document.body.classList.toggle('aux-window-preview', route.startsWith('media-') || route === 'x-grok-panel')
-    document.getElementById('page').innerHTML = renderer()
-    document.getElementById('page-context').textContent = pageTitles[route] || pageTitles.overview
-    const selected = activeNav(route)
-    document.querySelectorAll('#navigation .nav-link').forEach(link => {
-      const isCurrent = link.dataset.route === selected
-      link.classList.toggle('active', isCurrent)
-      if (isCurrent) link.setAttribute('aria-current', 'page')
-      else link.removeAttribute('aria-current')
+  function fillFingerprintForm() {
+    document.querySelectorAll('[data-profile-path]').forEach(field=>{
+      const control=field.querySelector('input,select')
+      const value=getProfileValue(field.dataset.profilePath)
+      if(control) control.value=Array.isArray(value) ? value.join(',') : value ?? ''
     })
-    if (route === 'search') {
-      requestAnimationFrame(() => document.querySelector('.search-overlay-input input')?.focus())
+    validateFingerprintDraft()
+  }
+  function validateFingerprintDraft() {
+    const panel=document.getElementById('fingerprint-validation')
+    if(!panel) return
+    const issues=[]
+    const warnings=[]
+    try {
+      fingerprintEngine.validateFingerprintProfile(fingerprintDraft)
+      const audit=fingerprintEngine.auditGPUProfileConsistency(fingerprintDraft)
+      issues.push(...audit.issues.filter(item=>item.severity==='error').map(item=>item.message))
+      warnings.push(...audit.issues.filter(item=>item.severity==='warning').map(item=>item.message))
+      const canonical=value=>Intl.getCanonicalLocales(value)[0]
+      if(canonical(fingerprintDraft.locale.language)!==canonical(fingerprintDraft.locale.languages[0])) issues.push('主要语言须与语言列表首项一致。')
+      const preferred=fingerprintDraft.browser.acceptLanguage.split(',').map(value=>{const [tag,weight]=value.trim().split(';q=');return {tag:canonical(tag),weight:weight===undefined ? 1 : Number(weight)}})
+      if(preferred.some(item=>!Number.isFinite(item.weight)||item.weight<0||item.weight>1)) issues.push('请求语言权重须在零到一之间。')
+      preferred.sort((a,b)=>b.weight-a.weight)
+      if(!preferred.length || preferred[0].weight<=0 || preferred[0].tag!==canonical(fingerprintDraft.locale.language)) issues.push('请求语言的最高优先级须与主要语言一致。')
+      const ua=fingerprintDraft.browser.userAgent
+      if(ua) {
+        const major=ua.match(/Chrome\/(\d+)/)?.[1]
+        const platform=/Windows NT/.test(ua) ? 'Win32' : /Macintosh/.test(ua) ? 'MacIntel' : /Linux/.test(ua) ? 'Linux x86_64' : ''
+        if(Number(major)!==fingerprintDraft.browser.chromiumMajor) issues.push('浏览器标识的版本须与内核版本一致。')
+        if(platform!==fingerprintDraft.hardware.platform) issues.push('浏览器标识的系统须与平台类型一致。')
+        if(/Android|Mobile|iPhone|iPad/i.test(ua)) issues.push('当前配置仅支持桌面浏览器标识。')
+      }
+    } catch(error) {
+      const labels={'schemaVersion':'配置版本','hardware.hardwareConcurrency':'处理器线程数','hardware.deviceMemory':'设备内存','hardware.platform':'平台类型','screen.deviceScaleFactor':'设备缩放比例','screen':'屏幕','browser.chromiumMajor':'内核主版本','locale.timezone':'时区','locale.language':'主要语言','locale.languages':'语言列表','noise.seed':'噪声种子'}
+      let message=error.name==='ProfileValidationError' ? error.message : '请检查语言、时区与参数格式。'
+      Object.entries(labels).forEach(([key,label])=>{message=message.split(key).join(label)})
+      issues.push(message)
     }
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    panel.classList.toggle('error',issues.length>0)
+    panel.classList.toggle('warning',issues.length===0 && warnings.length>0)
+    panel.textContent=issues.length ? issues.join(' ') : warnings.length ? `配置存在需确认项：${warnings.join(' ')}` : '配置组合检查通过；启动时仍需核验设备与内核兼容性。'
   }
-
-  let toastTimer = 0
-  function showNotice () {
-    const toast = document.getElementById('toast')
-    toast.textContent = '这是界面评审稿，没有保存数据或连接真实服务。'
-    toast.classList.add('visible')
-    window.clearTimeout(toastTimer)
-    toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2600)
+  function updateFingerprintDraft(event) {
+    const field=event.target.closest?.('[data-profile-path]')
+    if(!field) return
+    const path=field.dataset.profilePath
+    let value=event.target.value
+    if(path==='name') fingerprintName=value
+    else {
+      const keys=path.split('.');const target=fingerprintDraft[keys[0]]
+      if(event.target.type==='number' || path==='browser.chromiumMajor' || path==='hardware.deviceMemory') value=Number(value)
+      else if(path==='locale.languages') value=value.split(',').map(item=>item.trim()).filter(Boolean)
+      else if(typeof getProfileValue(path)==='boolean') value=value==='true'
+      else if(path==='browser.userAgent') value=value.trim() || null
+      if(Object.is(target[keys[1]],value)) return
+      target[keys[1]]=value
+      if(path==='noise.canvas') fingerprintDraft.modules.canvas=value
+      if(path==='noise.audio') fingerprintDraft.modules.audio=value
+      if(path==='modules.screen') fingerprintDraft.modules.navigator=value
+      if(path==='hardware.platform') {
+        Object.assign(fingerprintDraft,fingerprintEngine.generateRandomHardwareProfile({platform:value}))
+        fingerprintDraft.browser.userAgent=null
+        fingerprintDraft.modules.canvas=fingerprintDraft.noise.canvas
+        fingerprintDraft.modules.audio=fingerprintDraft.noise.audio
+        fillFingerprintForm()
+      }
+      if(path==='locale.language') {
+        fingerprintDraft.locale.languages=value==='zh-CN' ? ['zh-CN','zh'] : value==='en-US' ? ['en-US','en'] : ['ja-JP','ja']
+        fingerprintDraft.browser.acceptLanguage=fingerprintDraft.locale.languages.map((tag,index)=>tag+(index ? ';q=0.9' : '')).join(',')
+        fillFingerprintForm()
+      }
+    }
+    validateFingerprintDraft()
   }
-
-  document.addEventListener('click', event => {
-    const routeTarget = event.target.closest('[data-route]')
-    if (routeTarget) {
-      event.preventDefault()
-      const targetRoute = routeTarget.dataset.route
-      if (location.hash === `#${targetRoute}`) render()
-      else location.hash = targetRoute
+  function openPlatformPicker(trigger) {
+    const root = document.getElementById('modal-root')
+    if (root.firstElementChild) return
+    const page = data.pages.find(item => item.id === 'account-platforms')
+    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker" role="dialog" aria-modal="true" aria-labelledby="platform-picker-title" aria-describedby="platform-picker-description"><header class="platform-picker-header"><div><h2 id="platform-picker-title">${escapeHTML(page.title)}</h2><p id="platform-picker-description">${escapeHTML(page.description)}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭添加账号弹框">${icon('close')}</button></header><div class="platform-picker-grid">${page.platforms.map(item => `<button class="platform-choice" type="button" data-platform-key="${escapeHTML(item.key)}" ${item.disabled ? 'disabled' : ''}><span class="platform-logo"><img src="${escapeHTML(item.icon)}" width="32" height="32" alt=""></span><strong>${escapeHTML(item.name)}</strong>${item.disabled ? `<small>${escapeHTML(item.status)}</small>` : ''}</button>`).join('')}</div><footer class="platform-picker-footer"><p>${escapeHTML(page.footnote)}</p><button class="button" type="button" data-close-platforms>取消</button></footer></section></div>`
+    activateDialog(trigger,page.id,currentRoute)
+  }
+  function updateSummary() {
+    const read = id => document.getElementById(`field-${currentRoute}-${id}`)?.value?.trim() || ''
+    const write = (label,value) => document.querySelectorAll('[data-summary-label]').forEach(node=>{if(node.dataset.summaryLabel===label) node.textContent=value})
+    if (currentRoute === 'fingerprint-create') {
+      write('平台类型',{'Win32':'Windows','MacIntel':'macOS','Linux x86_64':'Linux'}[fingerprintDraft.hardware.platform])
+      write('主要语言',fingerprintDraft.locale.language)
+      write('时区',fingerprintDraft.locale.timezone)
+    }
+    if (currentRoute === 'environment-create') {
+      write('环境名称',read('0-0') || '未填写')
+      const proxy = document.getElementById('field-environment-create-2-1')
+      const direct = read('2-0') === '不使用代理'
+      proxy.closest('.field').hidden = direct
+      proxy.disabled = direct
+      write('代理连接',direct ? '不使用代理' : '等待选择与检测')
+      write('时区一致性',direct ? '等待指纹信息' : '等待出口时区检测')
+    }
+    if (currentRoute === 'accounts') {
+      const selected = document.getElementById('filter-accounts-0')?.value
+      const platform = data.pages.find(item=>item.id==='account-platforms').platforms.find(item=>item.name===selected)
+      const title = document.querySelector('#page .empty-state h2')
+      const description = document.querySelector('#page .empty-state p')
+      if (platform && title) {title.textContent=`登录后查看${platform.name}账号`;description.textContent='登录并选择团队后加载对应平台的真实账号。'}
+      else if (title) {const page=data.pages.find(item=>item.id==='accounts');title.textContent=page.table.emptyTitle;description.textContent=page.table.emptyText}
+    }
+  }
+  function saveDraft() {
+    if (!currentRoute) return
+    const values={}
+    document.querySelectorAll('#page input[id],#page select[id],#page textarea[id]').forEach(input=>{values[input.id]={value:input.value,checked:input.checked}})
+    drafts.set(currentRoute,values)
+  }
+  function render() {
+    saveDraft()
+    closePlatformPicker(false, false)
+    const route=location.hash.slice(1).split('?')[0] || 'overview'
+    const parentRoute = route === 'account-platforms' ? 'accounts' : route === 'proxy-create' ? 'proxies' : route === 'signin' ? 'overview' : route
+    const page=data.pages.find(item=>item.id===parentRoute) || data.pages[0]
+    currentRoute=page.id
+    document.getElementById('page').className=`page-${page.kind} page-${page.id}`
+    document.getElementById('page').innerHTML=renderPage(page)
+    document.getElementById('page-context').textContent=page.title
+    document.querySelectorAll('#navigation [data-route]').forEach(link=>{
+      const active=link.dataset.route===page.nav
+      link.classList.toggle('active',active)
+      if(active) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current')
+    })
+    const saved=drafts.get(currentRoute)
+    if(saved) document.querySelectorAll('#page input[id],#page select[id],#page textarea[id]').forEach(input=>{if(saved[input.id] && !input.closest('[data-profile-path]')){input.value=saved[input.id].value;input.checked=saved[input.id].checked}})
+    if (currentRoute === 'account-authorize' && selectedPlatform) {
+      const platformField = document.getElementById('field-account-authorize-0-0')
+      platformField.textContent = selectedPlatform.name
+    }
+    fillFingerprintForm()
+    updateSummary()
+    window.scrollTo(0,0)
+    if (route === 'account-platforms') openPlatformPicker(document.querySelector('#page [data-route="account-platforms"]'))
+    if (route === 'proxy-create') openProxyDialog(document.querySelector('#page [data-route="proxy-create"]'))
+    if (route === 'signin') openSigninDialog(document.querySelector('.topbar [data-route="signin"]'))
+  }
+  document.addEventListener('click',event=>{
+    const category=event.target.closest('[data-form-category]')
+    if(category) {
+      const scope=category.dataset.formScope;const index=Number(category.dataset.formCategory)
+      formCategories.set(scope,index)
+      document.querySelectorAll('[data-group-panel]').forEach(panel=>{if(panel.dataset.formScope===scope) panel.hidden=Number(panel.dataset.groupPanel)!==index})
+      document.querySelectorAll('[data-form-category]').forEach(item=>{if(item.dataset.formScope===scope) item.setAttribute('aria-pressed',String(item===category))})
       return
     }
-    const actionTarget = event.target.closest('[data-action]')
-    if (actionTarget?.dataset.action === 'notice') showNotice()
-  })
-
-  document.addEventListener('change', event => {
-    if (event.target.matches('.radio-option input[type="radio"]')) {
-      const name = event.target.name
-      document.querySelectorAll(`input[type="radio"][name="${name}"]`).forEach(input => {
-        input.closest('.radio-option')?.classList.toggle('selected', input.checked)
-      })
+    if(event.target.closest('[data-action="generate-fingerprint"]')) {
+      const generated=fingerprintEngine.generateRandomHardwareProfile({platform:fingerprintDraft.hardware.platform})
+      Object.assign(fingerprintDraft,generated)
+      fingerprintDraft.browser.userAgent=null
+      fingerprintDraft.modules.canvas=fingerprintDraft.noise.canvas
+      fingerprintDraft.modules.audio=fingerprintDraft.noise.audio
+      fillFingerprintForm()
+      updateSummary()
+      return
     }
+    const closeButton = event.target.closest('[data-close-platforms]')
+    if (closeButton || event.target.classList.contains('platform-backdrop')) {
+      closePlatformPicker()
+      return
+    }
+    const platformButton = event.target.closest('[data-platform-key]')
+    if (platformButton) {
+      const page = data.pages.find(item => item.id === 'account-platforms')
+      const platform = page.platforms.find(item => item.key === platformButton.dataset.platformKey)
+      if (!platform || platform.disabled || platformButton.disabled) return
+      selectedPlatform = platform
+      closePlatformPicker(false)
+      if (location.hash === '#account-authorize') render()
+      else location.hash = 'account-authorize'
+      return
+    }
+    const link=event.target.closest('[data-route]')
+    if(!link) return
+    event.preventDefault()
+    const next=link.dataset.route
+    if(currentRoute==='account-authorize' && next==='environment-create') authorizationReturn=true
+    if(next==='accounts') authorizationReturn=false
+    if (next === 'signin') {
+      saveDraft()
+      openSigninDialog(link)
+      return
+    }
+    if (next === 'proxy-create') {
+      saveDraft()
+      openProxyDialog(link)
+      return
+    }
+    if (next === 'account-platforms') {
+      saveDraft()
+      openPlatformPicker(link)
+      return
+    }
+    if(currentRoute==='environment-create' && next==='fingerprint-create') environmentReturn=true
+    if(next==='environments') environmentReturn=false
+    if(location.hash===`#${next}`) render(); else location.hash=next
   })
-
+  document.addEventListener('input',event=>{updateFingerprintDraft(event);updateSummary()})
+  document.addEventListener('change',event=>{updateFingerprintDraft(event);updateSummary()})
+  document.addEventListener('toggle',event=>{
+    const key=event.target.dataset?.groupKey
+    if(key) {if(event.target.open) expandedGroups.add(key);else expandedGroups.delete(key)}
+  },true)
   document.addEventListener('keydown', event => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    const picker = document.querySelector('.platform-picker')
+    if (!picker) return
+    if (event.key === 'Escape') {
       event.preventDefault()
-      if (location.hash !== '#search') location.hash = 'search'
-      else document.querySelector('.search-overlay-input input')?.focus()
+      closePlatformPicker()
+      return
     }
-    if (event.key === 'Escape' && location.hash === '#search') location.hash = 'overview'
+    if (event.key !== 'Tab') return
+    const focusable = Array.from(picker.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)'))
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || !picker.contains(document.activeElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   })
-
-  window.addEventListener('hashchange', render)
+  document.addEventListener('submit',event=>event.preventDefault())
+  window.addEventListener('hashchange',render)
   render()
 })()

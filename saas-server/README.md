@@ -1,6 +1,66 @@
 # 栖界指纹浏览器 SaaS 云端协同服务 (SaaS Server)
 
-栖界指纹浏览器团队商业版云端协同中枢服务，提供多租户认证、环境跨端同步、防顶号分布式租约、代理池托管、团队 RBAC 权限协同与订阅计费配额管控。
+栖界指纹浏览器服务端，提供网页工作空间、邮箱认证、团队权限、指纹版本、浏览器环境、代理检测与订阅支付接口。
+
+当前默认启动入口为 `src/workspace-server.js`，提供新版页面、MySQL 持久化、邮箱验证码注册、会话认证和团队资源接口。下方旧版 `/api/v1`、租约与文件存储说明仅作历史原型参考，不作为新版能力验收结果；新版不创建预置用户或演示团队。
+
+## 当前注册与 QQ 邮箱配置
+
+注册流程：填写邮箱 → 获取验证码 → 输入验证码、密码、姓名与团队名称 → 验证通过后创建用户和团队并登录。登录仍使用邮箱与密码。
+
+连接参数放在服务端 `.env.dev`、`.env.test`、`.env.prod` 中，程序根据 `SAAS_ENV` 选择环境；这些文件不提交，也不会打进客户端包。数据库连接和邮件服务共用配置读取入口。
+
+首次拉取后，将 `saas-server/.env.example` 复制为所需环境文件并填写数据库、发件邮箱与授权码；将 `fingerprint-browser/build-config.example.json` 复制为 `fingerprint-browser/build-config.json`，再填写各环境的页面地址。Git 仅提交样例，真实环境配置、客户端本地打包配置和支付证书均已忽略；不要将真实凭据填入样例文件。
+
+| 配置项 | QQ 邮箱配置 |
+| --- | --- |
+| `SMTP_HOST` | `smtp.qq.com`，已预填 |
+| `SMTP_PORT` | `465`，已预填 |
+| `SMTP_SECURE` | `true`，已预填 |
+| `SMTP_USER` | 填写你的 QQ 发件邮箱 |
+| `SMTP_PASSWORD` | 填写邮箱 SMTP 授权码，不能填写邮箱登录密码 |
+| `SMTP_FROM` | 填写同一发件邮箱；留空时使用 `SMTP_USER` |
+| `SMTP_ALLOW_INSECURE_LOCAL` | 正常环境保持 `false`，仅隔离的本机邮件验收使用 |
+
+填写后重启 SaaS 服务。未配置时页面会禁用验证码发送与注册，接口也不会绕过邮箱验证。验证码六位数字、五分钟有效、六十秒后可重发；同一邮箱每小时最多五次、同一来源每小时最多二十次。错误五次后须重新获取；新验证码替代旧验证码，注册成功后不可复用。
+
+验证码只存带服务端密钥的摘要，不返回给接口调用方，不写入应用日志。SMTP 接受邮件后才激活验证码；用户、团队、成员和验证码消费在同一 MySQL 事务内完成。QQ 邮箱尚未配置时，本机 SMTP 验收不代表 QQ 公网投递已通过。
+
+SMTP 加密行为参见 [Nodemailer 官方 SMTP 文档](https://nodemailer.com/smtp)，QQ 邮箱授权码参见 [QQ 邮箱帮助](https://help.mail.qq.com/detail/106/985)。
+
+## 当前支付与套餐配置
+
+支付实现采用微信 Native 扫码、支付宝当面付预创建订单；服务端签名请求、验签应答，通知验签后再更新 MySQL 订单和订阅。扫码页面只使用支付平台真实返回的链接生成二维码，不内置价格、订单或支付成功数据。未配置时通道保持关闭。
+
+在对应服务端环境文件中填写配置，完成商户验收后将 `PAYMENTS_ENABLED` 设为 `true`。微信使用 `WECHAT_PAY_APP_ID`、`WECHAT_PAY_MCH_ID`、`WECHAT_PAY_SERIAL_NO`、`WECHAT_PAY_API_V3_KEY`、`WECHAT_PAY_PRIVATE_KEY_PATH`、`WECHAT_PAY_PLATFORM_CERT_PATH`、`WECHAT_PAY_NOTIFY_URL`。平台验签文件支持证书或公钥；使用公钥时另填 `WECHAT_PAY_PLATFORM_SERIAL_NO=PUB_KEY_ID_...`，使用证书时自动读取序列号。证书与私钥路径须为服务端绝对路径。
+
+支付宝填写 `ALIPAY_APP_ID`、`ALIPAY_SELLER_ID`、`ALIPAY_PRIVATE_KEY_PATH`、`ALIPAY_PUBLIC_KEY_PATH`、`ALIPAY_NOTIFY_URL`。当前使用普通 RSA2 公钥模式，证书模式未开放。`ALIPAY_SANDBOX=true` 仅用于支付宝官方沙箱，生产环境拒绝沙箱配置。微信、支付宝回调地址分别为公网 HTTPS 的 `/api/payments/wechat/notify`、`/api/payments/alipay/notify`，不带查询参数。更换证书后重启服务。
+
+`BILLING_PLANS_FILE` 指向 JSON 套餐文件，路径相对于环境配置文件。文件根节点为 `plans` 数组；未配置或数组为空时无在售套餐。每个在售项包含唯一 `id`、`name`、`enabled=true`、`currency=CNY`、整数 `amount`（分）、整数 `periodDays`，以及 `quotas` 中的 `fingerprints`、`environments`、`members` 正整数。运营方配置实际报价和权益，不提供虚构默认套餐。
+
+下单金额、币种、时长和权益始终取服务端套餐快照，不采信前端金额。相同请求标识只创建一个订单；网络超时保留待确认原单，通过主动查单恢复。回调校验应用、商户、订单金额和唯一平台流水；并发重复通知只开通一次。当前支持同套餐续费，剩余时长接续；有效期内不开放跨套餐变更。极端情况下跨套餐旧单延迟成功会标记“已付款，待核对”，保留已付事实并等待人工处理。已开通订阅按权益校验新增指纹、环境和成员；到期保留查看和移除，阻止新增、修改及启动。未订阅团队目前不设置虚构免费配额。
+
+| 新版支付接口 | 用途 |
+| --- | --- |
+| `GET /api/workspaces/:id/billing` | 实际用量、订阅、套餐与通道；仅管理员可查看订单 |
+| `POST /api/workspaces/:id/orders` | 传 `planId`、`method`、UUID `requestId` 创建幂等订单 |
+| `GET /api/workspaces/:id/orders/:orderId` | 读取原订单 |
+| `GET /api/workspaces/:id/orders/:orderId/code` | 返回有效订单的真实支付二维码 SVG |
+| `POST /api/workspaces/:id/orders/:orderId/refresh` | 向平台查单，确认成功后更新权益 |
+| `POST /api/payments/wechat/notify` | 验签、AES-GCM 解密微信成功通知 |
+| `POST /api/payments/alipay/notify` | 验证支付宝 RSA2 异步通知 |
+
+新增国际支付方式可实现 `payment-providers.js` 中的 `create`、`query`、`notification` 接口，并登记支付方式与独立通知路由；订单幂等、权益事务和权限检查统一由 `billing-service.js` 执行。当前金额仅支持人民币，国际币种须先实现独立报价与金额核对，不能直接复用人民币价格。
+
+协议依据：[微信 Native 下单](https://pay.wechatpay.cn/doc/v3/merchant/4012791877)、[微信平台验签](https://pay.wechatpay.cn/doc/v3/merchant/4013053420)、[支付宝官方 Node SDK 签名规则](https://github.com/alipay/alipay-sdk-nodejs-all)。`test/billing.test.js` 仅在测试进程拦截支付网络并生成临时证书，覆盖真实密码学校验及独立 MySQL 事务，不代表真实商户收款已经验收。SMTP、平台授权和实际付款的外部验收状态须单独记录。
+
+## 当前开发与客户端
+
+开发客户端读取 `fingerprint-browser/build-config.json` 的 `dev` 地址，默认 `http://127.0.0.1:8088/`；`test`、`prod` 地址由部署者填写，未配置时打包会拒绝。客户端不包含业务 HTML、服务端环境文件或数据库密码。
+
+`npm start` 读取对应环境文件并连接 MySQL；`npm test` 使用独立的 `qijie_workspace_test_*` 数据库，不向开发库初始化测试账号。`node scripts/acceptance-server.js` 只用于已有隔离库的网页验收；`--local-mailbox` 额外启用本机测试收件器，正式服务禁止启用。配置文件中的数据库密码按完整原值读取，不要省略末尾字符。
+
+## 以下为旧版原型历史说明
 
 ---
 
@@ -25,7 +85,7 @@
 npm start
 
 # 或指定端口与数据目录启动
-PORT=8088 SAAS_DATA_DIR=./data node src/server.js
+PORT=8088 SAAS_DATA_DIR=./data node src/workspace-server.js
 ```
 
 ### 2.3 运行全链路自动化测试
@@ -35,10 +95,9 @@ npm test
 
 ---
 
-## 三、默认预置初始账号（开箱体验）
-- **管理员账号**：`linmu@example.com`
-- **初始密码**：`Admin123456`
-- **默认工作空间**：`远航出海团队 (ws_default_001)`
+## 三、初始化账户
+
+新版无预置账户，首次使用请完成邮箱验证码注册并创建团队。历史 `src/server.js` 仅保留供迁移参考，不应作为正式服务入口。
 
 ---
 

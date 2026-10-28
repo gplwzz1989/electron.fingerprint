@@ -24,8 +24,6 @@ const {
   normalizeUrl
 } = require('./profile-store')
 const { AutomationServer } = require('./automation-server')
-const { MediaHub } = require('./media-hub')
-const { CreatorHub } = require('./creator-hub')
 const { detectExitIp, alignFingerprintWithGeo } = require('./geo-ip')
 const { generateRandomHardwareProfile, getRecommendedGPUList } = require('./webgl-topology')
 const {
@@ -38,8 +36,10 @@ const {
 const { PlatformAutomationManager } = require('./platform-automation')
 const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors')
 const { generateStealthScript } = require('./stealth-engine')
+const { getClientConfig } = require('./client-config')
+let clientConfig = null
 
-const initialDataRoot = resolveDataRoot()
+let initialDataRoot = resolveDataRoot()
 const fingerprintRuntime = { platform: process.platform, chromiumVersion: process.versions.chrome }
 // WebGPU 防护由所属 Session 的图形模块控制，避免影响未启用保护的环境。
 // 禁用 Blink 自动化受控特性，规避各类风控与 BotGuard 对自动化标志的底层探测
@@ -58,6 +58,8 @@ app.on('web-contents-created', (_event, contents) => {
 })
 
 try {
+  clientConfig = getClientConfig({ packaged: app.isPackaged })
+  if (!process.env.FP_BROWSER_DATA_DIR && clientConfig.environment !== 'prod') initialDataRoot = path.join(initialDataRoot, clientConfig.environment)
   app.setPath('userData', initialDataRoot)
   app.setPath('sessionData', initialDataRoot)
 } catch {
@@ -80,7 +82,7 @@ let creatorHub = null
 let quitting = false
 let startup = Promise.resolve()
 
-const APPLICATION_ID = 'com.qijie.fingerprintbrowser'
+const APPLICATION_ID = 'com.qijie.fingerprintbrowser' + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
 const APPLICATION_ICON = process.platform === 'win32'
   ? path.join(__dirname, 'assets', 'saas.ico')
   : path.join(__dirname, 'assets', 'saas.png')
@@ -252,13 +254,7 @@ function defaultUserAgent () {
 async function loadProfiles () {
   const userDataPath = app.getPath('userData')
   profileRepository = new ProfileRepository(path.join(userDataPath, 'profiles.json'))
-  const seed = JSON.parse(await fs.readFile(profileSeedPath(), 'utf8'))
-  return await profileRepository.load([createProfileRecord({
-    id: seed.id,
-    name: 'Windows 11 中文桌面',
-    url: DEFAULT_URL,
-    fingerprint: seed
-  })])
+  return await profileRepository.load([])
 }
 
 async function launchProfile (payload) {
@@ -272,12 +268,13 @@ async function launchProfile (payload) {
 
 function registerIpc () {
   const trustedPages = new Set([
+    clientConfig.appUrl,
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href,
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'browser.html')).href,
     require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'x-grok-panel.html')).href,
     require('node:url').pathToFileURL(path.join(__dirname, 'media-hub', 'popover.html')).href
   ])
-  // 只有本地管理页和标签栏可调用应用接口，远程网页不能操作其他标签。
+  // 只有配置的工作空间地址、本地管理页和标签栏可调用应用接口，其他远程网页不能操作标签。
   function assertTrusted (event) {
     if (quitting) throw new ProfileValidationError('应用正在退出，请稍后重新打开。')
     const trustedUrl = event.senderFrame?.url?.split('#', 1)[0]
@@ -286,6 +283,43 @@ function registerIpc () {
       throw new ProfileValidationError('当前页面无权操作浏览器配置或标签。')
     }
   }
+  ipcMain.handle('workspace:runtime', async event => {
+    try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
+  })
+  ipcMain.handle('workspace:launch', async (event, payload) => {
+    try {
+      assertTrusted(event)
+      if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new ProfileValidationError('环境标识无效。')
+      const cookies = await event.sender.session.cookies.get({ url: clientConfig.appUrl })
+      const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
+      const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error' })
+      const me = await meResponse.json()
+      if (!meResponse.ok || !me.ok) throw new ProfileValidationError('登录已失效，请重新登录。')
+      const response = await fetch(new URL(`/api/workspaces/${payload.workspaceId}/environments/${payload.environmentId}/launch`, clientConfig.appUrl), {
+        method: 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, body: '{}'
+      })
+      const data = await response.json()
+      if (!response.ok || !data.ok) throw new ProfileValidationError(data.message || '无法读取环境启动配置。')
+      const profile = createProfileRecord(data.profile)
+      assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+      let existing = environmentRepository.list().find(item => item.profileId === profile.id)
+      if (existing) {
+        const configurationChanged = JSON.stringify(existing.fingerprint) !== JSON.stringify(profile.fingerprint) || JSON.stringify(existing.proxy) !== JSON.stringify(profile.proxy)
+        if (configurationChanged && existing.status === 'open') throw new ProfileValidationError('服务端环境配置已变化，请先关闭本机环境后重试。')
+        if (configurationChanged || existing.profileName !== profile.name || existing.creationUrl !== profile.url) {
+          existing = await environmentRepository.updateProfile(existing.id, { name: profile.name, url: profile.url, ...(configurationChanged ? { fingerprint: profile.fingerprint, proxy: profile.proxy } : {}), expectedMetadataRevision: existing.metadataRevision, expectedProfileRevision: existing.profileRevision }, { preserveFingerprint: true })
+          tabBrowser.updateEnvironmentProfile(existing)
+        }
+        const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
+        if (tabIds.length) { tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id } }
+        return { ok: true, ...await tabBrowser.reopen(existing.id) }
+      }
+      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true })
+      return { ok: true, ...await tabBrowser.openEnvironment(environment) }
+    } catch (error) {
+      return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
+    }
+  })
   for (const action of ['list', 'select', 'close', 'navigate', 'new-page', 'devtools', 'dashboard']) {
     ipcMain.handle(`tabs:${action}`, async (event, payload) => {
       try {
@@ -752,6 +786,7 @@ function registerIpc () {
 }
 
 async function createDashboard () {
+  clientConfig = getClientConfig({ packaged: app.isPackaged })
   dashboardWindow = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -759,12 +794,11 @@ async function createDashboard () {
     minHeight: 680,
     title: '指纹浏览器 · 栖界工作空间',
     backgroundColor: '#f1f3f6',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#f1f3f6', symbolColor: '#273143', height: 44 },
+    titleBarStyle: 'default',
     icon: APPLICATION_ICON,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'workspace-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -774,26 +808,18 @@ async function createDashboard () {
     dashboardWindow = null
   })
   tabBrowser?.attachWindow(dashboardWindow)
-  if (!mediaHub) {
-    mediaHub = new MediaHub()
-    mediaHub.attach({ tabBrowser, dashboardWindow })
-    tabBrowser?.setMediaHub(mediaHub)
-  } else {
-    mediaHub.dashboardWindow = dashboardWindow
-    if (mediaHub.popoverWindow) mediaHub.popoverWindow.parentWindow = dashboardWindow
-  }
-  if (!creatorHub) {
-    creatorHub = new CreatorHub()
-    creatorHub.attach({ tabBrowser, dashboardWindow, environmentRepository })
-  } else {
-    creatorHub.dashboardWindow = dashboardWindow
-    creatorHub.environmentRepository = environmentRepository
-  }
   dashboardWindow.show()
   dashboardWindow.focus()
   dashboardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  dashboardWindow.webContents.on('will-navigate', event => event.preventDefault())
-  await dashboardWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  dashboardWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.split('#', 1)[0] !== clientConfig.appUrl) event.preventDefault()
+  })
+  while (!quitting && dashboardWindow && !dashboardWindow.isDestroyed()) {
+    try { await dashboardWindow.loadURL(clientConfig.appUrl); break } catch {
+      const result = await dialog.showMessageBox(dashboardWindow, { type: 'error', title: '无法连接工作空间', message: '工作空间服务暂不可用，请检查服务地址或网络后重试。', detail: clientConfig.appUrl, buttons: ['重试', '退出'], defaultId: 0, cancelId: 1 })
+      if (result.response !== 0) { app.quit(); break }
+    }
+  }
 }
 
 async function start () {
@@ -807,6 +833,7 @@ async function start () {
     Menu.setApplicationMenu(null)
     app.userAgentFallback = defaultUserAgent()
     await ensureUserDataPath()
+    clientConfig = getClientConfig({ packaged: app.isPackaged })
     const { recovered } = await loadProfiles()
     environmentRepository = new EnvironmentRepository(app.getPath('userData'))
     await environmentRepository.load()

@@ -2,7 +2,10 @@ param(
   [string]$RuntimeRoot = $env:FP_ELECTRON_RUNTIME,
   [string]$Compiler = $env:FP_NSIS_COMPILER,
   [string]$ResourceEditor = $env:FP_RESOURCE_EDITOR,
-  [string]$OutputRoot
+  [string]$OutputRoot,
+  [string]$AppUrl,
+  [ValidateSet('dev', 'test', 'prod')][string]$Environment = 'dev',
+  [string]$BuildConfig
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,10 +36,18 @@ function Remove-Output ([string]$Target) {
     $userFiles = Get-ChildItem -LiteralPath $resolved -Recurse -Force -File | Where-Object { $_.Name -in @('profiles.json', 'environments.json') }
     if ($userFiles) { throw '历史产物包含用户数据，不能自动清理。' }
   }
-  Remove-Item -LiteralPath $resolved -Recurse -Force
+  Add-Type -AssemblyName Microsoft.VisualBasic
+  if ($item.PSIsContainer) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($resolved, 'OnlyErrorDialogs', 'SendToRecycleBin') }
+  else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($resolved, 'OnlyErrorDialogs', 'SendToRecycleBin') }
 }
 
 try {
+  if (!$BuildConfig) { $BuildConfig = Join-Path $projectRoot 'build-config.json' }
+  $environmentConfig = Get-Content -LiteralPath $BuildConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+  if (!$AppUrl) { $AppUrl = $environmentConfig.$Environment.appUrl }
+  if (!$AppUrl) { $failureMessage = "请在打包配置文件中填写 $Environment 环境的工作空间 URL。"; throw $failureMessage }
+  $validatedUrl = & node -e "process.stdout.write(require(process.argv[1]).validateAppUrl(process.argv[2]))" (Join-Path $projectRoot 'client-config.js') $AppUrl
+  if ($LASTEXITCODE -ne 0) { throw '工作空间 URL 校验失败。' }
   if (!$RuntimeRoot) { $RuntimeRoot = Join-Path $workspaceRoot '../electron-fp-build/src/out/Release' }
   $RuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
   if (!$Compiler) { $Compiler = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis/nsis-3.0.4.1/makensis.exe' }
@@ -73,22 +84,11 @@ try {
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'package.json') -Destination $application -Force
-  foreach ($directory in @('assets', 'profiles', 'renderer', 'media-hub', 'creator-hub', 'platform-automation')) {
+  foreach ($directory in @('assets', 'platform-automation')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
-  $destNodeService = Join-Path $application 'nodeservice'
-  New-Item -ItemType Directory -Path $destNodeService -Force | Out-Null
-  Copy-Item -LiteralPath (Join-Path $projectRoot 'nodeservice/dist') -Destination (Join-Path $destNodeService 'dist') -Recurse -Force
-  if (Test-Path -LiteralPath (Join-Path $projectRoot 'nodeservice/package.json')) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot 'nodeservice/package.json') -Destination (Join-Path $destNodeService 'package.json') -Force
-  }
-  # 确保当前打包平台所需的 FFmpeg 二进制（若缺失则自动按平台下载包含）
-  & node (Join-Path $PSScriptRoot 'ensure-ffmpeg.js') "--dest=$(Join-Path $payload 'bin')" --platform=win32 --arch=x64
-  if (Test-Path -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe')) {
-    Copy-Item -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe') -Destination (Join-Path $payload 'ffmpeg.exe') -Force
-    New-Item -ItemType Directory -Path (Join-Path $application 'bin') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $payload 'bin/ffmpeg.exe') -Destination (Join-Path $application 'bin/ffmpeg.exe') -Force
-  }
+  @{ environment = $Environment; appUrl = [string]$validatedUrl } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'client-config.json') -Encoding utf8NoBOM
+  # 工作空间及浏览器控制条由 URL 提供，发行包不携带业务页面或创作模块。
   $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $version = $metadata.version
   $failureMessage = '写入应用图标与产品信息失败，请检查资源编辑工具和输出程序。'

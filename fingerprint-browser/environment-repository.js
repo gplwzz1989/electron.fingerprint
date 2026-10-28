@@ -253,13 +253,13 @@ class EnvironmentRepository {
     return task
   }
 
-  async create (profile, creationUrl) {
+  async create (profile, creationUrl, { preserveFingerprint = false } = {}) {
     return await this.enqueue(async () => {
       const now = Date.now()
       const id = randomUUID()
       const environmentProfile = clone(profile)
       environmentProfile.fingerprint = clone(profile.fingerprint)
-      environmentProfile.fingerprint.noise.seed = `environment-${randomUUID()}`
+      if (!preserveFingerprint) environmentProfile.fingerprint.noise.seed = `environment-${randomUUID()}`
       const dataDir = ensureEnvironmentPath(this.dataRoot, id, path.join(this.tabsRoot, id))
       const environment = normalizeEnvironment({
         id,
@@ -322,7 +322,7 @@ class EnvironmentRepository {
     })
   }
 
-  async updateProfile (id, patch = {}) {
+  async updateProfile (id, patch = {}, { preserveFingerprint = false } = {}) {
     return await this.enqueue(async () => {
       const current = this.get(id)
       if (!current) throw new ProfileValidationError('找不到浏览器环境。')
@@ -340,7 +340,7 @@ class EnvironmentRepository {
         throw new ProfileValidationError('请先关闭浏览器环境，再修改代理、TLS 或指纹参数。')
       }
       const nextFingerprint = Object.hasOwn(patch, 'fingerprint')
-        ? {
+        ? preserveFingerprint ? clone(patch.fingerprint) : {
             ...patch.fingerprint,
             id: current.profileId,
             noise: { ...patch.fingerprint?.noise, seed: current.fingerprint.noise.seed }

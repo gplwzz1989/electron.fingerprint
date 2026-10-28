@@ -6,9 +6,9 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parent
 SCREEN_DIR = ROOT / 'screens'
-W, H = 1520, 1000
+W, H = 1600, 1080
 C = {
-    'ink': '#18212D', 'soft': '#344252', 'muted': '#6D7988', 'quiet': '#8793A0',
+    'ink': '#18212D', 'soft': '#344252', 'muted': '#667484', 'quiet': '#8793A0',
     'line': '#E3E8ED', 'line2': '#D5DCE4', 'canvas': '#F4F6F8', 'surface': '#FFFFFF',
     'sidebar': '#151D27', 'sidebar2': '#1B2631', 'sideink': '#EBF0F5', 'sidequiet': '#96A3B1',
     'primary': '#245EE8', 'primarysoft': '#EDF3FF', 'green': '#B7EF70', 'greenink': '#355F47',
@@ -37,7 +37,8 @@ class Drawing:
         self.raw(f'<path d="{d}" fill="{fill}" stroke="{stroke or C["muted"]}" stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round" {extra}/>')
 
     def text(self, x, y, value, size=11, color=None, weight=400, anchor='start', extra=''):
-        visible_size = round(size * 1.15, 1) if size <= 10 else size
+        visible_size = max(12, size)
+        color = {'#3B5068':'#374151','#3B5069':'#374151','#42536A':'#374151','#3E5067':'#374151','#53667E':'#4B5563','#667484':'#6B7280','#697A8D':'#6B7280'}.get(color,color)
         self.raw(f'<text x="{x}" y="{y}" fill="{color or C["ink"]}" font-size="{visible_size}" font-weight="{weight}" text-anchor="{anchor}" {extra}>{escape(str(value))}</text>')
 
     def icon(self, x, y, name, color=None, s=16):
@@ -103,840 +104,305 @@ ICON_PATHS = {
 }
 
 
-NAV = [
-    ('工作台', 'grid'), ('环境列表', 'browser'), ('代理资源', 'globe'),
-    ('团队成员', 'users'), ('操作记录', 'clock'), ('订阅计费', 'card'), ('系统设置', 'settings'), ('AI 创作', 'sparkle'),
-]
+import json
+import unicodedata
+import re
+import base64
+import sys
 
+ICON_PATHS.update({
+ 'fingerprint':'<path d="M6 19c2-3 1-7 2-10a4.3 4.3 0 0 1 8 .1c1 3 0 7-1 10M3 16c1-2 0-5 1-8a8.5 8.5 0 0 1 16 0c1 3 .5 6 0 9M11 21c2-4 1-8 1-11M8 22c2-3 2-6 2-9M17 22c1-2 2-4 2-6"/>',
+ 'team':ICON_PATHS['users'], 'folder':'<path d="M3 7h7l2 2h9v10H3V7Z M3 9h18"/>',
+ 'arrow':'<path d="M4 12h16m-6-6 6 6-6 6"/>'})
 
-def shell(d, active='overview', title='工作台'):
-    d.rect(0, 0, W, 36, '#E9EDF1')
-    d.rect(12, 5, 208, 31, '#F8FAFB', '#DCE2E8', 8)
-    d.rect(20, 11, 17, 17, '#2C543F', 'none', 5)
-    d.text(28.5, 23, 'Q', 9, '#D9F8AA', 700, 'middle')
-    d.text(45, 24, '栖界 · 工作空间', 10, '#283647', 550)
-    d.text(201, 25, '×', 14, '#8190A0', 400, 'middle')
-    d.text(238, 24, '+', 18, '#687687', 400, 'middle')
-    d.circle(1472, 18, 5, 'none', '#98A4B0')
-    d.circle(1491, 18, 5, 'none', '#98A4B0')
-    d.circle(1510, 18, 5, 'none', '#98A4B0')
-    d.rect(0, 36, W, 42, '#F8FAFB')
-    d.line(0, 36, W, 36, '#DCE2E8')
-    d.text(20, 64, '‹', 21, '#687687', 400)
-    d.text(54, 64, '›', 21, '#AAB3BD', 400)
-    d.text(87, 64, '↻', 17, '#687687', 500)
-    d.rect(310, 43, 785, 27, '#EDF1F4', '#E1E6EB', 8)
-    d.text(324, 61, '⌑', 13, '#51856C', 500)
-    d.text(343, 61, '本机工作空间', 9, '#697687', 400)
-    d.text(1080, 61, '本地', 8, '#587968', 600, 'end')
-    d.text(1121, 62, '◈', 14, '#687687', 400)
-    d.text(1153, 62, '▧', 14, '#687687', 400)
-    d.rect(0, 78, 236, H - 78, C['sidebar'])
-    d.rect(236, 78, W - 236, 63, C['surface'])
-    d.line(236, 141, W, 141, C['line'])
-    d.rect(12, 99, 35, 35, '#2C543F', 'none', 10)
-    d.path('M20 109L29.5 104L39 109V120L29.5 125L20 120V109Z M20 109L29.5 114.5L39 109 M29.5 114.5V125', '#D9F8AA', 1.1)
-    d.text(57, 115, '栖界', 17, '#F4F7FA', 700)
-    d.text(57, 131, '独立浏览环境工作台', 8, C['sidequiet'], 400)
-    d.rect(14, 150, 208, 53, C['sidebar2'], '#34404C', 9)
-    d.rect(23, 160, 32, 32, '#2C543F', 'none', 8)
-    d.text(39, 180, '本', 11, '#D9F8AA', 650, 'middle')
-    d.text(65, 170, '本机工作空间', 9, '#EAF0F6', 600)
-    d.text(65, 185, '数据保存在此设备', 8, '#9CA9B7', 400)
-    d.text(211, 180, '⌄', 13, '#8895A3', 400, 'middle')
-    d.text(24, 230, '核心工作', 8, '#8190A0', 650, extra='letter-spacing="1.2"')
-    nav_y = [244, 284, 324, 384, 424, 464, 504, 584]
-    for i, (label, name) in enumerate(NAV):
-        if i == 3:
-            d.text(24, 365, '协作与管理', 8, '#8190A0', 650, extra='letter-spacing="1.2"')
-        if i == 7:
-            d.text(24, 565, '可选工具', 8, '#8190A0', 650, extra='letter-spacing="1.2"')
-        y = nav_y[i]
-        is_active = (active == 'creator' and i == 7) or (active == 'create' and i == 1) or (active == 'detail' and i == 1) or (active == 'browser' and i == 1) or (active == 'error' and i == 2) or (active == name)
-        if is_active:
-            d.rect(10, y, 216, 35, '#263C34', '#354D43', 8)
-            d.rect(10, y + 7, 2, 21, C['green'], 'none', 1)
-        color = C['green'] if is_active else '#8F9EAD'
-        d.icon(22, y + 9, name, color, 16)
-        d.text(48, y + 22, label, 10, '#FFFFFF' if is_active else '#B1BDC9', 550 if is_active else 450)
-    d.rect(14, 828, 208, 55, '#1B2B25', '#2C4137', 9)
-    d.circle(27, 846, 4, '#7BD49A')
-    d.text(39, 850, '本地数据模式', 9, '#DDE7E0', 600)
-    d.text(39, 866, '登录数据不会自动上传', 8, '#9BB0A3', 400)
-    d.text(25, 908, '?', 10, '#B9C5D0', 600)
-    d.text(42, 908, '了解栖界的工作方式', 8, '#AEB9C5', 450)
-    d.line(14, 927, 222, 927, '#2A3541')
-    d.circle(30, 954, 14, '#CBD9E5')
-    d.text(30, 957, '用', 9, '#26384B', 700, 'middle')
-    d.text(53, 952, '当前用户', 9, '#EEF2F6', 550)
-    d.text(53, 966, '本机使用者', 8, '#8E9BA9', 400)
-    d.text(216, 956, '···', 12, '#9EABB8', 500, 'middle')
-    d.text(269, 116, '栖界', 9, '#83909D', 400)
-    d.text(293, 116, '/', 9, '#C0C8D0', 400)
-    d.text(308, 116, title, 10, '#344252', 600)
-    d.rect(1047, 93, 255, 31, '#F6F8FA', '#E5E9ED', 8)
-    d.icon(1058, 101, 'search', '#7A8794', 14)
-    d.text(1079, 113, '搜索环境、分组和操作', 8, '#7A8794', 400)
-    d.rect(1240, 100, 42, 16, '#FFFFFF', '#E1E6EA', 4)
-    d.text(1261, 111, 'Ctrl K', 7, '#7F8A96', 500, 'middle')
-    d.line(1321, 99, 1321, 119, C['line'])
-    d.circle(1340, 108, 3, '#7BD49A')
-    d.text(1351, 111, '本机运行', 8, '#577765', 500)
-    d.text(1410, 114, '♧', 13, '#667484', 400)
-    d.circle(1460, 108, 13, '#CBD9E5')
-    d.text(1460, 111, '用', 8, '#26384B', 700, 'middle')
-    d.text(1484, 112, '⌄', 10, '#748191', 400, 'middle')
-    d.rect(0, 0, W, H, 'none', 'none', 0, 0, 'pointer-events="none"')
-    d.rect(1410, 978, 100, 15, '#FFFFFF', '#DFE5E9', 5, 1, 'opacity="0.9"')
-    d.text(1460, 989, '界面评审稿', 7, '#6C7B89', 400, 'middle')
-    d.text(269, 180, '', 9)
+def definitions():
+ s=(ROOT/'page-definitions.js').read_text(encoding='utf-8')
+ data=json.loads(s.split('const definitions = ',1)[1].split('\n  root.QijieProductDesign',1)[0])
+ engine=(ROOT/'fingerprint-engine.js').read_text(encoding='utf-8')
+ profile=json.loads(engine.split('const DEFAULT_PROFILE = ',1)[1].split('\n  class ProfileValidationError',1)[0])
+ for page in data['pages']:
+  for group in page.get('groups',[]):
+   for field in group['fields']:
+    path=field.get('profilePath')
+    if path and path!='name':
+     value=profile
+     for key in path.split('.'):value=value[key]
+     if path=='noise.seed':value='创建草稿时生成独立种子'
+     elif isinstance(value,list):value=','.join(value)
+     elif isinstance(value,bool):value='开启' if value else '关闭'
+     elif value is None:value=field.get('placeholder','')
+     elif path=='hardware.platform':value={'Win32':'Windows','MacIntel':'macOS','Linux x86_64':'Linux'}[value]
+     field['value']=str(value)
+ return data
+def measure(s,size):return sum((1 if unicodedata.east_asian_width(c) in 'WF' else .56)*size for c in str(s))
+def wrap(s,width,size):
+ result=[];line=''
+ for c in str(s):
+  if c=='\n' or (line and measure(line+c,size)>width):result.append(line);line='' if c=='\n' else c
+  else:line+=c
+ if line:result.append(line)
+ return result or ['']
+def para(d,x,y,s,width,size=12,color=None,lh=20):
+ lines=wrap(s,width,size)
+ for i,line in enumerate(lines):d.text(x,y+i*lh,line,size,color or C['muted'])
+ return len(lines)*lh
+def btn(d,x,y,item):
+ width=max(88,measure(item['label'],12)+30);disabled=item.get('disabled');primary=item.get('primary')
+ fill='#F0F3F7' if disabled else C['primary'] if primary else '#FFFFFF';fg='#929FB0' if disabled else '#FFFFFF' if primary else '#42536A'
+ d.rect(x,y,width,36,fill,fill if disabled or primary else '#D6DFE9',7);d.text(x+width/2,y+23,item['label'],12,fg,600,'middle')
+ return width
 
+def shell(d,data,page,height):
+ d.rect(0,0,232,height,'#151E2A');d.rect(24,24,34,34,'#253B54','#38516F',10);d.icon(29,29,'fingerprint','#D4EDFF',24);d.text(69,44,'栖界',20,'#EDF2F7',700);d.text(69,62,'环境与账号管理',12,'#92A2B4')
+ d.rect(14,82,204,56,'#1D2A39','#344459',8);d.icon(26,99,'team','#8FA5BE',19);d.text(56,105,'选择团队',13,'#DCE5EF',550);d.text(56,123,'登录后加载团队',12,'#91A1B5')
+ y=154 if height<=780 else 160
+ for item in data['nav']:
+  if item.get('group'):
+   if item['id']!='overview':y+=8
+   d.text(25,y,item['group'],12,'#899BB0',550);y+=15
+  active=page['nav']==item['id']
+  if active:d.rect(14,y,204,41,'#243E66','#31517D',8)
+  d.icon(26,y+11,item['icon'],'#A5C8FF' if active else '#90A2B8',18);d.text(55,y+27,item['title'],13,'#FFFFFF' if active else '#B9C5D4',600 if active else 450);y+=36 if height<=780 else 47
+  if item.get('group'):y+=2
+ d.line(24,height-94,208,height-94,'#2B3A4D');d.text(24,height-67,'指纹按团队保存与授权访问',12,'#96A8BC');d.text(24,height-47,'浏览会话按环境独立隔离',12,'#96A8BC')
+ d.rect(232,0,W-232,56,'#FFFFFF');d.line(232,56,W,56,C['line']);d.text(260,34,'工作空间',12,'#6B7280');d.text(322,34,'/',12,'#B2BCCA');d.text(338,34,next((v['title'] for v in data['nav'] if v['id']==page['nav']),'工作台'),13,'#374151',600)
+ d.rect(W-390,11,270,33,'#F7F8FA','#E5E7EB',6);d.icon(W-379,20,'search','#9CA3AF',15);d.text(W-355,33,'搜索指纹、环境和账号',12,'#9CA3AF');d.text(W-55,33,'登录',13,C['primary'],600,'end')
+ d.text(260,104,page['title'],22,C['ink'],650);para(d,260,131,page['description'],940,13)
+ actions=page.get('actions',[]);xx=W-28-sum(max(88,measure(v['label'],12)+30)+9 for v in actions)
+ for item in actions:xx+=btn(d,xx,83,item)+9
+ y=156
+ if page.get('tabs'):
+  xx=260
+  for label,id in page['tabs']:
+   active=id==page['id'];d.text(xx,y+16,label,13,C['primary'] if active else '#6B7280',600 if active else 400);ww=measure(label,13)+8
+   if active:d.rect(xx,y+28,ww,2,C['primary'],'none',1)
+   xx+=ww+27
+  d.line(260,y+29,W-28,y+29,C['line']);y+=48
+ return y
 
-def title(d, eyebrow, heading, desc, right=''):
-    d.text(270, 177, eyebrow, 8, '#718092', 650, extra='letter-spacing="1.1"')
-    d.text(270, 208, heading, 24, '#17212C', 660)
-    d.text(270, 229, desc, 9, C['muted'], 400)
-    if right:
-        d.button(1390 - 112, 184, 112, right, True, 34)
+def note(d,x,y,w,item):
+ if not item:return y
+ tone=item.get('tone','info');fg,bg,border=(('#B32C40','#FFF1F3','#F2CDD5') if tone=='error' else ('#98621E','#FFF7EB','#F1DFC1') if tone=='warning' else ('#49627C','#EEF4FB','#DCE7F4'))
+ h=54+len(wrap(item['text'],w-66,12))*20;d.rect(x,y,w,h,bg,border,10);d.icon(x+16,y+18,'warning' if tone in ('error','warning') else 'shield',fg,18);d.text(x+46,y+28,item['title'],12,fg,650);para(d,x+46,y+51,item['text'],w-65,12,fg)
+ return y+h+18
 
+def rows(d,x,y,w,items):
+ if not items:return y
+ h=24+len(items)*45;d.card(x,y,w,h)
+ for i,(label,value) in enumerate(items):
+  yy=y+34+i*45;d.text(x+20,yy,label,12,'#667484');d.text(x+w-20,yy,value,12,'#3B5068',500,'end')
+  if i<len(items)-1:d.line(x+20,yy+17,x+w-20,yy+17,'#EDF1F5')
+ return y+h+17
 
-def make_overview(d):
-    title(d, '本机工作空间', '工作台', '集中管理独立浏览环境、代理连接与会话状态。每项业务从一个清晰、可控的环境开始。', '＋ 新建环境')
-    d.rect(270, 253, 1218, 259, C['dark'], '#26343E', 15)
-    d.text(301, 287, '栖界 · 独立浏览环境', 8, '#A5D88D', 650, extra='letter-spacing="1.1"')
-    d.text(301, 334, '让每个账号，', 26, '#F5F7F7', 700)
-    d.text(301, 368, '都有自己的工作空间。', 26, '#F5F7F7', 700)
-    d.text(301, 398, '为不同业务隔离登录状态和浏览数据。按需配置代理，', 9, '#B1BDC2', 400)
-    d.text(301, 416, '在同一处查看环境、连接与会话状态。', 9, '#B1BDC2', 400)
-    d.button(301, 442, 137, '＋ 创建浏览环境', True, 34)
-    d.button(447, 442, 147, '浏览产品工作方式', False, 34)
-    d.rect(929, 287, 364, 184, '#24343D', '#485963', 11, 1, 'transform="rotate(-2 1111 379)"')
-    d.rect(929, 287, 364, 30, '#202F38', '#42525B', 10, 1, 'transform="rotate(-2 1111 302)"')
-    for x, col in [(944, '#708080'), (957, '#617772'), (970, '#567264')]:
-        d.circle(x, 302, 3.5, col)
-    d.rect(930, 318, 83, 152, '#213039', 'none', 0, 0, 'transform="rotate(-2 971 394)"')
-    d.rect(1026, 340, 241, 95, '#293A42', '#51636A', 7)
-    d.rect(1038, 357, 38, 40, '#304A40', '#83AA82', 10)
-    d.rect(1088, 356, 100, 6, '#839197', 'none', 4)
-    d.rect(1088, 371, 145, 5, '#51656B', 'none', 4)
-    d.rect(1088, 386, 126, 5, '#40545B', 'none', 4)
-    d.rect(1226, 268, 120, 27, '#314149', '#54656B', 8)
-    d.circle(1239, 281, 3.5, C['green'])
-    d.text(1248, 284, '独立会话', 8, '#DCE6E3', 500)
-    d.rect(900, 457, 100, 27, '#314149', '#54656B', 8)
-    d.circle(913, 470, 3.5, C['green'])
-    d.text(922, 473, '本地数据', 8, '#DCE6E3', 500)
-    d.card(270, 532, 796, 195)
-    d.text(290, 558, '从这里开始', 12, C['ink'], 650)
-    d.text(290, 574, '创建并启动一个隔离的浏览环境', 8, C['muted'], 400)
-    d.text(1045, 558, '环境管理  →', 8, C['primary'], 600, 'end')
-    for i, (label, desc) in enumerate([
-        ('建立环境', '设置业务名称、启动网址和本机数据位置。'),
-        ('确认连接', '选择网络方式。代理无法连接时会阻止启动。'),
-        ('开始工作', '在独立会话中访问网站，状态与其他环境隔离。'),
-    ]):
-        x = 291 + i * 250
-        if i:
-            d.line(x - 13, 597, x - 13, 700, C['line'])
-        d.circle(x + 11, 604, 11, C['green'] if i == 0 else '#EDF5EF')
-        d.text(x + 11, 608, str(i + 1), 8, '#243C2D' if i == 0 else '#426A56', 700, 'middle')
-        d.text(x, 632, label, 10, C['ink'], 650)
-        d.text(x, 653, desc[:19], 8, C['muted'], 400)
-        d.text(x, 667, desc[19:], 8, C['muted'], 400)
-    d.card(1082, 532, 406, 195)
-    d.text(1102, 558, '默认保护', 12, C['ink'], 650)
-    d.text(1466, 558, '安全边界', 8, C['muted'], 500, 'end')
-    for y, label, desc, kind in [(591, '数据优先保存在本机', '登录信息和环境数据不会默认上传。', 'folder'), (635, '代理失败不自动直连', '连接异常时明确提示，保留当前配置。', 'globe'), (679, '环境之间相互隔离', '同一环境共享会话，不同环境独立。', 'lock')]:
-        d.rect(1102, y - 13, 26, 26, '#EDF5EF', 'none', 8)
-        d.icon(1107, y - 8, kind, '#476F59', 16)
-        d.text(1138, y - 1, label, 9, '#364555', 650)
-        d.text(1138, y + 14, desc, 8, C['muted'], 400)
-    d.card(270, 746, 796, 195)
-    d.text(290, 772, '最近使用的环境', 12, C['ink'], 650)
-    d.text(290, 788, '创建后会显示在这里', 8, C['muted'], 400)
-    d.empty(668, 801, '尚未创建浏览环境', '先为一项业务建立独立会话。', '新建环境')
-    d.card(1082, 746, 406, 195)
-    d.text(1102, 772, '需要帮助？', 12, C['ink'], 650)
-    d.text(1102, 795, '快速了解产品与数据边界', 8, C['muted'], 400)
-    d.icon(1102, 812, 'browser', '#476F59', 17)
-    d.text(1128, 824, '环境与浏览器标签', 9, '#364555', 650)
-    d.text(1128, 840, '了解环境、会话与多标签页的关系。', 8, C['muted'], 400)
-    d.icon(1102, 856, 'warning', '#476F59', 17)
-    d.text(1128, 868, '代理连接异常', 9, '#364555', 650)
-    d.text(1128, 884, '查看检查失败后的处理方式。', 8, C['muted'], 400)
-    d.button(1102, 899, 140, '打开首次使用指南', False, 28)
+def steps(d,x,y,w,items):
+ if not items:return y
+ h=63+sum(44+20*len(wrap(t,w-93,11)) for _,t in items);d.card(x,y,w,h);d.text(x+21,y+31,'处理步骤',14,C['ink'],650);yy=y+62
+ for i,(title,text) in enumerate(items):
+  d.circle(x+32,yy+1,11.5,'#EDF3FA');d.text(x+32,yy+5,str(i+1),11,'#5F7D9F',500,'middle');d.text(x+56,yy+4,title,12,C['soft'],600);hh=para(d,x+56,yy+25,text,w-80,11,'#667484');yy+=44+hh
+ return y+h+17
 
+def table(d,x,y,w,item,filters=None,h=535):
+ d.card(x,y,w,h);yy=y
+ if filters:
+  searchw=min(360,max(220,w-len(filters)*125-52));d.rect(x+14,yy+14,searchw,35,'#FFFFFF',C['line'],7);d.icon(x+24,yy+24,'search','#8698AC',15);d.text(x+48,yy+37,'搜索名称或编号',11,'#667484');xx=x+14+searchw+10
+  for label in filters:d.rect(xx,yy+14,116,35,'#FFFFFF',C['line'],7);d.text(xx+11,yy+37,label,11,'#697A8D');d.path(f'M{xx+98} {yy+29}l4 4 4-4','#94A2B2',1.2);xx+=125
+  yy+=63;d.line(x,yy,x+w,yy,C['line'])
+ d.rect(x+1,yy+1,w-2,43,'#F8FAFC');cw=(w-34)/len(item['columns'])
+ for i,label in enumerate(item['columns']):d.text(x+17+i*cw,yy+28,label,11,'#667484',600)
+ d.line(x,yy+44,x+w,yy+44,C['line']);cy=yy+44+(y+h-yy-44)/2-30;d.rect(x+w/2-22,cy-59,44,44,'#F5F6F8','none',10);d.icon(x+w/2-12,cy-49,'folder','#9CA3AF',24);d.text(x+w/2,cy+16,item['emptyTitle'],15,C['ink'],650,'middle')
+ lines=wrap(item['emptyText'],min(650,w-80),12)
+ for i,line in enumerate(lines):d.text(x+w/2,cy+43+i*20,line,12,C['muted'],400,'middle')
+ if item.get('action'):
+  ww=max(88,measure(item['action']['label'],12)+30);btn(d,x+w/2-ww/2,cy+62+(len(lines)-1)*20,item['action'])
+ return y+h+20
 
-def make_environments(d):
-    title(d, '核心工作 / 隔离会话', '环境列表', '每个环境拥有独立的浏览会话、配置快照与启动网址。', '＋ 新建环境')
-    d.card(270, 253, 1218, 672)
-    for i, label in enumerate(['全部环境', '正在运行', '需要处理']):
-        x = 292 + i * 112
-        d.text(x, 284, label, 9, '#2454C9' if i == 0 else '#778391', 650 if i == 0 else 450)
-        if i == 0:
-            d.rect(x, 297, 62, 2, C['primary'], 'none', 1)
-    d.line(271, 298, 1487, 298)
-    d.rect(287, 314, 821, 34, '#FFFFFF', C['line'], 7)
-    d.icon(299, 323, 'search', '#8793A0', 15)
-    d.text(321, 335, '搜索环境名称或编号', 8, '#A0AAB5', 400)
-    d.rect(1118, 314, 132, 34, '#FFFFFF', C['line'], 7)
-    d.text(1130, 335, '全部分组     ⌄', 8, '#5C6978', 450)
-    d.rect(1260, 314, 126, 34, '#FFFFFF', C['line'], 7)
-    d.text(1272, 335, '最近使用   ⌄', 8, '#5C6978', 450)
-    d.button(1396, 314, 70, '管理分组', False, 34)
-    d.line(271, 360, 1487, 360)
-    d.empty(879, 473, '这里还没有环境', '为一项业务创建独立环境。数据和登录状态会与其他环境隔离。', '创建第一个环境')
-    d.line(271, 886, 1487, 886)
-    d.text(290, 907, '环境名称、代理和运行状态会在创建后显示。', 8, C['quiet'], 400)
-    d.text(1468, 907, '本机数据', 8, C['quiet'], 400, 'end')
+def summary(d,x,y,w,item):
+ if not item:return
+ h=68+len(item['rows'])*42+len(wrap(item['text'],w-40,12))*20;d.line(x,y+8,x,y+h,'#E5E7EB');d.text(x+22,y+24,item['title'],14,C['ink'],650);yy=y+60
+ for label,value in item['rows']:d.text(x+22,yy,label,12,'#6B7280');d.text(x+w,yy,value,12,'#374151',500,'end');d.line(x+22,yy+17,x+w,yy+17,'#EDEFF2');yy+=42
+ para(d,x+22,yy+5,item['text'],w-22,12,'#6B7280')
 
-
-def make_create(d, step):
-    title(d, '环境列表 / 新建', '新建环境', '用三步建立一个可独立管理的浏览环境。')
-    labels = ['基本信息', '网络连接', '指纹配置']
-    for i, label in enumerate(labels, 1):
-        x = 275 + (i - 1) * 125
-        active = i == step
-        done = i < step
-        fill = C['primary'] if active else '#E7F5EE' if done else '#EDF0F3'
-        fg = '#FFFFFF' if active else '#347153' if done else '#7D8996'
-        d.circle(x + 12, 270, 11, fill, C['primary'] if active else '#D7EADF' if done else '#E1E6EA')
-        d.text(x + 12, 273, '✓' if done else str(i), 8, fg, 700, 'middle')
-        d.text(x + 31, 273, label, 8, '#213C75' if active else '#94A0AC' if not done else '#3B7358', 650 if active else 450)
-        if i < 3:
-            d.line(x + 80, 270, x + 111, 270, '#DFE4E8')
-    d.card(270, 297, 885, 612)
-    d.text(292, 327, ['先建立业务环境', '选择网络连接方式', '确认浏览器配置'][step - 1], 13, C['ink'], 650)
-    descs = [
-        '为环境命名并选择本机保存方式。后续可单独修改启动网址。',
-        '可以直接连接，也可以按需配置代理。连接检查会在创建前执行。',
-        '选择内核默认配置或按需填写参数。可用能力以实际运行时检查结果为准。',
-    ]
-    d.text(292, 346, descs[step - 1], 8, C['muted'], 400)
-    d.rect(1050, 313, 81, 23, '#F0F3F5', 'none', 11)
-    d.text(1090, 328, f'第 {step} 步 / 共 3 步', 7, '#667484', 600, 'middle')
-    if step == 1:
-        d.field(292, 379, 824, '环境名称 *', '输入便于识别的名称')
-        d.text(292, 443, '建议按业务用途命名，方便以后查找。', 8, C['quiet'], 400)
-        d.field(292, 464, 397, '业务分组', '暂不分组')
-        d.field(719, 464, 397, '启动网址', 'https://')
-        d.line(292, 549, 1131, 549)
-        d.text(292, 578, '数据保存方式', 9, C['soft'], 600)
-        d.rect(292, 591, 402, 79, '#F5F8FF', '#8CABE A'.replace(' ', ''), 9, 1.2)
-        d.circle(309, 610, 5, '#FFFFFF', C['primary'], 1.5)
-        d.circle(309, 610, 2.5, C['primary'])
-        d.text(324, 613, '保存在本机', 9, C['soft'], 650)
-        d.text(324, 632, '登录状态和环境数据仅保存在这台设备。', 8, C['muted'], 400)
-        d.rect(712, 591, 404, 79, '#FFFFFF', C['line'], 9)
-        d.circle(729, 610, 5, '#FFFFFF', '#AAB4BE', 1.2)
-        d.text(744, 613, '跨设备同步', 9, '#8994A0', 600)
-        d.text(744, 632, '需要工作空间同步服务接入后使用。', 8, '#9AA4AE', 400)
-        d.rect(712, 646, 45, 14, C['warnsoft'], 'none', 7)
-        d.text(734, 656, '暂不可用', 6, C['warn'], 600, 'middle')
-    elif step == 2:
-        d.text(292, 380, '网络方式', 9, C['soft'], 600)
-        d.rect(292, 393, 402, 78, '#F5F8FF', '#8CABE A'.replace(' ', ''), 9, 1.2)
-        d.circle(309, 412, 5, '#FFFFFF', C['primary'], 1.5)
-        d.circle(309, 412, 2.5, C['primary'])
-        d.text(324, 415, '直接连接', 9, C['soft'], 650)
-        d.text(324, 434, '使用当前设备网络。', 8, C['muted'], 400)
-        d.rect(712, 393, 404, 78, '#FFFFFF', C['line'], 9)
-        d.circle(729, 412, 5, '#FFFFFF', '#AAB4BE', 1.2)
-        d.text(744, 415, '使用代理', 9, C['soft'], 650)
-        d.text(744, 434, '连接指定代理，需先完成连接检查。', 8, C['muted'], 400)
-        d.rect(292, 489, 824, 50, '#F3F7FA', '#E1E9EF', 8)
-        d.icon(306, 505, 'shield', '#547189', 16)
-        d.text(331, 509, '代理检查失败时会阻止启动，不会自动切换到本机网络。', 8, '#586A7C', 500)
-        d.text(331, 526, '认证信息默认掩码显示，保存时只读取实际填写内容。', 8, '#6F8191', 400)
-        d.field(292, 560, 397, '代理协议', '选择协议')
-        d.field(719, 560, 397, '代理地址', '主机名或 IP 地址')
-        d.field(292, 630, 397, '端口', '端口号')
-        d.field(719, 630, 397, '用户名（可选）', '代理用户名')
-        d.field(292, 700, 397, '密码（可选）', '代理密码')
-        d.button(719, 721, 146, '检查代理连接', False, 32)
+def groups(d,x,y,w,items,display=False,scope=''):
+ categorized=len(items or [])>1 and scope not in ('environment-create','proxy-create','signin','')
+ if categorized:
+  d.rect(x,y,w,46,'#FCFCFD');xx=x+16
+  for i,group in enumerate(items):
+   ww=measure(group['title'],13)+24
+   if not i:d.rect(xx,y+8,ww,30,'#EDF3FF','none',5)
+   d.text(xx+12,y+28,group['title'],13,C['primary'] if not i else '#6B7280',600 if not i else 400);xx+=ww+4
+  y+=46;items=items[:1]
+ for group in items or []:
+  if group.get('collapsible') and not categorized:
+   d.rect(x,y,w,88,'#FFFFFF');d.text(x+24,y+29,group['title'],14,C['ink'],650);para(d,x+24,y+54,group.get('description',''),w-165,12);d.text(x+w-24,y+29,'展开配置',12,C['primary'],500,'end');d.line(x,y+88,x+w,y+88,C['line']);y+=88;continue
+  pairs=[];pair=[]
+  for field in group['fields']:
+   if field.get('full'):
+    if pair:pairs.append(pair);pair=[]
+    pairs.append([field])
+   else:
+    pair.append(field)
+    if len(pair)==2:pairs.append(pair);pair=[]
+  if pair:pairs.append(pair)
+  fw=(w-66)/2
+  rh=[(56 if H<=780 else 68)+max([len(wrap(v.get('help',''),w-48 if v.get('full') else fw,12))*18+8 if v.get('help') else 0 for v in pair] or [0]) for pair in pairs]
+  dh=len(wrap(group.get('description',''),w-48,12))*20 if group.get('description') else 0
+  h=(46 if H<=780 else 62)+dh+sum(rh);d.rect(x,y,w,h,'#FFFFFF');d.line(x,y+h,x+w,y+h,C['line']);d.text(x+24,y+29,group['title'],14,C['ink'],650);yy=y+(42 if H<=780 else 55)
+  if group.get('action'):
+   item=group['action'];bw=max(88,measure(item['label'],12)+30);btn(d,x+w-bw-24,y+12,item)
+  if group.get('description'):para(d,x+24,yy,group['description'],w-48,12);yy+=dh+6
+  for pair,hh in zip(pairs,rh):
+   for i,item in enumerate(pair):
+    xx=x+24+i*(fw+18);width=w-48 if item.get('full') else fw;d.text(xx,yy,item['label'],13,'#374151',600)
+    if display or item['type']=='display':d.text(xx,yy+31,'—',13,'#6B7280');d.line(xx,yy+44,xx+width,yy+44,'#EDF1F5')
     else:
-        d.text(292, 380, '指纹配置方式', 9, C['soft'], 600)
-        d.rect(292, 393, 402, 74, '#F5F8FF', '#8CABE A'.replace(' ', ''), 9, 1.2)
-        d.circle(309, 412, 5, '#FFFFFF', C['primary'], 1.5)
-        d.circle(309, 412, 2.5, C['primary'])
-        d.text(324, 415, '使用内核默认配置', 9, C['soft'], 650)
-        d.text(324, 434, '使用当前运行时提供的默认值。', 8, C['muted'], 400)
-        d.rect(712, 393, 404, 74, '#FFFFFF', C['line'], 9)
-        d.circle(729, 412, 5, '#FFFFFF', '#AAB4BE', 1.2)
-        d.text(744, 415, '自定义配置', 9, C['soft'], 650)
-        d.text(744, 434, '按需调整语言、时区和硬件参数。', 8, C['muted'], 400)
-        d.card(292, 488, 824, 171, '#FFFFFF', C['line'], 9)
-        d.text(311, 514, '配置摘要', 10, C['ink'], 650)
-        d.text(311, 531, '首次启动前保存为稳定快照', 8, C['muted'], 400)
-        d.rect(1020, 499, 77, 21, C['primarysoft'], 'none', 10)
-        d.text(1058, 513, '待运行时校验', 7, '#3158A0', 600, 'middle')
-        for i, (label, value) in enumerate([('浏览器内核', '由当前运行时提供'), ('语言与时区', '使用设备默认值'), ('屏幕与图形参数', '按运行时能力检查')]):
-            y = 556 + i * 29
-            if i:
-                d.line(311, y - 16, 1096, y - 16, '#EDF0F2')
-            d.text(311, y, label, 8, C['muted'], 400)
-            d.text(1095, y, value, 8, '#39495A', 550, 'end')
-        d.rect(292, 675, 824, 50, '#F3F7FA', '#E1E9EF', 8)
-        d.icon(306, 692, 'lock', '#547189', 16)
-        d.text(331, 695, '创建后，指纹配置随环境保存。修改前需要关闭正在运行的环境。', 8, '#586A7C', 500)
-        d.text(331, 712, '运行时未提供或未校验的能力不会显示为已启用。', 8, '#6F8191', 400)
-    d.line(292, 853, 1131, 853)
-    d.text(292, 879, '环境数据默认保存在本机。', 8, C['quiet'], 400)
-    d.button(881, 865, 94, '上一步', False, 31)
-    d.button(985, 865, 130, '继续   →' if step < 3 else '创建环境', True, 31)
-    d.card(1173, 297, 315, 382)
-    headings = ['创建前了解', '网络连接规则', '指纹配置原则']
-    descriptions = [
-        '环境是独立会话的边界。每个环境拥有自己的 Cookie、缓存和浏览数据。',
-        '使用代理的环境在检查成功后才会启动。失败时保留配置并提示修复。',
-        '模板仅提供配置起点。实际支持能力由当前运行时决定。',
-    ]
-    d.text(1191, 327, headings[step - 1], 10, C['ink'], 650)
-    words = descriptions[step - 1]
-    for i in range(0, len(words), 25):
-        d.text(1191, 351 + i // 25 * 15, words[i:i + 25], 8, C['muted'], 400)
-    d.line(1191, 414, 1470, 414)
-    facts = [
-        ['不同环境的登录状态相互隔离', '环境可以稍后编辑和分组'],
-        ['代理凭据默认以掩码显示', '失败时不会自动切换为本机网络'],
-        ['关闭环境后才能编辑', '未配置时保持内核原生行为'],
-    ][step - 1]
-    for i, fact in enumerate(facts):
-        y = 443 + i * 35
-        d.circle(1198, y - 3, 7, '#E9F5EE')
-        d.text(1198, y, '✓', 8, '#3A795A', 650, 'middle')
-        d.text(1211, y, fact, 8, '#556374', 450)
-    d.line(1191, 521, 1470, 521)
-    d.text(1191, 547, '设计说明', 8, '#6D7988', 600)
-    d.text(1191, 566, '配置值会在真实环境中', 8, '#7D8996', 400)
-    d.text(1191, 581, '读取和校验；此稿不写入', 8, '#7D8996', 400)
-    d.text(1191, 596, '环境配置或启动浏览器。', 8, '#7D8996', 400)
-    d.text(1191, 638, '查看连接失败示例 →', 8, C['primary'], 600)
+     d.rect(xx,yy+10,width,37,'#FFFFFF','#D8DEE6',7);value=item.get('value',(item.get('options') or [''])[0] if item['type']=='select' else item.get('placeholder',''));value=value.get('label','') if isinstance(value,dict) else value;value=str(value)
+     while measure(value,13)>width-35:value=value[:-2]+'…'
+     d.text(xx+10,yy+33,value,13,'#374151' if 'value' in item else '#6B7280')
+     if item['type']=='select':d.path(f'M{xx+width-21} {yy+25}l4 4 4-4','#94A2B2',1.2)
+    if item.get('help'):para(d,xx,yy+65,item['help'],width,12,'#6B7280',lh=18)
+   yy+=hh
+  y+=h
+ return y
 
+def footer(d,x,y,w,items,hint='请登录后完成保存。'):
+ d.rect(x,y,w,70,'#FCFCFD');d.line(x,y,x+w,y,C['line']);d.text(x+16,y+36,hint,12,'#6B7280');xx=x+w-sum(max(88,measure(v['label'],12)+30)+8 for v in items)
+ for item in items:xx+=btn(d,xx,y+17,item)+8
+ return y+70
 
-def make_detail(d):
-    title(d, '环境列表 / 环境详情', '环境详情', '环境名称、连接方式、指纹快照与使用状态集中查看。', '返回环境列表')
-    sections = [
-        (253, '基础信息', [('环境名称', '选择环境后显示真实名称'), ('环境编号', '由系统读取，不在评审稿中生成'), ('数据位置', '读取本机配置'), ('最近使用', '由真实运行记录提供')]),
-        (452, '网络与代理', [('连接方式', '选择环境后显示真实配置'), ('代理地址', '认证信息默认掩码'), ('连接检查', '尚未执行')]),
-        (617, '指纹配置快照', [('配置来源', '读取当前环境快照'), ('兼容性', '由实际运行时检查')]),
-    ]
-    for y, heading, rows in sections:
-        h = 40 + len(rows) * 31
-        d.card(270, y, 851, h)
-        d.text(289, y + 25, heading, 10, C['ink'], 650)
-        for i, (key, value) in enumerate(rows):
-            yy = y + 47 + i * 31
-            d.line(289, yy - 8, 1102, yy - 8, '#EDF0F2')
-            d.text(289, yy + 6, key, 8, '#82909C', 400)
-            d.text(467, yy + 6, value, 8, '#5D6A78', 500)
-    d.card(1139, 253, 349, 230)
-    d.rect(1158, 273, 38, 38, '#EDF5EF', 'none', 11)
-    d.icon(1167, 282, 'browser', '#426D56', 20)
-    d.text(1158, 337, '先选择一个环境', 11, C['ink'], 650)
-    d.text(1158, 358, '环境详情只呈现已保存的真实配置。', 8, C['muted'], 400)
-    d.text(1158, 374, '这里不预填演示名称、代理地址、', 8, C['muted'], 400)
-    d.text(1158, 390, '运行记录或指纹值。', 8, C['muted'], 400)
-    d.button(1158, 416, 130, '打开环境列表', True, 30)
-    d.line(1158, 459, 1470, 459)
-    d.text(1158, 479, '浏览会话', 8, C['muted'], 400)
-    d.text(1469, 479, '按环境隔离', 8, C['soft'], 550, 'end')
-    d.text(1158, 502, '配置修改', 8, C['muted'], 400)
-    d.text(1469, 502, '运行中时锁定', 8, C['soft'], 550, 'end')
+def platform_image(d,item,x,y,size):
+ encoded=base64.b64encode((ROOT/item['icon']).read_bytes()).decode('ascii')
+ d.raw(f'<image xmlns:xlink="http://www.w3.org/1999/xlink" x="{x}" y="{y}" width="{size}" height="{size}" xlink:href="data:image/png;base64,{encoded}"/>')
 
+def authorization_flow(d,x,y,stage):
+ for i,label in enumerate(['选择环境','平台登录','确认身份','保存授权']):
+  xx=x+i*182;active=i==stage;fg=C['primary'] if active else '#6B7280'
+  d.circle(xx+12,y+12,12,C['primary'] if active else '#FFFFFF',C['primary'] if active else '#E5E7EB');d.text(xx+12,y+16,str(i+1),12,'#FFFFFF' if active else fg,500,'middle');d.text(xx+33,y+17,label,13,fg,600 if active else 400)
+  if i<3:d.line(xx+102,y+12,xx+165,y+12,'#E5E7EB')
+ return y+48
 
-def make_browser(d):
-    title(d, '环境列表 / 浏览器窗口', '环境浏览器', '在独立会话中访问网站。同一环境的网页标签共享登录状态。', '返回环境列表')
-    d.card(270, 253, 1218, 644)
-    d.rect(271, 254, 1216, 48, '#F8FAFB', 'none', 12)
-    d.icon(291, 270, 'browser', '#596A79', 17)
-    d.text(318, 282, '尚未选择环境', 9, '#596A79', 650)
-    d.rect(421, 269, 76, 20, '#F0F3F5', 'none', 10)
-    d.text(459, 283, '会话未启动', 7, '#667484', 600, 'middle')
-    d.rect(1416, 269, 54, 20, C['primarysoft'], 'none', 10)
-    d.text(1443, 283, '本机浏览器', 7, '#3158A0', 600, 'middle')
-    d.line(271, 302, 1487, 302)
-    for i, label in enumerate(['‹', '↻']):
-        d.rect(286 + i * 34, 313, 28, 28, '#FFFFFF', C['line'], 7)
-        d.text(300 + i * 34, 332, label, 14, '#6C7987', 500, 'middle')
-    d.rect(358, 313, 1045, 28, '#F8FAFB', '#E5EAEE', 8)
-    d.icon(369, 320, 'lock', '#8B96A2', 14)
-    d.text(390, 332, '选择环境后输入网址', 8, '#8B96A2', 400)
-    d.rect(1411, 313, 28, 28, '#FFFFFF', C['line'], 7)
-    d.icon(1418, 320, 'download', '#6C7987', 14)
-    d.rect(1446, 313, 28, 28, '#FFFFFF', C['line'], 7)
-    d.icon(1453, 320, 'shield', '#6C7987', 14)
-    d.line(271, 352, 1487, 352)
-    d.empty(879, 479, '选择一个环境开始浏览', '每个环境拥有独立的 Cookie、缓存和网络配置。当前页面不会打开外部网站。', '前往环境列表')
-    d.rect(271, 868, 1216, 28, '#F8FAFB', 'none', 0)
-    d.line(271, 868, 1487, 868)
-    d.text(289, 887, '不同环境使用不同会话；同一环境中的网页标签共享登录状态。', 8, '#718090', 400)
+def proxy_picker(d,p,height):
+ d.rect(232,0,W-232,height,'#102034','none',0,1,'opacity=".36"')
+ w,h=640,min(620,height-32);x=232+(W-232-w)/2;y=(height-h)/2
+ d.rect(x,y,w,h,'#FFFFFF','#DCE4EE',14);d.text(x+24,y+37,p['title'],20,C['ink'],650);d.text(x+24,y+62,p['description'],13,'#6B7280');d.path(f'M{x+w-43} {y+26}l12 12m0-12-12 12','#718096',1.6)
+ yy=groups(d,x+4,y+80,w-8,p['groups']);d.text(x+24,yy+12,'连接检测',13,C['ink'],600)
+ for i,label in enumerate(['可用性：未检测','连通性：未检测','出口时区：尚未获取']):d.text(x+24+i*185,yy+40,label,12,'#6B7280')
+ d.line(x,y+h-72,x+w,y+h-72,C['line']);d.text(x+24,y+h-32,p['footerHint'],12,'#6B7280');xx=x+w-24-sum(max(88,measure(v['label'],12)+30)+8 for v in p['footer'])
+ for item in p['footer']:xx+=btn(d,xx,y+h-54,item)+8
 
+def signin_picker(d,p,height):
+ d.rect(232,0,W-232,height,'#102034','none',0,1,'opacity=".36"')
+ w,h=440,378;x=232+(W-232-w)/2;y=(height-h)/2
+ d.rect(x,y,w,h,'#FFFFFF','#DCE4EE',14);d.text(x+24,y+37,p['title'],20,C['ink'],650);para(d,x+24,y+62,p['description'],w-48,13)
+ d.path(f'M{x+w-43} {y+26}l12 12m0-12-12 12','#718096',1.6)
+ for i,item in enumerate(p['groups'][0]['fields']):
+  yy=y+102+i*78;d.text(x+24,yy,item['label'],13,C['ink'],600);d.rect(x+24,yy+12,w-48,37,'#FFFFFF','#D8DEE6',7);d.text(x+34,yy+36,item['placeholder'],13,'#6B7280')
+ d.line(x,y+h-96,x+w,y+h-96,C['line']);d.text(x+24,y+h-70,p['footerHint'],12,'#6B7280');btn(d,x+24,y+h-52,{'label':'取消'});btn(d,x+128,y+h-52,p['footer'][0])
 
-def make_proxies(d):
-    title(d, '网络资源', '代理资源', '集中检查代理连接，并查看环境绑定关系。代理异常时不会静默改用本机网络。', '＋ 添加代理')
-    tiles = [('代理条目', '连接后显示'), ('连接状态', '按需执行检查'), ('认证凭据', '默认掩码显示')]
-    for i, (label, value) in enumerate(tiles):
-        x = 270 + i * 412
-        d.card(x, 253, 394, 76)
-        d.text(x + 17, 280, label, 8, '#798594', 450)
-        d.text(x + 17, 307, value, 10, '#344354', 650)
-    d.card(270, 346, 1218, 579)
-    d.rect(271, 347, 1216, 39, '#F8FAFB', 'none', 12)
-    cols = [('代理名称', 289), ('类型与地址', 538), ('出口地区', 801), ('绑定环境', 1048), ('连接状态', 1295)]
-    for label, x in cols:
-        d.text(x, 372, label, 8, '#788593', 600)
-    d.line(271, 386, 1487, 386)
-    d.empty(879, 487, '尚未添加代理资源', '添加前准备好代理协议、服务器地址和端口。保存后可以执行连接检查。', '＋ 添加代理')
-    d.line(271, 886, 1487, 886)
-    d.text(289, 907, '代理凭据不会显示在列表中。', 8, C['quiet'], 400)
-    d.text(1468, 907, '本机管理', 8, C['quiet'], 400, 'end')
+def platform_picker(d,p,height):
+ d.rect(232,0,W-232,height,'#102034','none',0,1,'opacity=".36"')
+ w=560;cw,ch,gap=96,108,8;columns=max(1,(w-48+gap)//(cw+gap));rows=max(1,(len(p['platforms'])+columns-1)//columns)
+ footer_y=90+rows*ch+(rows-1)*gap+24;h=footer_y+66;x=232+(W-232-w)/2;y=(height-h)/2
+ d.rect(x,y,w,h,'#FFFFFF','#DCE4EE',14)
+ d.text(x+24,y+37,p['title'],20,C['ink'],650)
+ d.text(x+24,y+62,p['description'],12,'#667484')
+ d.path(f'M{x+w-43} {y+26}l12 12m0-12-12 12','#718096',1.6)
+ for i,item in enumerate(p['platforms']):
+  xx=x+24+(i%columns)*(cw+gap);yy=y+90+(i//columns)*(ch+gap)
+  asset=ROOT/item['icon'];encoded=base64.b64encode(asset.read_bytes()).decode('ascii')
+  d.raw(f'<image xmlns:xlink="http://www.w3.org/1999/xlink" x="{xx+cw/2-16}" y="{yy+12}" width="32" height="32" xlink:href="data:image/png;base64,{encoded}"/>')
+  d.text(xx+cw/2,yy+72,item['name'],13,'#354A63',600,'middle')
+  if item.get('disabled'):
+   d.text(xx+cw/2,yy+91,item['status'],10,'#718096',400,'middle')
+ d.rect(x+1,y+footer_y,w-2,65,'#FAFBFD')
+ d.line(x,y+footer_y,x+w,y+footer_y,'#E7ECF3')
+ d.text(x+24,y+footer_y+39,p['footnote'],11,'#667484')
+ btn(d,x+w-112,y+footer_y+16,{'label':'取消'})
 
+def render(d,data,p,height):
+ if p['id']=='signin':
+  render(d,data,next(item for item in data['pages'] if item['id']=='overview'),height)
+  signin_picker(d,p,height)
+  return
+ if p.get('presentation')=='modal' and p['id']=='proxy-create':
+  render(d,data,next(item for item in data['pages'] if item['id']=='proxies'),height)
+  proxy_picker(d,p,height)
+  return
+ if p['kind']=='platforms':
+  render(d,data,next(item for item in data['pages'] if item['id']=='accounts'),height)
+  platform_picker(d,p,height)
+  return
+ y=shell(d,data,p,height);x,w=260,W-288;kind=p['kind']
+ if kind=='dashboard':
+  d.rect(x,y,w,88,'#FFFFFF',C['line'],8);d.text(x+25,y+37,'从指纹资源到独立会话',18,'#203B5D',650);d.text(x+25,y+61,'指纹可复用，环境独立保存登录数据，平台账号由系统完成授权与更新。',12,'#5B708A');xx=x+w-205
+  for name in ['fingerprint','browser','users']:
+   d.icon(xx,y+38,name,'#587CA9',29)
+   if name!='users':d.line(xx+42,y+52,xx+67,y+52,'#ACC0D8')
+   xx+=80
+  y+=106;tw=(w-32)/3
+  for i,item in enumerate(p['tiles']):
+   xx=x+i*(tw+16);d.card(xx,y,tw,136);d.rect(xx+20,y+20,35,35,'#EDF3FA','#E0E9F4',10);d.icon(xx+28,y+28,item['icon'],'#496D9B',19);d.icon(xx+tw-37,y+24,'arrow','#8CA0B9',15);d.text(xx+20,y+74,item['title'],14,C['ink'],650);para(d,xx+20,y+99,item['text'],tw-50,11,lh=19)
+  y+=167;d.text(x,y,'最近使用的环境',14,C['ink'],650);d.text(x+w,y,'全部环境 →',11,C['primary'],500,'end');table(d,x,y+18,w,p['table'],h=330)
+ elif kind in ('list','plans'):
+  y=note(d,x,y,w,p.get('notice'))
+  table(d,x,y,w,p['table'],p.get('filters'),h=min(610,height-y-70))
+ elif kind in ('form','details','settings','authorize','signin'):
+  if 'authorizationStage' in p:y=authorization_flow(d,x,y,p['authorizationStage'])
+  mw=w-305 if p.get('summary') else min(w,920);summary_item=p.get('summary');form_groups=p.get('groups')
+  if p['id']=='environment-create':
+   form_groups=json.loads(json.dumps(form_groups));form_groups[2]['fields']=form_groups[2]['fields'][:1]
+   summary_item=json.loads(json.dumps(summary_item));summary_item['rows'][-1]=['时区一致性','等待指纹信息']
+  summary(d,x+mw+20,y,285,summary_item);y=note(d,x,y,mw,p.get('notice'))
+  if p.get('notice'):y-=18
+  y=rows(d,x,y,mw,p.get('rows'))
+  if p.get('rows'):y-=17
+  y=groups(d,x,y,mw,form_groups,kind=='details',p['id'])
+  if p.get('inlineActions'):
+   xx=x
+   for item in p['inlineActions']:xx+=btn(d,xx,y,item)+10
+   y+=55
+  y=steps(d,x,y,mw,p.get('steps'))
+  if p['id'] in ('fingerprint-create','fingerprint-protection'):
+   d.rect(x,y,mw,38,'#F8FCFA');d.text(x+16,y+24,'配置组合检查通过；启动时仍需核验设备与内核兼容性。',12,'#167859');y+=38
+  if p.get('footer'):footer(d,x,y,mw,p['footer'],p.get('footerHint',''))
+ elif kind=='state':
+  w=min(w,1020);y=note(d,x,y,w,p.get('notice'));y=rows(d,x,y,w,p.get('rows'));y=steps(d,x,y,w,p.get('steps'))
+  if p.get('acknowledge'):d.rect(x,y+3,14,14,'#FFFFFF','#B9C6D7',3);d.text(x+24,y+15,p['acknowledge'],12,'#76602F')
+ elif kind=='permissions':
+  y=note(d,x,y,w,p.get('notice'));d.card(x,y,w,51+len(p['permissionRows'])*61);cw=w/len(p['permissionColumns']);d.rect(x+1,y+1,w-2,46,'#F8FAFC')
+  for i,label in enumerate(p['permissionColumns']):d.text(x+19+i*cw,y+30,label,12,'#667484',600)
+  for ri,row in enumerate(p['permissionRows']):
+   yy=y+47+ri*61;d.line(x,yy,x+w,yy,C['line'])
+   for i,label in enumerate(row):d.text(x+19+i*cw,yy+36,label,12,'#53667E' if not i else '#657C96',500 if not i else 400)
+ elif kind=='billing':
+  y=note(d,x,y,w,p.get('notice'));cw=(w-26)/3
+  for i,(label,value) in enumerate(p['rows']):
+   xx=x+(i%3)*(cw+13);yy=y+(i//3)*96;d.card(xx,yy,cw,83);d.text(xx+17,yy+27,label,11,'#667484');d.text(xx+17,yy+58,value,19,'#415A77',600)
+  y+=215;d.text(x,y,'订阅订单',14,C['ink'],650);table(d,x,y+18,w,p['table'],h=335)
+ elif kind=='payment':
+  mw=w-305;summary(d,x+mw+20,y,285,p.get('summary'));d.card(x,y,mw,660);d.text(x+22,y+33,'确认订单',14,C['ink'],650);yy=y+55
+  for label,value in p['rows']:d.text(x+22,yy+17,label,12,'#667484');d.text(x+mw-22,yy+17,value,12,'#3B5068',500,'end');d.line(x+22,yy+31,x+mw-22,yy+31,'#EDF1F5');yy+=46
+  d.text(x+22,yy+26,'选择付款方式',14,C['ink'],650);yy+=45;pw=(mw-58)/2
+  for i,label in enumerate(p['methods']):
+   xx=x+22+i*(pw+14);d.rect(xx,yy,pw,55,'#FFFFFF','#DCE4EF',9);d.circle(xx+19,yy+27,6,'#FFFFFF','#A6B5C7',1.2);d.icon(xx+38,yy+18,'card','#46617E',18);d.text(xx+67,yy+33,label,12,'#46617E',600)
+  yy+=75;d.rect(x+22,yy,mw-44,209,'#F8FAFC','#D9E3EE',10,1,'stroke-dasharray="5 5"');d.icon(x+mw/2-17,yy+44,'card','#93A7BC',34);d.text(x+mw/2,yy+108,'选择套餐后生成支付码',13,'#6A7F96',600,'middle');d.text(x+mw/2,yy+137,'订单与支付码生成后，使用对应应用扫码付款。',11,'#667484',400,'middle');footer(d,x+22,y+572,mw-44,p['footer'],p.get('footerHint',''))
 
-def creator_base(d, active_label, title_main, subtitle):
-    title(d, '内容工作流', 'AI 创作中心', '从素材到成稿与发布，在同一条清晰的工作流中完成。')
-    tabs = ['视频创作', '长文排版', '图文笔记', '作品库', '发布配置']
-    d.rect(270, 253, 756, 39, '#E9EDF1', '#E0E5E9', 9)
-    for i, label in enumerate(tabs):
-        x = 276 + i * 148
-        if label == active_label:
-            d.rect(x, 257, 142, 31, '#FFFFFF', 'none', 7)
-        d.text(x + 71, 277, label, 8, '#1F4FBF' if label == active_label else '#667483', 650 if label == active_label else 450, 'middle')
-    d.rect(1289, 258, 73, 21, '#E9F7F1', 'none', 10)
-    d.text(1325, 272, '本机创作', 7, '#397258', 600, 'middle')
-
-
-def make_creator(d, kind):
-    specs = {
-        'video': ('视频创作', '视频项目设置', '预览与分镜'),
-        'article': ('长文排版', '文章设置', '文章预览'),
-        'post': ('图文笔记', '图文内容', '移动端预览'),
-        'assets': ('作品库', '作品资产', '本机生成内容'),
-        'publish': ('发布配置', '选择发布账号', '发布内容'),
-    }
-    active_label, left_title, right_title = specs[kind]
-    creator_base(d, active_label, left_title, '')
-    if kind == 'assets':
-        d.card(270, 308, 1218, 617)
-        d.rect(287, 322, 750, 33, '#FFFFFF', C['line'], 7)
-        d.icon(299, 331, 'search', '#8793A0', 15)
-        d.text(321, 344, '搜索作品名称', 8, '#A0AAB5', 400)
-        d.rect(1048, 322, 140, 33, '#FFFFFF', C['line'], 7)
-        d.text(1061, 343, '全部类型       ⌄', 8, '#5C6978', 450)
-        d.button(1379, 322, 91, '刷新作品库', False, 33)
-        d.line(271, 367, 1487, 367)
-        d.empty(879, 474, '作品库暂时为空', '本机生成或保存的作品会在这里整理。当前没有预置示例内容。', '开始创作')
-        d.line(271, 886, 1487, 886)
-        d.text(289, 907, '作品和素材保存在本机。', 8, C['quiet'], 400)
-        d.text(1468, 907, '本地资产', 8, C['quiet'], 400, 'end')
-        return
-    left_w = 571 if kind != 'publish' else 594
-    right_x = 857 if kind != 'publish' else 880
-    right_w = 631 if kind != 'publish' else 608
-    d.card(270, 308, left_w, 604)
-    d.text(290, 337, left_title, 10, C['ink'], 650)
-    d.rect(290, 350, 65, 20, C['primarysoft'], 'none', 10)
-    d.text(322, 364, {'video': '本地渲染', 'article': '公众号排版', 'post': '多图笔记', 'publish': '环境账号'}[kind], 7, '#3158A0', 600, 'middle')
-    if kind == 'video':
-        d.rect(290, 382, 531, 108, '#FAFBFD', '#CBD5DE', 8, 1, 'stroke-dasharray="5 4"')
-        d.icon(535, 395, 'video', '#6280A0', 19)
-        d.text(555, 421, '选择本地视频素材', 9, '#657486', 600, 'middle')
-        d.text(555, 439, '添加后显示真实文件名与大小，不预置演示素材。', 7, '#8A96A2', 400, 'middle')
-        d.button(497, 450, 116, '浏览本机文件', False, 25)
-        d.field(290, 508, 531, '创作主题', '输入视频主题或要点')
-        d.field(290, 575, 255, '视频时长', '选择时长')
-        d.field(566, 575, 255, '画面比例', '选择比例')
-        d.field(290, 642, 531, '字幕', '按需添加字幕')
-        d.text(290, 728, '渲染使用本机 FFmpeg。', 8, C['quiet'], 400)
-        d.button(700, 709, 121, '生成分镜', True, 31, True)
-        d.text(290, 880, '等待素材', 8, C['quiet'], 400)
-    elif kind == 'article':
-        d.field(290, 382, 531, '文章主题', '输入文章主题')
-        d.field(290, 449, 255, '内容风格', '选择内容风格')
-        d.field(566, 449, 255, '目标平台', '选择发布平台')
-        d.field(290, 516, 531, '关键词（选填）', '添加有助于表达重点的关键词')
-        d.rect(290, 591, 531, 48, '#F3F7FA', '#E1E9EF', 8)
-        d.icon(304, 607, 'file', '#547189', 16)
-        d.text(329, 611, '生成内容需要人工检查。排版预览不代表已经发布。', 7, '#586A7C', 500)
-        d.text(329, 628, '支持 Markdown 编辑与排版预览。', 7, '#6F8191', 400)
-        d.text(290, 880, '填写主题后开始创作。', 8, C['quiet'], 400)
-        d.button(700, 709, 121, '开始撰写', True, 31, True)
-    elif kind == 'post':
-        d.field(290, 382, 531, '笔记标题', '输入笔记标题')
-        d.text(290, 453, '正文内容', 9, C['soft'], 600)
-        d.rect(290, 461, 531, 86, '#FFFFFF', C['line2'], 7)
-        d.text(301, 482, '写下你的内容', 8, '#A0AAB5', 400)
-        d.rect(290, 559, 531, 84, '#FAFBFD', '#CBD5DE', 8, 1, 'stroke-dasharray="5 4"')
-        d.icon(535, 568, 'image', '#6280A0', 18)
-        d.text(555, 594, '添加图片', 8, '#657486', 600, 'middle')
-        d.text(555, 611, '从本机选择图片，支持调整顺序和封面。', 7, '#8A96A2', 400, 'middle')
-        d.field(290, 653, 531, '发布平台', '选择发布平台')
-        d.text(290, 880, '发布前检查图片与平台格式。', 8, C['quiet'], 400)
-        d.button(700, 709, 121, '预览图文', True, 31, True)
-    else:
-        d.text(290, 382, '账号由环境登录状态提供', 9, C['soft'], 600)
-        d.rect(290, 394, 553, 248, '#FFFFFF', 'none', 0)
-        d.empty(566, 438, '没有可用的发布账号', '先在目标浏览环境中登录平台账号。', '前往环境列表')
-        d.line(271, 873, 864, 873)
-        d.text(290, 893, '不会从其他环境读取登录状态。', 8, C['quiet'], 400)
-    d.card(right_x, 308, right_w, 604)
-    d.text(right_x + 18, 337, right_title, 10, C['ink'], 650)
-    d.text(right_x + right_w - 18, 337, '暂无内容', 7, C['quiet'], 450, 'end')
-    if kind in ('video', 'article'):
-        d.rect(right_x + 17, 354, right_w - 34, 518, '#F7F9FA', '#D6DEE5', 9, 1, 'stroke-dasharray="4 4"')
-        d.circle(right_x + right_w / 2, 548, 23, '#EDF2F6')
-        d.icon(right_x + right_w / 2 - 11, 537, 'video' if kind == 'video' else 'article', '#607C96', 22)
-        d.text(right_x + right_w / 2, 590, '预览将在这里生成' if kind == 'video' else '文章预览区', 10, '#526273', 650, 'middle')
-        d.text(right_x + right_w / 2, 612, '添加素材并填写主题后检查内容。' if kind == 'video' else '生成或编辑后检查标题、正文与排版。', 8, '#7C8997', 400, 'middle')
-    elif kind == 'post':
-        phone_x = right_x + right_w / 2 - 99
-        d.rect(phone_x, 383, 198, 394, '#FFFFFF', '#263441', 25, 5)
-        d.rect(phone_x + 65, 380, 68, 9, '#263441', 'none', 6)
-        d.rect(phone_x + 11, 397, 176, 368, '#F7F8FA', 'none', 12)
-        d.circle(right_x + right_w / 2, 541, 21, '#EDF2F6')
-        d.icon(right_x + right_w / 2 - 10, 531, 'image', '#607C96', 20)
-        d.text(right_x + right_w / 2, 584, '内容预览', 9, '#526273', 650, 'middle')
-        d.text(right_x + right_w / 2, 601, '添加标题与图片后显示', 7, '#8994A0', 400, 'middle')
-    else:
-        d.rect(right_x + 16, 354, right_w - 32, 204, '#FFFFFF', C['line'], 9)
-        d.text(right_x + 34, 383, '发布内容', 9, C['soft'], 650)
-        d.field(right_x + 34, 397, right_w - 68, '发布平台', '选择账号后可用')
-        d.field(right_x + 34, 466, right_w - 68, '发布时间', '选择立即发布或定时发布')
-        d.rect(right_x + 16, 574, right_w - 32, 54, '#F3F7FA', '#E1E9EF', 8)
-        d.icon(right_x + 29, 590, 'lock', '#547189', 16)
-        d.text(right_x + 54, 594, '账号授权、内容预览和发布结果', 7, '#586A7C', 500)
-        d.text(right_x + 54, 611, '会按每个目标账号分别确认。', 7, '#6F8191', 400)
-        d.button(right_x + 16, 646, right_w - 32, '确认发布', True, 33, True)
-
-
-def make_members(d):
-    title(d, '协作与管理', '团队成员', '按成员与环境范围管理访问权限。成员变更应留下可追溯记录。', '邀请成员')
-    d.card(270, 253, 1218, 672)
-    for i, label in enumerate(['成员', '角色与权限', '邀请记录']):
-        x = 290 + i * 116
-        d.text(x, 283, label, 9, '#2454C9' if i == 0 else '#778391', 650 if i == 0 else 450)
-    d.line(271, 298, 1487, 298)
-    d.rect(287, 314, 800, 34, '#FFFFFF', C['line'], 7)
-    d.icon(299, 323, 'search', '#8793A0', 15)
-    d.text(321, 335, '搜索成员姓名或邮箱', 8, '#A0AAB5', 400)
-    d.rect(1098, 314, 130, 34, '#FFFFFF', C['line'], 7)
-    d.text(1110, 335, '所有角色      ⌄', 8, '#5C6978', 450)
-    d.button(1238, 314, 115, '权限说明', False, 34)
-    d.line(271, 360, 1487, 360)
-    for x, label in [(290, '成员'), (630, '角色'), (900, '可访问环境'), (1175, '状态')]:
-        d.text(x, 382, label, 8, '#788593', 600)
-    d.line(271, 392, 1487, 392)
-    d.empty(879, 486, '还没有邀请团队成员', '邀请成员后按角色和环境范围授予权限。敏感操作应明确授权并记录。', '邀请成员')
-    d.line(271, 886, 1487, 886)
-    d.text(289, 907, '成员列表只显示真实工作空间成员。', 8, C['quiet'], 400)
-    d.text(1468, 907, '权限变更可审计', 8, C['quiet'], 400, 'end')
-
-
-def make_audit(d):
-    title(d, '协作与管理', '操作记录', '按时间、成员和结果查找关键变更。记录不包含 Cookie、代理密码或网页正文。', '导出记录')
-    d.card(270, 253, 1218, 672)
-    d.text(289, 280, '筛选记录', 8, '#788493', 600)
-    for i, label in enumerate(['选择时间范围', '所有成员', '所有操作', '所有结果']):
-        x = 356 + i * 198
-        d.rect(x, 264, 184, 34, '#FFFFFF', C['line'], 7)
-        d.text(x + 11, 285, label + '     ⌄', 8, '#667484', 450)
-    d.button(1175, 264, 100, '清除筛选', False, 34)
-    d.line(271, 310, 1487, 310)
-    for x, label in [(290, '发生时间'), (511, '成员'), (704, '操作'), (1027, '目标'), (1305, '结果')]:
-        d.text(x, 334, label, 8, '#788593', 600)
-    d.line(271, 348, 1487, 348)
-    d.empty(879, 467, '暂无操作记录', '环境、网络和权限变更会在实际操作后写入记录。当前不显示虚构的成员或事件。', '')
-    d.line(271, 886, 1487, 886)
-    d.text(289, 907, '敏感数据默认脱敏。', 8, C['quiet'], 400)
-    d.text(1468, 907, '记录由真实操作生成', 8, C['quiet'], 400, 'end')
-
-
-def make_billing(d):
-    title(d, '协作与管理', '订阅计费', '查看工作空间的订阅权益和用量。仅展示服务端确认的套餐、价格与账单。')
-    d.card(270, 253, 1218, 173)
-    d.rect(293, 278, 48, 48, '#EDF5EF', 'none', 12)
-    d.icon(305, 290, 'card', '#426D56', 24)
-    d.rect(358, 272, 91, 20, C['warnsoft'], 'none', 10)
-    d.text(403, 286, '服务尚未连接', 7, C['warn'], 600, 'middle')
-    d.text(358, 315, '订阅与在线计费暂不可用', 12, C['ink'], 650)
-    d.text(358, 341, '当前评审稿不展示套餐价格、账单金额或配额数字。', 9, C['muted'], 400)
-    d.text(358, 359, '服务接入后，页面会读取真实订阅状态和用量。', 9, C['muted'], 400)
-    d.card(270, 446, 594, 180)
-    d.text(290, 475, '工作空间权益', 10, C['ink'], 650)
-    d.text(290, 500, '由订阅服务返回可用环境数、成员席位和同步空间。', 8, C['muted'], 400)
-    d.text(290, 517, '套餐详情未接入前不显示虚构权益。', 8, C['muted'], 400)
-    d.button(290, 555, 100, '查看套餐', False, 30, True)
-    d.card(881, 446, 607, 180)
-    d.text(901, 475, '发票与付款方式', 10, C['ink'], 650)
-    d.text(901, 500, '付款记录、发票信息和续费状态将在安全的计费服务', 8, C['muted'], 400)
-    d.text(901, 517, '接入后显示。', 8, C['muted'], 400)
-    d.button(901, 555, 138, '管理付款方式', False, 30, True)
-
-
-def make_settings(d):
-    title(d, '协作与管理', '系统设置', '调整本地数据保护、代理检查、更新与诊断。')
-    d.card(270, 253, 857, 333)
-    d.text(290, 282, '环境与数据', 11, C['ink'], 650)
-    rows = [
-        ('关闭环境前创建恢复点', '保留可恢复状态。磁盘空间不足时显示明确提醒。', 'on'),
-        ('启动前检查代理连接', '代理无法连接时阻止启动，不切换到本机网络。', 'on'),
-        ('环境数据位置', '显示由应用实际配置的本机存储路径。', '查看位置'),
-    ]
-    for i, (label, desc, value) in enumerate(rows):
-        y = 304 + i * 83
-        if i:
-            d.line(289, y, 1108, y, '#EDF0F2')
-        d.text(290, y + 22, label, 9, '#394858', 600)
-        d.text(290, y + 40, desc[:74], 7, '#7D8996', 400)
-        if value == 'on':
-            d.rect(1060, y + 22, 33, 18, '#5D9874', 'none', 10)
-            d.circle(1085, y + 31, 6.5, '#FFFFFF')
-        else:
-            d.button(1010, y + 15, 96, '查看位置', False, 28)
-    d.card(270, 604, 857, 304)
-    d.text(290, 633, '更新与诊断', 11, C['ink'], 650)
-    for i, (label, desc, btn) in enumerate([
-        ('检查更新', '检查客户端与内核版本，并保留环境数据。', '检查更新'),
-        ('导出诊断信息', '导出前预览字段；不包含登录数据、代理密码或网页正文。', '预览内容'),
-        ('减少界面动效', '可跟随系统偏好设置。', '跟随系统'),
-    ]):
-        y = 655 + i * 75
-        if i:
-            d.line(289, y, 1108, y, '#EDF0F2')
-        d.text(290, y + 22, label, 9, '#394858', 600)
-        d.text(290, y + 40, desc[:76], 7, '#7D8996', 400)
-        d.button(1000, y + 14, 106, btn, False, 28)
-    d.card(1145, 253, 343, 321)
-    d.rect(1163, 272, 42, 42, '#EDF5EF', 'none', 11)
-    d.icon(1174, 283, 'shield', '#426D56', 20)
-    d.text(1163, 336, '能力以实际运行时为准', 10, C['ink'], 650)
-    for i, line in enumerate(['内核版本、平台架构和指纹能力', '通过本机运行时读取。页面选项', '不代表能力已经验证。']):
-        d.text(1163, 359 + 15 * i, line, 8, C['muted'], 400)
-    d.line(1163, 423, 1469, 423)
-    d.text(1163, 447, '运行时信息', 8, C['muted'], 400)
-    d.text(1468, 447, '由客户端提供', 8, C['soft'], 550, 'end')
-    d.text(1163, 472, '能力检查', 8, C['muted'], 400)
-    d.text(1468, 472, '启动时读取', 8, C['soft'], 550, 'end')
-    d.button(1163, 500, 157, '查看产品工作方式', False, 30)
-
-
-def make_onboarding(d):
-    title(d, '开始使用', '了解栖界', '先从本机工作空间开始，按需配置代理、会话和创作工具。', '创建浏览环境')
-    d.rect(270, 253, 1218, 292, C['dark'], '#26343E', 15)
-    d.text(300, 291, '先本地，后协作', 8, '#A5D88D', 650, extra='letter-spacing="1.1"')
-    d.text(300, 338, '工作空间清晰，', 24, '#FFFFFF', 700)
-    d.text(300, 370, '每个环境彼此独立。', 24, '#FFFFFF', 700)
-    d.text(300, 405, '先为业务建立独立会话，再选择网络和指纹配置。', 9, '#B6C1C4', 400)
-    d.text(300, 424, '代理连接、环境配置和团队权限都有清晰入口。', 9, '#B6C1C4', 400)
-    d.button(300, 460, 142, '创建浏览环境', True, 33)
-    d.circle(1270, 398, 67, 'none', '#65796D', 1)
-    d.circle(1270, 398, 86, 'none', '#31443A', 1)
-    d.circle(1270, 398, 107, 'none', '#2A3A34', 1)
-    d.icon(1245, 373, 'shield', '#C8EF9C', 50)
-    cards = [
-        ('browser', '1. 建立浏览环境', '每个环境拥有独立的 Cookie、缓存和登录状态。'),
-        ('globe', '2. 检查网络连接', '直连或指定代理由你选择；失败时提供恢复方法。'),
-        ('folder', '3. 管理本机数据', '数据默认留在本机；未接入的服务明确提示。'),
-    ]
-    for i, (name, heading, desc) in enumerate(cards):
-        x = 270 + i * 414
-        d.card(x, 565, 394, 194)
-        d.rect(x + 17, 582, 31, 31, '#EDF5EF', 'none', 9)
-        d.icon(x + 24, 589, name, '#426D56', 17)
-        d.text(x + 17, 641, heading, 10, C['ink'], 650)
-        d.text(x + 17, 667, desc[:38], 8, C['muted'], 400)
-        d.text(x + 17, 683, desc[38:], 8, C['muted'], 400)
-        d.text(x + 17, 730, '查看工作流程  →', 8, C['primary'], 600)
-
-
-def make_error(d):
-    title(d, '环境列表 / 网络诊断', '代理连接诊断', '失败信息应说明问题并给出下一步，不暴露原始错误对象。', '返回新建流程')
-    d.rect(330, 272, 1090, 119, '#FFF3F4', '#F2CED3', 12)
-    d.circle(361, 309, 19, '#FFE2E5')
-    d.icon(350, 298, 'warning', '#BD3A4C', 22)
-    d.text(394, 307, '无法连接此代理', 12, '#873041', 650)
-    d.text(394, 331, '请检查代理协议、服务器地址、端口和认证信息，然后重新检查。', 8, '#A35661', 450)
-    d.text(394, 349, '当前配置已保留，浏览器不会自动改用本机网络。', 8, '#A35661', 450)
-    d.card(330, 410, 1090, 353)
-    d.text(351, 442, '你可以这样处理', 10, C['ink'], 650)
-    steps = [
-        '确认代理地址和端口没有输入错误。',
-        '确认代理账户仍可用；认证信息默认以掩码显示。',
-        '检查代理服务商是否允许当前设备连接。',
-        '修复后重新执行连接检查，再启动环境。',
-    ]
-    for i, line in enumerate(steps):
-        y = 480 + i * 38
-        d.circle(362, y - 2, 9, '#F0F3F5')
-        d.text(362, y + 1, str(i + 1), 7, '#6B7C8B', 600, 'middle')
-        d.text(381, y + 1, line, 9, '#596777', 450)
-    d.line(351, 652, 1399, 652)
-    d.text(351, 677, '未发起真实网络请求。', 8, C['quiet'], 400)
-    d.button(1110, 668, 130, '返回检查设置', False, 31)
-    d.button(1251, 668, 148, '重新检测', True, 31)
-
-
-def make_search(d):
-    title(d, '快速访问', '搜索', '快速前往常用页面或开始新任务。')
-    d.rect(409, 259, 720, 420, '#FFFFFF', '#D9E0E6', 13, 1, 'filter="url(#shadow)"')
-    d.rect(410, 260, 718, 57, '#FFFFFF', 'none', 13)
-    d.icon(429, 278, 'search', '#768494', 19)
-    d.text(456, 295, '搜索环境、分组和操作', 9, '#9AA4AE', 400)
-    d.line(410, 317, 1128, 317)
-    d.text(429, 341, '快速前往', 7, '#87929F', 650, extra='letter-spacing="1"')
-    links = [('browser', '环境列表'), ('globe', '代理资源'), ('sparkle', 'AI 创作中心'), ('settings', '系统设置')]
-    for i, (name, label) in enumerate(links):
-        y = 359 + i * 43
-        if i == 0:
-            d.rect(420, y, 698, 37, '#F3F6F8', 'none', 7)
-        d.icon(434, y + 10, name, '#718399', 16)
-        d.text(461, y + 24, label, 8, '#4E5D6C', 500)
-        if i == 0:
-            d.text(1096, y + 24, 'Enter', 7, '#8A95A1', 400, 'end')
-    d.line(420, 538, 1118, 538)
-    d.text(429, 559, '创建', 7, '#87929F', 650, extra='letter-spacing="1"')
-    d.rect(420, 574, 698, 37, '#FFFFFF', 'none', 7)
-    d.icon(434, 584, 'browser', '#718399', 16)
-    d.text(461, 598, '新建浏览环境', 8, '#4E5D6C', 500)
-    d.text(1096, 598, 'Ctrl N', 7, '#8A95A1', 400, 'end')
-    d.text(409, 704, '搜索只匹配当前工作空间可见的真实记录。', 8, C['quiet'], 400)
-
-
-def make_media_panel(d, tasks=False):
-    d.rect(0, 0, 440, 520, '#FFFFFF', '#E3E8ED', 12)
-    d.rect(0, 0, 440, 54, '#F8FAFB')
-    d.line(0, 54, 440, 54, C['line'])
-    d.circle(25, 26, 11, '#EDF3FF')
-    d.icon(17, 18, 'image', C['primary'], 16)
-    d.text(44, 30, '媒体提取中心', 10, C['ink'], 650)
-    d.text(421, 30, '×', 14, '#788593', 400, 'middle')
-    d.rect(14, 65, 412, 32, '#E9EDF1', '#E0E5E9', 8)
-    d.rect(18 if not tasks else 223, 69, 202, 24, '#FFFFFF', 'none', 6)
-    d.text(119, 85, '已捕获媒体', 8, C['primary'] if not tasks else '#667483', 650 if not tasks else 450, 'middle')
-    d.text(321, 85, '下载队列', 8, C['primary'] if tasks else '#667483', 650 if tasks else 450, 'middle')
-    if not tasks:
-        d.rect(14, 107, 412, 38, '#FFFFFF')
-        labels = [('全部', 28), ('视频', 88), ('音频', 145), ('图片', 202)]
-        for i, (label, x) in enumerate(labels):
-            active = i == 0
-            d.rect(x, 115, 51, 22, '#26343F' if active else '#F1F4F6', '#26343F' if active else '#E3E8ED', 11)
-            d.text(x + 25.5, 130, label, 7, '#FFFFFF' if active else '#74808D', 550, 'middle')
-        d.line(0, 151, 440, 151, C['line'])
-        d.circle(220, 260, 31, '#F0F4F7')
-        d.icon(204, 244, 'image', '#68829C', 32)
-        d.text(220, 315, '当前页面没有捕获到媒体', 10, '#445465', 650, 'middle')
-        d.text(220, 337, '开始播放或刷新当前页面后，', 8, C['muted'], 400, 'middle')
-        d.text(220, 353, '检测到的视频、音频和图片会显示在这里。', 8, C['muted'], 400, 'middle')
-        d.button(162, 374, 116, '刷新当前页面', False, 29)
-    else:
-        d.line(0, 106, 440, 106, C['line'])
-        d.circle(220, 253, 30, '#F0F4F7')
-        d.icon(204, 237, 'download', '#68829C', 32)
-        d.text(220, 309, '暂无下载任务', 10, '#445465', 650, 'middle')
-        d.text(220, 331, '从已捕获媒体中选择资源后，', 8, C['muted'], 400, 'middle')
-        d.text(220, 347, '下载进度与结果会显示在这里。', 8, C['muted'], 400, 'middle')
-    d.rect(0, 466, 440, 54, '#F8FAFB')
-    d.line(0, 466, 440, 466, C['line'])
-    d.icon(15, 483, 'shield', '#698092', 15)
-    d.text(38, 495, '下载遵循当前环境代理', 7, '#718090', 450)
-    d.text(416, 495, '收起', 8, C['primary'], 600, 'end')
-
-
-def make_x_grok_panel(d):
-    d.rect(0, 0, 380, 560, '#FFFFFF', '#E3E8ED', 12)
-    d.rect(0, 0, 380, 48, '#F8FAFB')
-    d.line(0, 48, 380, 48, C['line'])
-    d.circle(24, 24, 10, '#EDF5EF')
-    d.icon(16, 16, 'sparkle', '#476F59', 16)
-    d.text(43, 28, 'X 发帖控制', 10, C['ink'], 650)
-    d.text(361, 28, '×', 14, '#788593', 400, 'middle')
-    d.rect(12, 60, 356, 86, '#F8FAFB', C['line'], 9)
-    d.rect(24, 72, 64, 18, C['warnsoft'], 'none', 9)
-    d.circle(33, 81, 3, '#B87525')
-    d.text(42, 84, '未连接', 7, '#94601F', 600)
-    d.text(24, 108, '当前没有可用的 X 浏览环境', 9, '#344252', 650)
-    d.text(24, 126, '先在目标环境中登录 X，再打开此控制面板。', 7, C['muted'], 400)
-    d.rect(12, 158, 356, 76, '#FFFFFF', C['line'], 9)
-    d.text(24, 180, '发帖状态', 8, C['soft'], 600)
-    d.text(24, 199, '未启动 · 等待环境', 8, C['muted'], 450)
-    d.text(345, 205, '--:--', 15, '#8995A2', 650, 'end', 'font-family="Consolas,monospace"')
-    d.rect(12, 246, 356, 62, '#FFFFFF', C['line'], 9)
-    d.text(24, 269, '发布周期', 8, C['soft'], 600)
-    d.text(24, 288, '可选 5、10、15 或 30 分钟', 7, C['muted'], 400)
-    d.rect(251, 258, 103, 29, '#FFFFFF', C['line2'], 6)
-    d.text(263, 277, '10 分钟 / 次   ⌄', 7, '#596777', 550)
-    d.button(12, 320, 216, '启动定时发帖', True, 31, True)
-    d.button(238, 320, 130, '立即发帖', False, 31, True)
-    d.text(12, 376, 'Grok 创作提示词', 8, C['soft'], 600)
-    d.rect(12, 384, 356, 78, '#FFFFFF', C['line2'], 7)
-    prompt = '请写一条关于最新科技、AI或数字化生活的精简推文（X post）。语言幽默有趣或富有洞察力，字数在120字以内。直接输出推文正文，严禁输出任何引号、前缀说明或解释。'
-    for i in range(0, len(prompt), 33):
-        d.text(21, 402 + (i // 33) * 13, prompt[i:i + 33], 6.5, '#596777', 400)
-    d.text(354, 478, '保存提示词', 7, '#245EE8', 600, 'end')
-    d.text(12, 498, '执行日志', 8, C['soft'], 600)
-    d.rect(12, 507, 356, 39, '#F8FAFB', C['line'], 7)
-    d.text(22, 531, '暂无发帖日志。启动后记录真实任务状态。', 7, C['muted'], 400)
-
-
-SCREENS = [
-    ('01', '工作台', 'overview', 'overview', make_overview),
-    ('02', '环境列表', 'environments', 'environments', make_environments),
-    ('03', '新建环境-基本信息', 'create-basic', 'create', lambda d: make_create(d, 1)),
-    ('04', '新建环境-网络连接', 'create-network', 'create', lambda d: make_create(d, 2)),
-    ('05', '新建环境-指纹配置', 'create-fingerprint', 'create', lambda d: make_create(d, 3)),
-    ('06', '环境详情', 'detail', 'detail', make_detail),
-    ('07', '环境浏览器', 'browser', 'browser', make_browser),
-    ('08', '代理资源', 'proxies', 'proxies', make_proxies),
-    ('09', 'AI创作-视频', 'creator-video', 'creator', lambda d: make_creator(d, 'video')),
-    ('10', 'AI创作-长文排版', 'creator-article', 'creator', lambda d: make_creator(d, 'article')),
-    ('11', 'AI创作-图文笔记', 'creator-post', 'creator', lambda d: make_creator(d, 'post')),
-    ('12', 'AI创作-作品库', 'creator-assets', 'creator', lambda d: make_creator(d, 'assets')),
-    ('13', 'AI创作-发布配置', 'creator-publish', 'creator', lambda d: make_creator(d, 'publish')),
-    ('14', '团队成员', 'members', 'members', make_members),
-    ('15', '操作记录', 'audit', 'audit', make_audit),
-    ('16', '订阅计费', 'billing', 'billing', make_billing),
-    ('17', '系统设置', 'settings', 'settings', make_settings),
-    ('18', '首次使用引导', 'onboarding', 'overview', make_onboarding),
-    ('19', '代理异常恢复', 'proxy-error', 'error', make_error),
-    ('20', '全局快速搜索', 'search', 'overview', make_search),
-]
-
-
+def gallery(data,files):
+ p=ROOT/'设计画册.html';html=p.read_text(encoding='utf-8');head=html.split('<body>',1)[0]
+ head=re.sub(r'<title>.*?</title>','<title>栖界 · 产品界面方案</title>',head).replace('aspect-ratio:1.52;object-fit:cover;','height:auto;')
+ entries=''.join('<article class="screen"><a href="screens/'+png+'"><img src="screens/'+png+'" alt="'+escape(page['title'])+'界面设计"></a><div class="caption"><strong>'+escape(page['title'])+'</strong><a href="index.html#'+page['id']+'">查看交互 →</a></div></article>' for page,png in files)
+ content='<body><main><header><div><p class="eyebrow">栖界 · 产品界面 · 2026.10.28</p><h1>指纹可复用，环境独立，账号统一授权。</h1><p>工作台与七个业务模块，覆盖创建、授权、权限与付款的关键页面和失败恢复。</p></div><div class="actions"><a class="button" href="产品重构提案.md">产品定义与交互规范</a><a class="button primary" href="index.html">打开交互稿</a></div></header><div class="note">本轮为产品定义与界面方案，不代表云端授权或支付已经实现。页面采用正常业务空状态；不预置用户、团队、账号、代理结果、套餐价格、配额、付款订单或二维码。指纹初值复用现有系统默认配置，不是已入库的指纹记录。条件性状态页单独供交互评审。</div><section class="grid">'+entries+'</section><footer>平台目录由系统管理；指纹、环境、代理与账号各自独立。微信支付和支付宝须完成真实商户配置、订单核验及权益更新后开放。</footer></main></body></html>'
+ p.write_text(head+content,encoding='utf-8',newline='\n')
 def main():
-    SCREEN_DIR.mkdir(parents=True, exist_ok=True)
-    magick = shutil.which('magick')
-    for index, label, route, active, renderer in SCREENS:
-        drawing = Drawing()
-        shell(drawing, active, {
-            'overview': '工作台', 'environments': '环境列表', 'create-basic': '新建环境',
-            'create-network': '新建环境', 'create-fingerprint': '新建环境', 'detail': '环境详情',
-            'browser': '环境浏览器', 'proxies': '代理资源', 'creator-video': 'AI 创作',
-            'creator-article': 'AI 创作', 'creator-post': 'AI 创作', 'creator-assets': 'AI 创作',
-            'creator-publish': 'AI 创作', 'members': '团队成员', 'audit': '操作记录',
-            'billing': '订阅计费', 'settings': '系统设置', 'onboarding': '首次使用',
-            'proxy-error': '代理连接诊断', 'search': '搜索',
-        }[route])
-        renderer(drawing)
-        svg_path = SCREEN_DIR / f'{index}-{label}.svg'
-        png_path = SCREEN_DIR / f'{index}-{label}.png'
-        drawing.finish(svg_path)
-        if magick:
-            subprocess.run([magick, str(svg_path), '-resize', f'{W}x{H}!', str(png_path)], check=True, capture_output=True)
-    panels = [
-        ('21', '媒体提取-已捕获为空', 440, 520, lambda d: make_media_panel(d, False)),
-        ('22', '媒体提取-下载队列为空', 440, 520, lambda d: make_media_panel(d, True)),
-        ('23', 'X-Grok发帖控制', 380, 560, make_x_grok_panel),
-    ]
-    for index, label, width, height, renderer in panels:
-        drawing = Drawing()
-        renderer(drawing)
-        svg_path = SCREEN_DIR / f'{index}-{label}.svg'
-        png_path = SCREEN_DIR / f'{index}-{label}.png'
-        drawing.finish(svg_path, width, height)
-        if magick:
-            subprocess.run([magick, str(svg_path), '-resize', f'{width}x{height}!', str(png_path)], check=True, capture_output=True)
-    print(f'已生成 {len(SCREENS) + len(panels)} 张页面图稿，目录：{SCREEN_DIR}')
-
-
-if __name__ == '__main__':
-    main()
+ data=definitions();SCREEN_DIR.mkdir(parents=True,exist_ok=True);magick=shutil.which('magick');files=[]
+ if not magick:raise RuntimeError('未找到图片导出工具。')
+ selected=set(sys.argv[1:])
+ unknown=selected-{page['id'] for page in data['pages']}
+ if unknown:raise ValueError('未找到指定页面。')
+ exported=0
+ for i,page in enumerate(data['pages'],1):
+  name=f'{i:02d}-{page["id"]}';svg=SCREEN_DIR/(name+'.svg');png=SCREEN_DIR/(name+'.png')
+  if not selected or page['id'] in selected:
+   height=page.get('height',H);d=Drawing();render(d,data,page,height);d.finish(svg,W,height);subprocess.run([magick,str(svg),'-resize',f'{W}x{height}!',str(png)],check=True,capture_output=True);exported+=1
+  files.append((page,png.name))
+ gallery(data,files);print(f'exported {exported} pages')
+if __name__=='__main__':main()
