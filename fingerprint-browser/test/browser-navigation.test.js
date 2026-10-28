@@ -1,0 +1,13 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { resolveAddress } = require('../browser-navigation')
+test('地址栏支持裸域名、本机地址、完整网址与关键词搜索', () => {
+  assert.equal(resolveAddress('www.baidu.com'), 'https://www.baidu.com/')
+  assert.equal(resolveAddress('example.com/path?q=1'), 'https://example.com/path?q=1')
+  assert.equal(resolveAddress('127.0.0.1:8088/one'), 'http://127.0.0.1:8088/one')
+  assert.equal(resolveAddress('localhost:8088'), 'http://localhost:8088/')
+  assert.equal(resolveAddress('https://example.com/'), 'https://example.com/')
+  assert.equal(resolveAddress('浏览器 标签'), 'https://www.baidu.com/s?wd=' + encodeURIComponent('浏览器 标签'))
+  assert.equal(resolveAddress(''), 'about:blank')
+  for (const value of ['javascript:alert(1)', 'file:///secret', 'data:text/html,test', 'https://user:password@example.com/']) assert.throws(() => resolveAddress(value))
+})

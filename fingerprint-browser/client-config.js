@@ -22,7 +22,7 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   }
   const environment = config.environment || (packaged ? 'prod' : 'dev')
   if (!['dev', 'test', 'prod'].includes(environment)) throw new Error('客户端环境配置无效，请选择 dev、test 或 prod。')
-  const input = env.FP_APP_URL || config.appUrl || (!packaged && environment === 'dev' ? 'http://127.0.0.1:8088/' : '')
+  const input = (!packaged && env.FP_APP_URL) || config.appUrl || (!packaged && environment === 'dev' ? 'http://127.0.0.1:8088/' : '')
   if (!input) throw new Error('未配置工作空间地址，请在打包时指定正式页面 URL。')
   return { appUrl: validateAppUrl(input), environment }
 }

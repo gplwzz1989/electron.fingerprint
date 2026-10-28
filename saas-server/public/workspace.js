@@ -46,7 +46,7 @@
   }
   async function closeNativeTabs () {
     if (!window.workspaceBridge) return
-    for (const tab of [...nativeTabs.tabs]) {
+    for (const tab of [...nativeTabs.tabs].filter(tab => tab.kind !== 'ordinary' || tab.ownerEnvironmentId)) {
       const result = await window.workspaceBridge.closeTab(tab.id)
       if (!result.ok) throw new Error('部分浏览器环境未能关闭，请先关闭后重试。')
     }
@@ -270,6 +270,7 @@
     }
     if (requiresContext[route]) { routeTo(requiresContext[route]); noticeResult('请从具体记录进入操作流程。'); return }
     updateShell()
+    if (route === 'overview') document.querySelector('#page h1').textContent = state.user ? `欢迎回来，${state.user.name}` : '欢迎使用栖界'
     if (state.user) document.querySelectorAll('#page .form-footer>span').forEach(node => { if (node.textContent.includes('登录后')) node.textContent = canWrite() ? '修改将保存到当前团队。' : '当前角色为只读，无法保存修改。' })
     prepareFilters(route)
     assignAction('保存到指纹库', 'save-fingerprint', Boolean(state.user && canWrite()))
@@ -490,9 +491,11 @@
   async function init () {
     try {
       if (window.workspaceBridge) {
-        document.body.classList.add('client-native')
-        const toolbar = document.createElement('div'); toolbar.className = 'native-toolbar'; toolbar.innerHTML = '<div class="native-tabs"></div><div class="native-address"><input aria-label="SaaS 页面地址（只读）" readonly spellcheck="false"></div>'; document.body.prepend(toolbar)
-        renderNativeAddress()
+        if (window.workspaceBridge.shellVersion !== 2) {
+          document.body.classList.add('client-native')
+          const toolbar = document.createElement('div'); toolbar.className = 'native-toolbar'; toolbar.innerHTML = '<div class="native-tabs"></div><div class="native-address"><input aria-label="SaaS 页面地址（只读）" readonly spellcheck="false"></div>'; document.body.prepend(toolbar)
+          renderNativeAddress()
+        }
         window.workspaceBridge.onTabsChanged(snapshot => { renderNativeTabs(snapshot); if (['overview', 'environments'].includes(window.WorkspaceUI.getRoute())) populateTable(window.WorkspaceUI.getRoute()) })
         const snapshot = await window.workspaceBridge.tabs(); renderNativeTabs(snapshot)
       }

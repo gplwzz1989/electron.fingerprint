@@ -1,7 +1,11 @@
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { randomUUID } = require('node:crypto')
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron/main')
+const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell } = require('electron/main')
+const { pathToFileURL } = require('node:url')
+const { TabCapabilities } = require('./tab-capabilities')
+const { bridgeArguments } = require('./client-api-contract')
+const capabilityRegistry = new TabCapabilities()
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
@@ -68,6 +72,7 @@ try {
 }
 
 let dashboardWindow = null
+let dashboardView = null
 let profileRepository = null
 let environmentRepository = null
 let groupRepository = null
@@ -81,6 +86,13 @@ let mediaHub = null
 let creatorHub = null
 let quitting = false
 let startup = Promise.resolve()
+
+function notifyBusiness (channel) {
+  const targets = [dashboardView?.webContents, ...[...(tabBrowser?.tabs.values() || [])].filter(tab => tab.kind === 'managed').map(tab => tab.view.webContents)].filter(Boolean)
+  for (const sender of targets) {
+    try { capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, channel.replace(':changed', ':list')); sender.send(channel) } catch {}
+  }
+}
 
 const APPLICATION_ID = 'com.qijie.fingerprintbrowser' + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
 const APPLICATION_ICON = process.platform === 'win32'
@@ -118,6 +130,7 @@ function ensureXGrokPanelWindow () {
     }
   })
   xGrokPanelWindow = panel
+  capabilityRegistry.register(panel.webContents, 'panel', { pinnedUrl: pathToFileURL(path.join(__dirname, 'renderer', 'x-grok-panel.html')).href })
   panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   panel.webContents.on('will-navigate', event => event.preventDefault())
   panel.on('closed', () => {
@@ -267,30 +280,33 @@ async function launchProfile (payload) {
 }
 
 function registerIpc () {
-  const trustedPages = new Set([
-    clientConfig.appUrl,
-    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href,
-    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'browser.html')).href,
-    require('node:url').pathToFileURL(path.join(__dirname, 'renderer', 'x-grok-panel.html')).href,
-    require('node:url').pathToFileURL(path.join(__dirname, 'media-hub', 'popover.html')).href
-  ])
-  // 只有配置的工作空间地址、本地管理页和标签栏可调用应用接口，其他远程网页不能操作标签。
+  const channels = new WeakMap()
+  const handle = (channel, listener) => ipcMain.handle(channel, async (event, ...args) => {
+    channels.set(event, channel)
+    try { assertTrusted(event); return await listener(event, ...args) } catch (error) { return { ok: false, error: error instanceof ProfileValidationError ? error.message : '客户端操作未完成，请重试。' } }
+  })
+  // 固定工作空间、客户端标签栏和系统创建标签按实际来源及授权调用接口，普通网页不能提权。
   function assertTrusted (event) {
     if (quitting) throw new ProfileValidationError('应用正在退出，请稍后重新打开。')
-    const trustedUrl = event.senderFrame?.url?.split('#', 1)[0]
-    if (![dashboardWindow?.webContents, tabBrowser?.window?.webContents, xGrokPanelWindow?.webContents].includes(event.sender) ||
-        event.senderFrame !== event.sender.mainFrame || !trustedPages.has(trustedUrl)) {
-      throw new ProfileValidationError('当前页面无权操作浏览器配置或标签。')
-    }
+    capabilityRegistry.assert(event, channels.get(event))
   }
-  ipcMain.handle('workspace:runtime', async event => {
+  handle('workspace:runtime', async event => {
     try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
   })
-  ipcMain.handle('workspace:launch', async (event, payload) => {
+  handle('automation:request', async (_event, payload) => {
+    if (!automationServer?.listening || !payload || typeof payload.path !== 'string' || payload.path.length > 2048) throw new ProfileValidationError('本地接口请求参数无效或服务尚未启动。')
+    const base = `http://127.0.0.1:${automationServer.port}`
+    const target = new URL(payload.path, base)
+    const method = payload.method || 'GET'
+    if (target.origin !== base || !target.pathname.startsWith('/api/v1/') || target.username || target.password || !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new ProfileValidationError('只允许调用当前客户端的本地业务接口。')
+    const response = await fetch(target, { method, redirect: 'error', headers: { Authorization: `Bearer ${automationServer.token}`, 'Content-Type': 'application/json' }, ...(['GET', 'HEAD'].includes(method) ? {} : { body: JSON.stringify(payload.body || {}) }), signal: AbortSignal.timeout(60000) })
+    return { ok: true, status: response.status, data: await response.json() }
+  })
+  handle('workspace:launch', async (event, payload) => {
     try {
       assertTrusted(event)
       if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new ProfileValidationError('环境标识无效。')
-      const cookies = await event.sender.session.cookies.get({ url: clientConfig.appUrl })
+      const cookies = await dashboardView.webContents.session.cookies.get({ url: clientConfig.appUrl })
       const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
       const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error' })
       const me = await meResponse.json()
@@ -311,33 +327,64 @@ function registerIpc () {
           tabBrowser.updateEnvironmentProfile(existing)
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id } }
-        return { ok: true, ...await tabBrowser.reopen(existing.id) }
+        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id } }
+        const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
+        return { ok: true, ...await tabBrowser.reopen(existing.id, policy) }
       }
       const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true })
-      return { ok: true, ...await tabBrowser.openEnvironment(environment) }
+      const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
+      return { ok: true, ...await tabBrowser.openEnvironment(environment, policy) }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
   })
-  for (const action of ['list', 'select', 'close', 'navigate', 'new-page', 'devtools', 'dashboard']) {
-    ipcMain.handle(`tabs:${action}`, async (event, payload) => {
+  handle('window:action', async (_event, action) => {
+    if (action === 'minimize') dashboardWindow.minimize()
+    else if (action === 'maximize') { if (dashboardWindow.isMaximized()) dashboardWindow.unmaximize(); else dashboardWindow.maximize() }
+    else if (action === 'exit') dashboardWindow.close()
+    else if (action === 'downloads') { const error = await shell.openPath(app.getPath('downloads')); if (error) throw new ProfileValidationError('下载目录暂时无法打开。') }
+    else if (action === 'tabs-menu') {
+      Menu.buildFromTemplate([
+        { label: '首页 · 栖界', type: 'checkbox', checked: !tabBrowser.activeId, click: () => tabBrowser.selectDashboard() },
+        ...[...tabBrowser.tabs.values()].map((tab, index) => ({ label: `${index + 1}. ${(tab.title || tab.profile?.name || '新标签页').slice(0, 90).replace(/&/g, '&&')}`, type: 'checkbox', checked: tab.id === tabBrowser.activeId, click: () => { if (tabBrowser.tabs.has(tab.id)) tabBrowser.select(tab.id) } }))
+      ]).popup({ window: dashboardWindow })
+    }
+    else if (action === 'menu') {
+      Menu.buildFromTemplate([
+        { label: '新建标签页', click: () => { void tabBrowser.openOrdinary() } },
+        { label: '返回首页', click: () => tabBrowser.selectDashboard() },
+        { type: 'separator' },
+        { label: '重新加载当前网页', click: () => { void tabBrowser.navigate({ id: tabBrowser.activeId, action: 'reload' }) } },
+        { label: '开发者工具', click: () => tabBrowser.openDevTools(tabBrowser.activeId) },
+        { type: 'separator' },
+        { label: '退出', click: () => dashboardWindow.close() }
+      ]).popup({ window: dashboardWindow })
+    }
+    else throw new ProfileValidationError('窗口操作无效。')
+    return { ok: true }
+  })
+  handle('tabs:ordinary', async () => ({ ok: true, ...await tabBrowser.openOrdinary() }))
+  handle('tabs:create-managed', async (_event, payload) => ({ ok: true, ...await tabBrowser.createManaged(payload) }))
+  handle('tabs:set-capabilities', async (_event, payload) => ({ ok: true, policy: tabBrowser.setCapabilities(payload) }))
+  for (const action of ['list', 'select', 'close', 'reorder', 'navigate', 'new-page', 'devtools', 'dashboard']) {
+    handle(`tabs:${action}`, async (event, payload) => {
       try {
         assertTrusted(event)
         let actionResult = {}
         if (action === 'select') tabBrowser.select(payload)
+        if (action === 'reorder') tabBrowser.reorder(payload)
         if (action === 'close') {
           await tabBrowser.close(payload)
-          dashboardWindow?.webContents.send('environments:changed')
+          notifyBusiness('environments:changed')
         }
         if (action === 'navigate') {
-          await tabBrowser.navigate(payload)
-          dashboardWindow?.webContents.send('environments:changed')
+          await tabBrowser.navigate({ action: 'load', ...payload })
+          notifyBusiness('environments:changed')
         }
         if (action === 'devtools') tabBrowser.openDevTools(payload)
         if (action === 'new-page') {
           actionResult = await tabBrowser.openPageTab(payload?.environmentId, payload?.url)
-          dashboardWindow?.webContents.send('environments:changed')
+          notifyBusiness('environments:changed')
         }
         if (action === 'dashboard') {
           if (!dashboardWindow || dashboardWindow.isDestroyed()) await createDashboard()
@@ -351,7 +398,7 @@ function registerIpc () {
       }
     })
   }
-  ipcMain.handle('presets:list', async event => {
+  handle('presets:list', async event => {
     try {
       assertTrusted(event)
       return { ok: true, presets: getPresetTemplates() }
@@ -360,7 +407,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('proxy:detect-ip', async (event, options) => {
+  handle('proxy:detect-ip', async (event, options) => {
     try {
       assertTrusted(event)
       const data = await detectExitIp(options)
@@ -370,7 +417,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('proxy:align-geo', async (event, payload) => {
+  handle('proxy:align-geo', async (event, payload) => {
     try {
       assertTrusted(event)
       const { profile, proxy, timeout } = payload || {}
@@ -382,7 +429,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:randomHardware', async (event, options) => {
+  handle('profiles:randomHardware', async (event, options) => {
     try {
       assertTrusted(event)
       const platform = options?.platform || (process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32')
@@ -393,7 +440,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('actions:click', async (event, payload) => {
+  handle('actions:click', async (event, payload) => {
     try {
       assertTrusted(event)
       const tabId = payload?.tabId || tabBrowser?.activeId
@@ -407,7 +454,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('actions:type', async (event, payload) => {
+  handle('actions:type', async (event, payload) => {
     try {
       assertTrusted(event)
       const tabId = payload?.tabId || tabBrowser?.activeId
@@ -421,7 +468,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('actions:ime-type', async (event, payload) => {
+  handle('actions:ime-type', async (event, payload) => {
     try {
       assertTrusted(event)
       const tabId = payload?.tabId || tabBrowser?.activeId
@@ -435,7 +482,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('actions:scroll', async (event, payload) => {
+  handle('actions:scroll', async (event, payload) => {
     try {
       assertTrusted(event)
       const tabId = payload?.tabId || tabBrowser?.activeId
@@ -448,7 +495,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('actions:drag', async (event, payload) => {
+  handle('actions:drag', async (event, payload) => {
     try {
       assertTrusted(event)
       const tabId = payload?.tabId || tabBrowser?.activeId
@@ -461,7 +508,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:list', async event => {
+  handle('profiles:list', async event => {
     try {
       assertTrusted(event)
       return { ok: true, profiles: profileRepository.list() }
@@ -470,7 +517,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('environments:list', async event => {
+  handle('environments:list', async event => {
     try {
       assertTrusted(event)
       return { ok: true, environments: environmentRepository.list() }
@@ -479,54 +526,54 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('environments:reopen', async (event, id) => {
+  handle('environments:reopen', async (event, id) => {
     try {
       assertTrusted(event)
       const result = await tabBrowser.reopen(id)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, ...result, environments: environmentRepository.list(), ...tabBrowser.snapshot() }
     } catch (error) {
       return errorResult('恢复浏览器环境', error, '恢复浏览器环境失败，请检查环境目录。')
     }
   })
 
-  ipcMain.handle('environments:close', async (event, id) => {
+  handle('environments:close', async (event, id) => {
     try {
       assertTrusted(event)
       const result = await tabBrowser.closeEnvironment(id)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, environments: environmentRepository.list(), ...result }
     } catch (error) {
       return errorResult('关闭浏览器环境', error, '关闭浏览器环境失败，请重试。')
     }
   })
 
-  ipcMain.handle('environments:delete', async (event, id) => {
+  handle('environments:delete', async (event, id) => {
     try {
       assertTrusted(event)
       if (tabBrowser.isOpen(id)) throw new ProfileValidationError('请先关闭正在使用的浏览器环境。')
       const removal = await environmentRepository.remove(id)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, deletionPending: removal.pending, environments: environmentRepository.list() }
     } catch (error) {
       return errorResult('删除浏览器环境', error, '删除浏览器环境失败，未删除原有数据。')
     }
   })
 
-  ipcMain.handle('environments:update-group', async (event, payload) => {
+  handle('environments:update-group', async (event, payload) => {
     try {
       assertTrusted(event)
       const group = payload?.group === undefined || payload?.group === null ? '' : String(payload.group).trim()
       if (group !== DEFAULT_GROUP_NAME && !groupRepository.getByName(group)) throw new ProfileValidationError('要设置的业务分组不存在，请先创建分组。')
       const environment = await environmentRepository.updateGroup(payload?.id, group, payload?.metadataRevision)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, environment, environments: environmentRepository.list() }
     } catch (error) {
       return errorResult('更新环境分组', error, '更新环境分组失败，请刷新后重试。')
     }
   })
 
-  ipcMain.handle('environments:update', async (event, payload) => {
+  handle('environments:update', async (event, payload) => {
     try {
       assertTrusted(event)
       const hasGroup = Object.hasOwn(payload || {}, 'group')
@@ -550,14 +597,14 @@ function registerIpc () {
       if (Object.hasOwn(update, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(update.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const environment = await environmentRepository.updateProfile(payload?.id, update)
       tabBrowser.updateEnvironmentProfile(environment)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, environment, environments: environmentRepository.list(), ...tabBrowser.snapshot() }
     } catch (error) {
       return errorResult('编辑浏览器环境', error, '编辑浏览器环境失败，请刷新后重试。')
     }
   })
 
-  ipcMain.handle('groups:list', async event => {
+  handle('groups:list', async event => {
     try {
       assertTrusted(event)
       return { ok: true, groups: groupRepository.list() }
@@ -566,46 +613,46 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('groups:create', async (event, payload) => {
+  handle('groups:create', async (event, payload) => {
     try {
       assertTrusted(event)
       const group = await groupRepository.create(payload?.name)
-      dashboardWindow?.webContents.send('groups:changed')
+      notifyBusiness('groups:changed')
       return { ok: true, group, groups: groupRepository.list() }
     } catch (error) {
       return errorResult('创建分组', error, '创建业务分组失败。')
     }
   })
 
-  ipcMain.handle('groups:update', async (event, payload) => {
+  handle('groups:update', async (event, payload) => {
     try {
       assertTrusted(event)
       const result = await groupRepository.rename(payload?.id, payload?.name)
       await environmentRepository.renameGroup(result.previousName, result.group.name)
-      dashboardWindow?.webContents.send('groups:changed')
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('groups:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, group: result.group, groups: groupRepository.list(), environments: environmentRepository.list() }
     } catch (error) {
       return errorResult('修改分组', error, '修改业务分组失败，请刷新后重试。')
     }
   })
 
-  ipcMain.handle('groups:delete', async (event, id) => {
+  handle('groups:delete', async (event, id) => {
     try {
       assertTrusted(event)
       const group = groupRepository.get(id)
       if (!group) throw new ProfileValidationError('找不到要删除的分组。')
       await environmentRepository.renameGroup(group.name, DEFAULT_GROUP_NAME)
       await groupRepository.remove(id)
-      dashboardWindow?.webContents.send('groups:changed')
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('groups:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, groups: groupRepository.list(), environments: environmentRepository.list() }
     } catch (error) {
       return errorResult('删除分组', error, '删除业务分组失败，请重试。')
     }
   })
 
-  ipcMain.handle('profiles:draft', async (event, payload) => {
+  handle('profiles:draft', async (event, payload) => {
     try {
       assertTrusted(event)
       const id = `profile-${randomUUID().slice(0, 8)}`
@@ -642,7 +689,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:preview', async (event, payload) => {
+  handle('profiles:preview', async (event, payload) => {
     try {
       assertTrusted(event)
       const options = {
@@ -655,7 +702,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:save', async (event, payload) => {
+  handle('profiles:save', async (event, payload) => {
     try {
       assertTrusted(event)
       const options = {
@@ -665,14 +712,14 @@ function registerIpc () {
       assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy, options)
       if (Object.hasOwn(payload || {}, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(payload.tlsFingerprint, fingerprintRuntime.chromiumVersion)
       const nextProfile = await profileRepository.save(payload)
-      tabBrowser.window?.webContents.send('profiles:changed')
+      notifyBusiness('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }
     } catch (error) {
       return errorResult('保存配置', error, '保存浏览器配置失败。')
     }
   })
 
-  ipcMain.handle('tls:presets', async event => {
+  handle('tls:presets', async event => {
     try {
       assertTrusted(event)
       return { ok: true, presets: CHROME_TLS_VERSION_PRESETS }
@@ -681,7 +728,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('tls:resolve', async (event, payload) => {
+  handle('tls:resolve', async (event, payload) => {
     try {
       assertTrusted(event)
       const config = resolveTLSConfigForBrowser(payload?.target, { runtimeVersion: fingerprintRuntime.chromiumVersion })
@@ -691,29 +738,29 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('profiles:delete', async (event, id) => {
+  handle('profiles:delete', async (event, id) => {
     try {
       assertTrusted(event)
       await profileRepository.delete(id)
-      tabBrowser.window?.webContents.send('profiles:changed')
+      notifyBusiness('profiles:changed')
       return { ok: true, profiles: profileRepository.list() }
     } catch (error) {
       return errorResult('删除配置', error, '删除浏览器配置失败。')
     }
   })
 
-  ipcMain.handle('profiles:launch', async (event, payload) => {
+  handle('profiles:launch', async (event, payload) => {
     try {
       assertTrusted(event)
       const result = await launchProfile(payload)
-      dashboardWindow?.webContents.send('environments:changed')
+      notifyBusiness('environments:changed')
       return { ok: true, ...result }
     } catch (error) {
       return errorResult('启动浏览器', error, '启动浏览器配置失败。')
     }
   })
 
-  ipcMain.handle('x-grok:toggle-panel', async (event, environmentId) => {
+  handle('x-grok:toggle-panel', async (event, environmentId) => {
     try {
       assertTrusted(event)
       const activeTab = tabBrowser?.getTab(tabBrowser?.activeId)
@@ -730,7 +777,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('x-grok:close-panel', async (event) => {
+  handle('x-grok:close-panel', async (event) => {
     try {
       assertTrusted(event)
       hideXGrokPanel()
@@ -740,7 +787,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('x-grok:status', async (event, environmentId) => {
+  handle('x-grok:status', async (event, environmentId) => {
     try {
       assertTrusted(event)
       const targetId = typeof environmentId === 'object' ? environmentId?.environmentId : environmentId
@@ -751,7 +798,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('x-grok:toggle', async (event, payload) => {
+  handle('x-grok:toggle', async (event, payload) => {
     try {
       assertTrusted(event)
       const { environmentId, enabled } = payload || {}
@@ -762,7 +809,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('x-grok:trigger-now', async (event, environmentId) => {
+  handle('x-grok:trigger-now', async (event, environmentId) => {
     try {
       assertTrusted(event)
       const targetId = typeof environmentId === 'object' ? environmentId?.environmentId : environmentId
@@ -773,7 +820,7 @@ function registerIpc () {
     }
   })
 
-  ipcMain.handle('x-grok:update-config', async (event, payload) => {
+  handle('x-grok:update-config', async (event, payload) => {
     try {
       assertTrusted(event)
       const { environmentId, intervalMs, prompt, mentions, roamingEnabled, commentSentences, commentIntervalMs } = payload || {}
@@ -788,38 +835,48 @@ function registerIpc () {
 async function createDashboard () {
   clientConfig = getClientConfig({ packaged: app.isPackaged })
   dashboardWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
+    width: 1440,
+    height: 900,
     minWidth: 980,
     minHeight: 680,
     title: '指纹浏览器 · 栖界工作空间',
     backgroundColor: '#f1f3f6',
-    titleBarStyle: 'default',
+    frame: false,
     icon: APPLICATION_ICON,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'workspace-preload.js'),
+      preload: path.join(__dirname, 'browser-shell-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
   })
+  const window = dashboardWindow
+  const shellUrl = pathToFileURL(path.join(__dirname, 'browser-shell.html')).href
+  capabilityRegistry.register(window.webContents, 'shell', { pinnedUrl: shellUrl })
+  dashboardView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'workspace-preload.js'), additionalArguments: bridgeArguments(), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
+  const view = dashboardView
+  const contents = view.webContents
+  capabilityRegistry.register(contents, 'home', { pinnedUrl: clientConfig.appUrl })
+  automationServer?.attachSession(contents.session, capabilityRegistry)
   dashboardWindow.on('closed', () => {
-    dashboardWindow = null
+    if (!contents.isDestroyed()) contents.close()
+    if (dashboardWindow === window) { dashboardWindow = null; dashboardView = null }
   })
   tabBrowser?.attachWindow(dashboardWindow)
+  tabBrowser?.attachDashboard(view, clientConfig.appUrl)
+  tabBrowser.bindShortcuts(window.webContents)
+  window.on('maximize', () => tabBrowser.notify())
+  window.on('unmaximize', () => tabBrowser.notify())
   dashboardWindow.show()
   dashboardWindow.focus()
   dashboardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  dashboardWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.split('#', 1)[0] !== clientConfig.appUrl) event.preventDefault()
-  })
-  while (!quitting && dashboardWindow && !dashboardWindow.isDestroyed()) {
-    try { await dashboardWindow.loadURL(clientConfig.appUrl); break } catch {
-      const result = await dialog.showMessageBox(dashboardWindow, { type: 'error', title: '无法连接工作空间', message: '工作空间服务暂不可用，请检查服务地址或网络后重试。', detail: clientConfig.appUrl, buttons: ['重试', '退出'], defaultId: 0, cancelId: 1 })
-      if (result.response !== 0) { app.quit(); break }
-    }
+  dashboardWindow.webContents.on('will-navigate', (event, url) => { if (url !== shellUrl) event.preventDefault() })
+  await window.loadURL(shellUrl)
+  try { await contents.loadURL(clientConfig.appUrl) } catch {
+    tabBrowser.homeError = 'SaaS 页面无法加载，请检查服务地址或网络后刷新。'
   }
+  tabBrowser.notify()
 }
 
 async function start () {
@@ -841,7 +898,9 @@ async function start () {
     await groupRepository.load(environmentRepository.list())
     tabBrowser = new TabBrowser(app.getPath('userData'), environmentRepository, {
       getWindow: () => dashboardWindow,
-      onEnvironmentChanged: () => dashboardWindow?.webContents.send('environments:changed')
+      capabilityRegistry,
+      onSessionCreated: profileSession => automationServer?.attachSession(profileSession, capabilityRegistry),
+      onEnvironmentChanged: () => notifyBusiness('environments:changed')
     })
     xGrokAutomation = new PlatformAutomationManager({ tabBrowser })
     xGrokAutomation.on('status-changed', task => {
@@ -861,6 +920,7 @@ async function start () {
     })
     try {
       await automationServer.start()
+      await fs.writeFile(path.join(app.getPath('userData'), 'automation-access.json'), JSON.stringify({ url: `http://127.0.0.1:${automationServer.port}`, token: automationServer.token }), { mode: 0o600 })
     } catch (serverError) {
       console.warn('[自动化服务启动提示]', serverError?.message || serverError)
     }

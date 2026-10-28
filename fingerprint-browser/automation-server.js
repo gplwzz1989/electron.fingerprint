@@ -23,6 +23,7 @@ const {
 
 const DEFAULT_PORT = 39898
 const DEFAULT_HOST = '127.0.0.1'
+const { randomBytes, timingSafeEqual } = require('node:crypto')
 
 class AutomationServer {
   constructor (options = {}) {
@@ -37,6 +38,9 @@ class AutomationServer {
     this.xGrokAutomation = options.xGrokAutomation || null
     this.server = null
     this.listening = false
+    this.token = options.token || process.env.FP_AUTOMATION_TOKEN || randomBytes(32).toString('hex')
+    if (typeof this.token !== 'string' || this.token.length < 32) throw new ProfileValidationError('本地自动化令牌至少需要三十二个字符。')
+    this.authorizedSessions = new WeakSet()
   }
 
   async start () {
@@ -78,14 +82,17 @@ class AutomationServer {
   }
 
   async handleRequest (req, res) {
-    // 设置通用 CORS 头以支持本地自动化脚本和管理台调用
+    // 本地自动化 HTTP 只校验令牌，允许跨域访问，不将网页来源作为授权条件。
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
+    if (req.headers['access-control-request-private-network'] === 'true') res.setHeader('Access-Control-Allow-Private-Network', 'true')
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+    const supplied = Buffer.from(req.headers.authorization || '')
+    const expected = Buffer.from(`Bearer ${this.token}`)
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ ok: false, error: '当前请求无权访问本地自动化接口。' }))
       return
     }
 
@@ -108,6 +115,26 @@ class AutomationServer {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ ok: false, error: message }))
     }
+  }
+
+  attachSession (profileSession, registry) {
+    if (this.authorizedSessions.has(profileSession)) return
+    this.authorizedSessions.add(profileSession)
+    // 免手动鉴权依赖真实标签身份，令牌由主进程附加；普通网页仍可自行携带有效令牌。
+    profileSession.webRequest.onBeforeSendHeaders({ urls: [`http://127.0.0.1:${this.port}/api/v1/*`] }, async (details, callback) => {
+      const headers = { ...details.requestHeaders }
+      if (!Object.keys(headers).some(name => name.toLowerCase() === 'authorization')) {
+        try {
+          // 代理会话通过具名桥接访问本地接口，不把客户端令牌送入外部代理。
+          if ((await profileSession.resolveProxy(details.url)).trim().toUpperCase() !== 'DIRECT') throw new Error()
+          const sender = details.webContents || registry.entries.get(details.webContentsId)?.contents
+          if (!details.frame) throw new Error()
+          registry.assert({ sender, senderFrame: details.frame }, 'automation:request')
+          headers.Authorization = `Bearer ${this.token}`
+        } catch {}
+      }
+      callback({ requestHeaders: headers })
+    })
   }
 
   async readJsonBody (req) {

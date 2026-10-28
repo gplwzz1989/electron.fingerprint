@@ -9,11 +9,15 @@ const { ProfileValidationError, normalizeUrl } = require('./profile-store')
 const { createSocks5Proxy } = require('./socks5-proxy')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
 const { generateStealthScript } = require('./stealth-engine')
+const { bridgeArguments } = require('./client-api-contract')
+const { pathToFileURL } = require('node:url')
+const { resolveAddress } = require('./browser-navigation')
 
 const STEALTH_PRELOAD_PATH = path.join(__dirname, 'stealth-preload.js')
 
 
-const HEADER_HEIGHT = 88
+const HEADER_HEIGHT = 94
+const NEW_TAB_URL = pathToFileURL(path.join(__dirname, 'new-tab.html')).href
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
 const ALLOWED_PERMISSION_TYPES = new Set(['fullscreen', 'pointerLock', 'clipboard-sanitized-write'])
 
@@ -56,16 +60,16 @@ async function checkProxyConnection (proxy) {
 
 async function loadUrlWithProxyTimeout (contents, url, proxy) {
   const loading = contents.loadURL(url)
-  if (!proxy || proxy.mode === 'direct') return await loading
+  const proxied = proxy && proxy.mode !== 'direct'
   let timer
   try {
     return await Promise.race([
       loading,
       new Promise((resolve, reject) => {
         timer = setTimeout(() => {
-          reject(new ProfileValidationError('代理连接超时，已阻止继续加载。'))
+          reject(new ProfileValidationError(proxied ? '代理连接超时，已阻止继续加载。' : '网页加载超时，请检查网址或网络后重试。'))
           contents.stop()
-        }, proxyTimeoutMs())
+        }, proxied ? proxyTimeoutMs() : 30000)
       })
     ])
   } finally {
@@ -100,6 +104,9 @@ class TabBrowser {
     this.dataRoot = dataRoot
     this.environmentRepository = environmentRepository
     this.getWindow = options.getWindow || (() => null)
+    this.capabilityRegistry = options.capabilityRegistry || null
+    this.onSessionCreated = options.onSessionCreated || (() => {})
+    this.dashboardView = null
     this.onEnvironmentChanged = options.onEnvironmentChanged || (() => {})
     this.window = null
     this.ready = null
@@ -114,7 +121,7 @@ class TabBrowser {
       const tab = [...this.tabs.values()].find(item => item.view.webContents === contents)
       if (!tab) return
       event.preventDefault()
-      const proxy = tab.profile.proxy || {}
+      const proxy = tab.profile?.proxy || tab.networkProxy || {}
       callback(proxy.username || '', proxy.password || '')
     })
   }
@@ -145,10 +152,14 @@ class TabBrowser {
   }
 
   snapshot () {
+    const home = this.dashboardView?.webContents
     return {
       activeId: this.activeId,
-      tabs: [...this.tabs.values()].map(tab => ({
+      maximized: this.window?.isMaximized?.() || false,
+      home: home && !home.isDestroyed() ? { url: home.getURL() || this.homeUrl, loading: home.isLoading(), canGoBack: home.navigationHistory.canGoBack(), canGoForward: home.navigationHistory.canGoForward(), error: this.homeError || '' } : {},
+      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
         id: tab.id,
+        kind: 'managed',
         environmentId: tab.environmentId,
         profileId: tab.profile.id,
         profileName: tab.profile.name,
@@ -192,7 +203,48 @@ class TabBrowser {
   }
 
   notify () {
-    if (this.window && !this.window.isDestroyed()) this.window.webContents.send('tabs:changed', this.snapshot())
+    if (this.window && !this.window.isDestroyed()) {
+      const snapshot = this.snapshot()
+      this.window.webContents.send('tabs:changed', snapshot)
+      if (this.dashboardView && !this.dashboardView.webContents.isDestroyed()) this.dashboardView.webContents.send('tabs:changed', snapshot)
+      for (const tab of this.tabs.values()) {
+        if (tab.kind === 'ordinary' || !this.capabilityRegistry) continue
+        const sender = tab.view.webContents
+        try { this.capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, 'tabs:list'); sender.send('tabs:changed', snapshot) } catch {}
+      }
+    }
+  }
+
+  attachDashboard (view, url) {
+    this.dashboardView = view; this.homeUrl = url
+    const contents = view.webContents
+    this.bindShortcuts(contents)
+    contents.setWindowOpenHandler(details => {
+      if (/^https?:\/\//i.test(details.url) || details.url === 'about:blank') void this.openOrdinary(details.url).catch(() => {})
+      return { action: 'deny' }
+    })
+    for (const name of ['will-navigate', 'will-redirect']) contents.on(name, (event, destination) => {
+      if (destination.split('#', 1)[0] !== this.homeUrl) {
+        event.preventDefault()
+        if (/^https?:\/\//i.test(destination)) void this.openOrdinary(destination).catch(() => {})
+      }
+    })
+    for (const name of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated']) contents.on(name, () => this.notify())
+    contents.on('did-start-loading', () => { this.homeError = '' })
+    contents.on('did-fail-load', (_event, code, _description, _url, main) => { if (main && code !== -3) { this.homeError = 'SaaS 页面无法加载，请检查服务地址或网络后刷新。'; this.notify() } })
+    this.layout()
+  }
+
+  bindShortcuts (contents) {
+    contents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      const key = input.key.toLowerCase(); const modifier = input.control || input.meta
+      if (modifier && key === 't') { event.preventDefault(); void this.openOrdinary().catch(() => {}) }
+      if (modifier && key === 'l') { event.preventDefault(); this.window.webContents.focus(); this.window.webContents.send('shell:focus-address') }
+      if (modifier && key === 'w') { event.preventDefault(); if (this.activeId) void this.close(this.activeId).catch(() => {}) }
+      if ((modifier && key === 'r') || key === 'f5') { event.preventDefault(); contents.reload() }
+      if (key === 'f12') { event.preventDefault(); contents.openDevTools({ mode: 'detach' }) }
+    })
   }
 
   selectDashboard () {
@@ -202,12 +254,21 @@ class TabBrowser {
     if (this.window && !this.window.isDestroyed()) {
       this.window.show()
       this.window.focus()
+      this.dashboardView?.webContents.focus()
     }
   }
 
   layout () {
     if (!this.window || this.window.isDestroyed()) return
     const [width, height] = this.window.getContentSize()
+    if (this.dashboardView) {
+      const attached = this.window.contentView.children.includes(this.dashboardView)
+      if (this.activeId && attached) this.window.contentView.removeChildView(this.dashboardView)
+      if (!this.activeId) {
+        this.dashboardView.setBounds({ x: 0, y: HEADER_HEIGHT, width, height: Math.max(0, height - HEADER_HEIGHT) })
+        if (!attached) this.window.contentView.addChildView(this.dashboardView)
+      }
+    }
     for (const tab of this.tabs.values()) {
       const active = tab.id === this.activeId
       const attached = this.window.contentView.children.includes(tab.view)
@@ -225,9 +286,19 @@ class TabBrowser {
     return tab
   }
 
+  reorder (payload) {
+    if (!payload || !Number.isInteger(payload.index) || payload.index < 0 || payload.index >= this.tabs.size) throw new ProfileValidationError('标签目标位置无效。')
+    const tab = this.getTab(payload.id)
+    const order = [...this.tabs.values()].filter(item => item !== tab)
+    order.splice(payload.index, 0, tab)
+    this.tabs.clear(); for (const item of order) this.tabs.set(item.id, item)
+    this.notify()
+    return this.snapshot()
+  }
+
   tabIdsForEnvironment (environmentId) {
     return [...this.tabs.values()]
-      .filter(tab => tab.environmentId === environmentId)
+      .filter(tab => tab.environmentId === environmentId || tab.ownerEnvironmentId === environmentId)
       .map(tab => tab.id)
   }
 
@@ -253,10 +324,60 @@ class TabBrowser {
   }
 
   openDevTools (id) {
-    const tab = this.getTab(id)
-    const contents = tab.view.webContents
+    const contents = id ? this.getTab(id).view.webContents : this.dashboardView?.webContents
+    if (!contents) throw new ProfileValidationError('当前页面尚未准备好。')
     if (contents.isDestroyed()) throw new ProfileValidationError('当前标签页面已关闭，请重新打开后再调试。')
     contents.openDevTools({ mode: 'detach', activate: true })
+  }
+
+  async openOrdinary (targetUrl = 'about:blank', options = {}) {
+    const url = normalizeUrl(targetUrl)
+    await this.ensureWindow()
+    const kind = options.kind === 'managed' ? 'managed' : 'ordinary'
+    const tabSession = options.session || session.fromPartition(kind === 'ordinary' ? 'persist:ordinary-browser' : `persist:managed-${randomUUID()}`)
+    this.onSessionCreated(tabSession)
+    tabSession.setPermissionRequestHandler((_contents, permission, callback) => callback(isPermissionAllowed(permission)))
+    tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
+    const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' ? { preload: path.join(__dirname, 'workspace-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
+    const contents = view.webContents
+    const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: '新标签页', url, error: '', loading: false, networkProxy: options.proxy }
+    this.tabs.set(tab.id, tab)
+    this.capabilityRegistry?.register(contents, kind, options)
+    this.bindShortcuts(contents)
+    contents.setWindowOpenHandler(details => {
+      if (/^https?:\/\//i.test(details.url) || details.url === 'about:blank') void this.openOrdinary(details.url, { session: tabSession, proxy: options.proxy, ownerEnvironmentId: options.ownerEnvironmentId }).catch(() => {})
+      return { action: 'deny' }
+    })
+    for (const name of ['will-navigate', 'will-redirect']) contents.on(name, (event, destination) => {
+      if (!/^https?:\/\//i.test(destination) && destination !== 'about:blank') event.preventDefault()
+    })
+    contents.on('page-title-updated', (_event, title) => { tab.title = title || '新标签页'; this.notify() })
+    contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; this.notify() })
+    contents.on('did-stop-loading', () => { tab.loading = false; this.notify() })
+    for (const name of ['did-navigate', 'did-navigate-in-page']) contents.on(name, () => { tab.url = contents.getURL() === NEW_TAB_URL ? 'about:blank' : contents.getURL(); this.notify() })
+    contents.on('did-fail-load', (_event, code, _description, _url, main) => { if (main && code !== -3) { tab.error = '网页加载失败，请检查网址和网络后刷新。'; this.notify() } })
+    contents.on('render-process-gone', () => { tab.error = '网页进程已退出，请刷新后重试。'; this.notify() })
+    this.select(tab.id)
+    try { if (url === 'about:blank' && kind === 'ordinary') await contents.loadURL(NEW_TAB_URL); else await contents.loadURL(url) } catch { tab.error = '网页加载失败，请检查网址和网络后刷新。'; this.notify() }
+    if (url === 'about:blank' && kind === 'ordinary') { this.window.webContents.focus(); this.window.webContents.send('shell:focus-address') }
+    return { tabId: tab.id }
+  }
+
+  async createManaged (payload) {
+    if (!payload || typeof payload !== 'object') throw new ProfileValidationError('请提供有效的系统标签配置。')
+    const environment = payload.environmentId ? this.environmentRepository.get(payload.environmentId) : null
+    if (payload.environmentId && !environment) throw new ProfileValidationError('找不到要使用的浏览器环境。')
+    const url = normalizeUrl(payload.url || environment?.creationUrl || 'about:blank')
+    const policy = this.capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(url) ? [new URL(url).origin] : []) })
+    if (environment) return await this.openPage(environment, randomUUID(), url, policy)
+    return await this.openOrdinary(url, { kind: 'managed', ...policy })
+  }
+
+  setCapabilities (payload) {
+    if (!payload || typeof payload !== 'object') throw new ProfileValidationError('标签能力配置无效。')
+    const tab = this.getTab(payload.id)
+    if (tab.kind !== 'managed') throw new ProfileValidationError('普通网页标签不能升级为系统标签。')
+    return this.capabilityRegistry.update(tab.view.webContents, payload)
   }
 
   async open (profile, targetUrl, operationId) {
@@ -287,7 +408,7 @@ class TabBrowser {
     }
   }
 
-  async reopen (environmentId) {
+  async reopen (environmentId, policy) {
     const environment = this.environmentRepository.get(environmentId)
     if (!environment) throw new ProfileValidationError('找不到浏览器环境。')
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
@@ -296,12 +417,12 @@ class TabBrowser {
     } catch {
       throw new ProfileValidationError('环境数据目录不存在，无法恢复登录状态。')
     }
-    return await this.openEnvironment(environment)
+    return await this.openEnvironment(environment, policy)
   }
 
-  async openEnvironment (environment) {
+  async openEnvironment (environment, policy) {
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
-    return await this.openPage(environment, environment.id)
+    return await this.openPage(environment, environment.id, undefined, policy)
   }
 
   async openPageTab (environmentId, targetUrl) {
@@ -316,7 +437,7 @@ class TabBrowser {
     return await this.openPage(environment, randomUUID(), targetUrl)
   }
 
-  async openPage (environment, tabId, targetUrl) {
+  async openPage (environment, tabId, targetUrl, policy = {}) {
     const profile = {
       id: environment.profileId,
       name: environment.profileName,
@@ -335,6 +456,7 @@ class TabBrowser {
     // 同一环境内的网页标签复用同一个持久化会话，不同环境仍使用不同目录。
     // 严格使用规范目录路径，确保 LevelDB 与 SQLite WAL 存储引擎正常工作并保持持久化登录态。
     const tabSession = session.fromPath(dataDir)
+    this.onSessionCreated(tabSession)
     const tlsWarning = applyEnvironmentTLSFingerprintConfig(tabSession, snapshot.tlsFingerprint)
     if (this.mediaHub?.sniffer) {
       this.mediaHub.sniffer.attachSession(tabSession, () => this.activeId)
@@ -362,15 +484,22 @@ class TabBrowser {
       nodeIntegration: false,
       sandbox: true,
       preload: STEALTH_PRELOAD_PATH,
+      additionalArguments: bridgeArguments(),
       backgroundThrottling: false
     } })
-    const tab = { id: tabId, environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
+    const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
+    this.capabilityRegistry?.register(contents, 'managed', { capabilities: ['*'], allowedOrigins: /^https?:/.test(url) ? [new URL(url).origin] : [], ...policy })
+    this.bindShortcuts(contents)
     if (typeof contents.setBackgroundThrottling === 'function') {
       contents.setBackgroundThrottling(false)
     }
     contents.setWindowOpenHandler(({ url, disposition }) => {
       const isHttpOrBlank = /^https?:\/\//i.test(url) || url === 'about:blank'
+      if (this.dashboardView) {
+        if (isHttpOrBlank) void this.openOrdinary(url, { session: tabSession, proxy: snapshot.proxy, ownerEnvironmentId: environment.id }).catch(() => {})
+        return { action: 'deny' }
+      }
       switch (disposition) {
         case 'new-window': {
           if (!isHttpOrBlank) return { action: 'deny' }
@@ -514,13 +643,14 @@ class TabBrowser {
           throw new ProfileValidationError('环境数据保存失败，标签仍保持打开状态。')
         }
       }
-      const remainingTabIds = this.tabIdsForEnvironment(tab.environmentId).filter(tabId => tabId !== id)
-      await this.environmentRepository.update(tab.environmentId, {
+      const environmentId = tab.environmentId || tab.ownerEnvironmentId
+      const remainingTabIds = environmentId ? this.tabIdsForEnvironment(environmentId).filter(tabId => tabId !== id) : []
+      if (environmentId) await this.environmentRepository.update(environmentId, {
         status: remainingTabIds.length > 0 ? 'open' : 'closed',
         lastUrl: contents && !contents.isDestroyed() ? contents.getURL() || tab.url : tab.url
       })
-      if (remainingTabIds.length === 0 && this.xGrokAutomation) {
-        this.xGrokAutomation.onEnvironmentClosed(tab.environmentId)
+      if (environmentId && remainingTabIds.length === 0 && this.xGrokAutomation) {
+        this.xGrokAutomation.onEnvironmentClosed(environmentId)
       }
       this.onEnvironmentChanged()
       if (this.mediaHub) {
@@ -536,12 +666,14 @@ class TabBrowser {
         }
         tab.popups.clear()
       }
+      const order = [...this.tabs.keys()]; const closingIndex = order.indexOf(id)
       this.tabs.delete(id)
+      this.capabilityRegistry?.revoke(contents)
       if (contents && !contents.isDestroyed()) contents.close()
       tab.proxyBridge?.close()
       if (this.activeId === id) {
         this.activeId = null
-        const nextId = this.tabs.keys().next().value
+        const nextId = order.slice(closingIndex + 1).find(key => this.tabs.has(key)) || order.slice(0, closingIndex).reverse().find(key => this.tabs.has(key))
         if (nextId) this.select(nextId)
       }
       this.layout()
@@ -585,13 +717,27 @@ class TabBrowser {
 
   async navigate (payload) {
     if (!payload || typeof payload !== 'object') throw new ProfileValidationError('标签操作参数无效。')
+    if (!payload.id && this.dashboardView) {
+      const contents = this.dashboardView.webContents
+      if (payload.action === 'reload') { void contents.loadURL(this.homeUrl).catch(() => {}); return }
+      if (payload.action === 'stop') { contents.stop(); this.notify(); return }
+      if (payload.action === 'back' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+      else if (payload.action === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+      else if (!['back', 'forward'].includes(payload.action)) throw new ProfileValidationError('首页地址由打包配置决定，不能更换。')
+      return
+    }
     const tab = this.getTab(payload.id)
     const contents = tab.view.webContents
     switch (payload.action) {
       case 'load':
+        let url
+        try { url = resolveAddress(payload.url) } catch (error) { throw new ProfileValidationError(error.message) }
+        tab.url = url; tab.error = ''; this.notify()
+        if (this.activeId === tab.id) contents.focus()
         try {
-          await loadUrlWithProxyTimeout(contents, normalizeUrl(payload.url), tab.profile.proxy)
+          await loadUrlWithProxyTimeout(contents, url === 'about:blank' && tab.kind === 'ordinary' ? NEW_TAB_URL : url, tab.profile?.proxy)
         } catch (error) {
+          if (error?.code === 'ERR_ABORTED' || error?.errno === -3) return
           if (error instanceof ProfileValidationError) throw error
           throw new ProfileValidationError('网页加载失败，请检查网址和网络连接。')
         }
@@ -603,6 +749,7 @@ class TabBrowser {
         if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
         break
       case 'reload': contents.reload(); break
+      case 'stop': contents.stop(); tab.loading = false; tab.url = contents.getURL() === NEW_TAB_URL ? 'about:blank' : contents.getURL() || tab.url; this.notify(); break
       default: throw new ProfileValidationError('不支持此标签操作。')
     }
   }

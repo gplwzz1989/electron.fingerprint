@@ -72,7 +72,7 @@ class WorkspaceServer {
   cookie (req) { const value = req.headers.cookie?.split(';').map(item => item.trim()).find(item => item.startsWith('qijie_session=')); return value ? value.slice(14) : '' }
   async handle (req, res) {
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     const address = this.server.address(); const origin = this.publicUrl ? new URL(this.publicUrl).origin : `http://${this.host}:${address?.port || this.port}`
     const url = new URL(req.url, origin); const pathname = url.pathname; const method = req.method
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })

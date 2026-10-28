@@ -54,10 +54,17 @@ async function run () {
 
   const { port } = await server.start()
   const baseUrl = `http://127.0.0.1:${port}`
+  const authorizedFetch = (url, options = {}) => fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${server.token}` } })
 
   try {
+    assert.equal((await fetch(`${baseUrl}/api/v1/health`)).status, 403, '无令牌请求必须拒绝。')
+    assert.equal((await authorizedFetch(`${baseUrl}/api/v1/health`, { headers: { Origin: 'https://caller.example' } })).status, 200, '携带有效令牌时不限制网页来源。')
+    assert.equal((await authorizedFetch(`${baseUrl}/api/v1/health`, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 200, '有效令牌允许跨站请求。')
+    assert.equal((await fetch(`${baseUrl}/api/v1/health`, { headers: { Origin: 'https://caller.example' } })).status, 403, '跨域请求也必须持有有效令牌。')
+    const preflight = await fetch(`${baseUrl}/api/v1/health`, { method: 'OPTIONS', headers: { Origin: 'https://caller.example', 'Access-Control-Request-Headers': 'authorization' } })
+    assert.equal(preflight.status, 204); assert.equal(preflight.headers.get('access-control-allow-origin'), '*')
     // 1. 健康检查测试
-    const healthRes = await fetch(`${baseUrl}/api/v1/health`)
+    const healthRes = await authorizedFetch(`${baseUrl}/api/v1/health`)
     assert.equal(healthRes.status, 200)
     const healthJson = await healthRes.json()
     assert.equal(healthJson.ok, true)
@@ -65,23 +72,23 @@ async function run () {
     assert.equal(healthJson.version, '0.1.0')
 
     // 2. 预设列表测试
-    const presetsRes = await fetch(`${baseUrl}/api/v1/presets`)
+    const presetsRes = await authorizedFetch(`${baseUrl}/api/v1/presets`)
     assert.equal(presetsRes.status, 200)
     const presetsJson = await presetsRes.json()
     assert.equal(presetsJson.ok, true)
     assert.ok(presetsJson.presets.length >= 3)
 
     // 3. 单个预设获取测试
-    const presetDetailRes = await fetch(`${baseUrl}/api/v1/presets/win11-us-nvidia`)
+    const presetDetailRes = await authorizedFetch(`${baseUrl}/api/v1/presets/win11-us-nvidia`)
     assert.equal(presetDetailRes.status, 200)
     const presetDetail = await presetDetailRes.json()
     assert.equal(presetDetail.preset.id, 'win11-us-nvidia')
 
-    const unknownPresetRes = await fetch(`${baseUrl}/api/v1/presets/non-existent`)
+    const unknownPresetRes = await authorizedFetch(`${baseUrl}/api/v1/presets/non-existent`)
     assert.equal(unknownPresetRes.status, 404)
 
     // 4. 环境列表
-    const envsRes = await fetch(`${baseUrl}/api/v1/environments`)
+    const envsRes = await authorizedFetch(`${baseUrl}/api/v1/environments`)
     assert.equal(envsRes.status, 200)
     const envsJson = await envsRes.json()
     assert.equal(envsJson.ok, true)
@@ -89,24 +96,24 @@ async function run () {
     assert.equal(envsJson.environments[0].isOpen, false)
 
     // 5. 启动环境
-    const startRes = await fetch(`${baseUrl}/api/v1/environments/env-1/start`, { method: 'POST' })
+    const startRes = await authorizedFetch(`${baseUrl}/api/v1/environments/env-1/start`, { method: 'POST' })
     assert.equal(startRes.status, 200)
     const startJson = await startRes.json()
     assert.equal(startJson.ok, true)
     assert.equal(openIds.has('env-1'), true)
 
     // 查看启动状态
-    const envDetailRes = await fetch(`${baseUrl}/api/v1/environments/env-1`)
+    const envDetailRes = await authorizedFetch(`${baseUrl}/api/v1/environments/env-1`)
     const envDetail = await envDetailRes.json()
     assert.equal(envDetail.environment.isOpen, true)
 
     // 6. 停止环境
-    const stopRes = await fetch(`${baseUrl}/api/v1/environments/env-1/stop`, { method: 'POST' })
+    const stopRes = await authorizedFetch(`${baseUrl}/api/v1/environments/env-1/stop`, { method: 'POST' })
     assert.equal(stopRes.status, 200)
     assert.equal(openIds.has('env-1'), false)
 
     // 7. 使用预设一键创建环境
-    const createRes = await fetch(`${baseUrl}/api/v1/environments/create`, {
+    const createRes = await authorizedFetch(`${baseUrl}/api/v1/environments/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -121,12 +128,12 @@ async function run () {
     assert.equal(createJson.environment.fingerprint.graphics.webglVendor, 'Google Inc. (NVIDIA)')
 
     // 8. GPU 推荐与审计接口测试
-    const gpuRecRes = await fetch(`${baseUrl}/api/v1/gpu/recommend?platform=Win32`)
+    const gpuRecRes = await authorizedFetch(`${baseUrl}/api/v1/gpu/recommend?platform=Win32`)
     assert.equal(gpuRecRes.status, 200)
     const gpuRec = await gpuRecRes.json()
     assert.ok(gpuRec.recommendations.length >= 2)
 
-    const gpuAuditRes = await fetch(`${baseUrl}/api/v1/gpu/audit`, {
+    const gpuAuditRes = await authorizedFetch(`${baseUrl}/api/v1/gpu/audit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -145,7 +152,7 @@ async function run () {
     assert.equal(gpuAuditJson.audit.consistent, true)
 
     // 测试一键随机物理自洽硬件接口
-    const randomHwRes = await fetch(`${baseUrl}/api/v1/fingerprint/random-hardware?platform=Win32`)
+    const randomHwRes = await authorizedFetch(`${baseUrl}/api/v1/fingerprint/random-hardware?platform=Win32`)
     assert.equal(randomHwRes.status, 200)
     const randomHwJson = await randomHwRes.json()
     assert.equal(randomHwJson.ok, true)
@@ -163,7 +170,7 @@ async function run () {
     })
     mockTabBrowser.activeId = 'tab-1'
 
-    const clickRes = await fetch(`${baseUrl}/api/v1/actions/click`, {
+    const clickRes = await authorizedFetch(`${baseUrl}/api/v1/actions/click`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ x: 150, y: 150 })
@@ -171,7 +178,7 @@ async function run () {
     assert.equal(clickRes.status, 200)
     assert.ok(actionEvents.some(e => e.type === 'mouseDown'))
 
-    const scrollRes = await fetch(`${baseUrl}/api/v1/actions/scroll`, {
+    const scrollRes = await authorizedFetch(`${baseUrl}/api/v1/actions/scroll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deltaY: 200 })
@@ -179,7 +186,7 @@ async function run () {
     assert.equal(scrollRes.status, 200)
     assert.ok(actionEvents.some(e => e.type === 'mouseWheel'))
 
-    const typeRes = await fetch(`${baseUrl}/api/v1/actions/type`, {
+    const typeRes = await authorizedFetch(`${baseUrl}/api/v1/actions/type`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: 'ok', options: { typoRate: 0, baseInterval: 10 } })
@@ -188,7 +195,7 @@ async function run () {
     assert.ok(actionEvents.some(e => e.type === 'char' && e.keyCode === 'o'))
 
     // 10. 404 路由验证
-    const notFoundRes = await fetch(`${baseUrl}/api/v1/unknown-endpoint`)
+    const notFoundRes = await authorizedFetch(`${baseUrl}/api/v1/unknown-endpoint`)
     assert.equal(notFoundRes.status, 404)
 
     console.log('自动化 REST API 服务与环境控制测试通过。')

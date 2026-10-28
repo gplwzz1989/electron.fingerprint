@@ -4,3 +4,4 @@ bin/*
 scratch/
 build-config.json
 client-config.json
+automation-access.json

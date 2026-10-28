@@ -20,4 +20,5 @@ test('开发环境读取打包配置；test 和 prod 缺少地址时拒绝启动
   assert.throws(() => getClientConfig({ directory, packaged: true, env: {} }), /未配置工作空间地址/)
   fs.writeFileSync(path.join(directory, 'client-config.json'), JSON.stringify({ environment: 'test', appUrl: 'https://test.workspace.example/' }))
   assert.deepEqual(getClientConfig({ directory, packaged: true, env: {} }), { environment: 'test', appUrl: 'https://test.workspace.example/' })
+  assert.equal(getClientConfig({ directory, packaged: true, env: { FP_APP_URL: 'https://other.example/' } }).appUrl, 'https://test.workspace.example/', '发行包首页不能被环境变量替换。')
 })
