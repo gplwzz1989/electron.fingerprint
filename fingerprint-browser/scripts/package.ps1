@@ -44,6 +44,7 @@ function Remove-Output ([string]$Target) {
 try {
   if (!$BuildConfig) { $BuildConfig = Join-Path $projectRoot 'build-config.json' }
   $environmentConfig = Get-Content -LiteralPath $BuildConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($environmentConfig.$Environment.updatePublicKey -match 'PRIVATE KEY') { throw '更新打包配置只能填写公钥，不能包含签名私钥。' }
   if (!$AppUrl) { $AppUrl = $environmentConfig.$Environment.appUrl }
   if (!$AppUrl) { $failureMessage = "请在打包配置文件中填写 $Environment 环境的工作空间 URL。"; throw $failureMessage }
   $validatedUrl = & node -e "process.stdout.write(require(process.argv[1]).validateAppUrl(process.argv[2]))" (Join-Path $projectRoot 'client-config.js') $AppUrl

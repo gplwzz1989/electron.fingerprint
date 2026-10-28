@@ -27,6 +27,7 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   const input = (!packaged && env.FP_APP_URL) || config.appUrl || (!packaged && environment === 'dev' ? 'http://127.0.0.1:8088/' : '')
   if (!input) throw new Error('未配置工作空间地址，请在打包时指定正式页面 URL。')
   const appUrl = validateAppUrl(input)
+  if (config.updatePublicKey && (typeof config.updatePublicKey !== 'string' || /PRIVATE KEY/.test(config.updatePublicKey))) throw new Error('客户端更新配置只能包含公钥，禁止写入签名私钥。')
   if (config.updatesEnabled === true && !config.updatePublicKey) throw new Error('已开启自动更新，但未配置更新验签公钥。')
   const updates = { enabled: Boolean(config.updatePublicKey) && config.updatesEnabled !== false, publicKey: config.updatePublicKey || '', channel: environment, url: config.updateUrl || new URL(`/api/client-updates/${environment}/win32/x64.json`, appUrl).href }
   if (updates.enabled) {
