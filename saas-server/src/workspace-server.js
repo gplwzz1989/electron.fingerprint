@@ -82,7 +82,7 @@ class WorkspaceServer {
     try {
       if (req.headers.origin && req.headers.origin !== origin) throw new UserError('请求来源不受信任，请从工作空间页面重试。', 403)
       if (!pathname.startsWith('/api/')) return this.static(req, res, pathname)
-      if (method === 'GET' && pathname === '/api/health') return send({ status: 'available' })
+      if (method === 'GET' && pathname === '/api/health') return send({ status: 'available', version: require('../package.json').version, launchProtocols: ['desktop-launch-v1', 'qijie-launch-v1'] })
       if (await this.clientUpdates.handle(req, res, pathname)) return
       const paymentNotification = pathname.match(/^\/api\/payments\/(wechat|alipay)\/notify$/)
       if (paymentNotification && method === 'POST') {

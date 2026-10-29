@@ -112,6 +112,8 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
       await api('/api/auth/me', { account: 'owner', expected: 401 })
     })
     await t.test('正式页面及八个静态导航均由服务提供', async () => {
+      const health = await api('/api/health')
+      assert(health.data.launchProtocols.includes('desktop-launch-v1'))
       const response = await fetch(origin + '/'); assert.equal(response.status, 200)
       const html = await response.text(); assert.equal((html.match(/class="nav-link/g) || []).length, 8)
       assert(html.includes('workspace.js')); assert(!html.includes('prototype.js'))
