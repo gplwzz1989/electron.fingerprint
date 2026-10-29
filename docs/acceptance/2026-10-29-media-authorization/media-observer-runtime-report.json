@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "electron": "37.2.6",
+  "checks": [
+    "真实网络响应",
+    "来源隔离",
+    "HttpOnly Cookie",
+    "本地存储",
+    "RSA 与 AES-GCM",
+    "任务归属",
+    "监听释放"
+  ]
+}

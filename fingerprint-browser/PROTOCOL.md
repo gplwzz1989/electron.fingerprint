@@ -14,6 +14,10 @@
 | `createTab(options)` | 创建可配置权限的系统网页标签 |
 | `setTabCapabilities(options)` | 固定首页管理系统标签权限 |
 | `requestLocalApi({path,method,body})` | 调用当前客户端本地接口，由主进程附加令牌 |
+| `observeSession({tabId,origins,paths?,storageKeys?,publicKey,operationId})` | 仅固定首页可创建十五分钟内有效的会话观察；来源必须为 HTTPS |
+| `readSession({id,cursor?})` | 读取匹配响应、游标和存储字段名称，不返回 Cookie 或存储值 |
+| `captureSession({id})` | 将来源白名单内的 Cookie 和字段白名单内的存储值加密，返回 RSA-OAEP-SHA256/AES-256-GCM 信封 |
+| `closeSession({id})` | 释放观察；仅创建观察的首页可以操作 |
 | `updateStatus()` / `checkUpdates()` / `installUpdate()` | 更新状态、检查及经用户确认安装 |
 | `onTabsChanged(callback)` / `onUpdateChanged(callback)` | 订阅状态，返回取消订阅函数 |
 
@@ -36,3 +40,7 @@
 固定首页由打包配置绑定；加号网页即使访问同一地址也不自动提权。系统标签按来源和能力授权，关闭即撤销。第三方持有效本地令牌可调用 HTTP 自动化接口；页面获得桥接权限与持有 HTTP 令牌是两条独立路径。
 
 不兼容协议升级必须使用新的协议版本。业务服务与基座各自测试自己的实现，联调只验证公开消息，不共享实现文件或依赖包。端到端验收需要同时提供两个独立发布物，不能用源码交叉导入作为运行前提。
+
+## 会话采集信封
+
+0.2.2 新增。业务服务为每个任务生成 RSA 公钥，将公钥及任务标识交给固定首页。客户端返回 Base64 字段 `wrappedKey`、`iv`、`tag`、`ciphertext`，AES-GCM 附加认证数据为任务标识的 UTF-8 字节。解密 JSON 为 `{operationId,cookies,storage}`，`storage` 按完整来源地址分组。服务端必须重新核验任务归属、平台身份和权限后才能保存账号，不能将成功采集等同于授权成功。客户端不解析平台身份，不知道团队或业务接口地址。

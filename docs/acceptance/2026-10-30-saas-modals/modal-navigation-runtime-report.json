@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "results": [
+    "指纹创建、图形页签、Esc关闭、草稿与列表筛选保留",
+    "环境创建→新建指纹→返回环境，草稿不丢失",
+    "真实保存新指纹自动选中、模态红色校验、真实保存环境入库并刷新列表",
+    "proxy-create：模态打开和关闭返回来源",
+    "account-authorize：模态打开和关闭返回来源",
+    "member-invite：模态打开和关闭返回来源",
+    "plans：模态打开和关闭返回来源",
+    "真实选择隔离套餐进入付款模态，不创建订单",
+    "成员权限实际行操作打开模态",
+    "浏览器后退关闭二级模态，无孤立页",
+    "关闭按钮恢复焦点至来源触发按钮",
+    "URL直接进入二级页时具备来源与关闭行为",
+    "860×650窗口模态边界与截图检查",
+    "100%—200%缩放八导航常驻，无脚本异常"
+  ],
+  "errors": [],
+  "screenshot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\modal-navigation-runtime-report-small-window.png",
+  "databaseName": "qijie_workspace_test_f9df4740ac8cc1ed3c77"
+}

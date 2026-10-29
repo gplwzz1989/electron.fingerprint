@@ -12,6 +12,7 @@ const { RegistrationMailer } = require('./registration-mailer')
 const { normalizeEmail } = require('./email-address')
 const { BillingService } = require('./billing-service')
 const { sealLaunch, validateLaunchRequest } = require('./desktop-protocol')
+const { MediaAuthorizations } = require('./media-authorizations')
 const { ClientUpdateService } = require('./client-update-service')
 
 const platforms = [{ key: 'wechat', name: '微信公众号', icon: 'assets/platforms/wechat.png' }, { key: 'douyin', name: '抖音', icon: 'assets/platforms/douyin.png' }, { key: 'weibo', name: '新浪微博', icon: 'assets/platforms/weibo.png' }]
@@ -59,6 +60,7 @@ class WorkspaceServer {
   constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile } = {}) {
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
     this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
+    this.mediaAuthorizations = new MediaAuthorizations(this.database, platformService)
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
     this.clientUpdates = new ClientUpdateService(updateConfigFile)
@@ -81,6 +83,11 @@ class WorkspaceServer {
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })
     try {
       if (req.headers.origin && req.headers.origin !== origin) throw new UserError('请求来源不受信任，请从工作空间页面重试。', 403)
+      if (method === 'GET' && pathname.startsWith('/platform-runtime/')) {
+        if (!this.mediaAuthorizations.available()) throw new UserError('平台授权脚本尚未配置。', 503)
+        const runtime = this.platformService.runtime(pathname.slice('/platform-runtime/'.length))
+        res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' }); return res.end(runtime.bytes)
+      }
       if (!pathname.startsWith('/api/')) return this.static(req, res, pathname)
       if (method === 'GET' && pathname === '/api/health') return send({ status: 'available', version: require('../package.json').version, launchProtocols: ['desktop-launch-v1', 'qijie-launch-v1'] })
       if (await this.clientUpdates.handle(req, res, pathname)) return
@@ -102,7 +109,11 @@ class WorkspaceServer {
         const result = await this.registrationMailer.sendCode(email, req.socket.remoteAddress)
         return send({ ...result, message: '验证码邮件已发送，请检查收件箱。' })
       }
-      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: platforms.map(item => ({ ...item, enabled: false, reason: '平台授权服务尚未完成接入验收' })) })
+      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || platforms).map(item => ({ key: item.key, name: item.name, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
+      if (method === 'GET' && pathname === '/api/platform-runtime') {
+        if (!this.mediaAuthorizations.available()) throw new UserError('平台授权服务尚未配置。', 503)
+        const { manifest } = this.platformService.runtime(); return send({ ...manifest, url: '/platform-runtime/' + manifest.file })
+      }
       if (method === 'POST' && ['/api/auth/login', '/api/auth/register'].includes(pathname)) {
         const key = req.socket.remoteAddress; const now = Date.now(); const attempts = this.rateLimits.get(key) || { count: 0, until: now + 60000 }
         if (now > attempts.until) { attempts.count = 0; attempts.until = now + 60000 }
@@ -276,12 +287,18 @@ class WorkspaceServer {
         }
       }
       if (resource === 'accounts' && method === 'GET' && !id) return send({ items: (await db.list('accounts', workspaceId)).filter(accessible) })
-      if (resource === 'authorizations' && method === 'POST') {
-        db.assertWrite(member); const body = await this.body(req)
-        if (!platforms.some(item => item.key === body.platform)) throw new UserError('该平台不在系统支持范围内。')
-        if (!this.platformService?.beginAuthorization) throw new UserError('平台授权服务尚未接入，请稍后再试。', 503)
+      if (resource === 'authorizations') {
         // 平台接入仅通过系统接口，禁止提交任意登录地址、Cookie 或自定义身份。
-        throw new UserError('该平台尚未完成授权接口验收。', 503)
+        db.assertWrite(member)
+        if (method === 'POST' && !id) {
+          const body = await this.body(req)
+          return send({ task: await this.billing.withCapacity(workspaceId, 'environments', () => this.mediaAuthorizations.begin(workspaceId, user.id, body), false) }, 201)
+        }
+        if (id && (method === 'GET' && !action || method === 'POST' && ['complete', 'confirm', 'cancel'].includes(action))) {
+          const body = method === 'POST' ? await this.body(req) : {}
+          const operation = () => this.mediaAuthorizations.handle(workspaceId, user.id, id, action, body)
+          return send({ task: action === 'confirm' ? await this.billing.withCapacity(workspaceId, 'environments', operation, false) : await operation() })
+        }
       }
       if (resource === 'billing' && method === 'GET') return send({ ...await this.billing.summary(workspaceId, ['owner', 'admin'].includes(member.role)), usage: { fingerprints: (await db.fingerprints(workspaceId)).filter(accessible).length, environments: (await db.list('environments', workspaceId)).filter(accessible).length, members: (await db.members(workspaceId)).length } })
       if (resource === 'orders') {

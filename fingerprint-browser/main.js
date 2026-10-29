@@ -6,6 +6,8 @@ const { pathToFileURL } = require('node:url')
 const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
 const capabilityRegistry = new TabCapabilities()
+const { SessionObserver } = require('./session-observer')
+let sessionObserver
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
@@ -314,6 +316,15 @@ function registerIpc () {
   handle('application:runtime', async event => {
     try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment, protocolVersion: 1, appName: clientConfig.appName } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
   })
+  for (const action of ['open', 'read', 'capture', 'close']) handle(`session:${action}`, async (event, input) => {
+    const entry = capabilityRegistry.entries.get(event.sender.id)
+    if (entry?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以管理会话观察。')
+    sessionObserver ||= new SessionObserver(tabBrowser)
+    try { return { ok: true, ...(await sessionObserver[action](event.sender, action === 'close' ? input.id : input)) } } catch (error) {
+      if (error instanceof ProfileValidationError) throw error
+      throw new ProfileValidationError('会话观察未完成，请检查登录窗口后重试。')
+    }
+  })
   handle('updates:status', async () => ({ ok: true, ...clientUpdater.snapshot() }))
   handle('updates:check', async () => ({ ok: true, ...await clientUpdater.check() }))
   handle('updates:install', async () => await installClientUpdate())
@@ -335,6 +346,8 @@ function registerIpc () {
       const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
       const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
       profile.id = legacy ? legacy.profileId : nativeId
+      // 与环境仓储的本机标识归一化保持一致，远端资源标识仍由 reference 保存。
+      profile.fingerprint.id = profile.id
       assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
       let existing = environmentRepository.list().find(item => item.profileId === profile.id)
       if (existing) {

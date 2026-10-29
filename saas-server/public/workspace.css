@@ -72,3 +72,19 @@ body.platform-modal-open{overflow:hidden}
 
 /* 浏览器外壳方案 02：管理导航留在 SaaS 首页内，内容区采用统一的品牌和工作台比例。 */
 :root{--primary:#315bea;--sidebar:#18212f;--canvas:#f5f7fb}.brand-symbol{width:44px;height:44px;background:#315bea;border:0;border-radius:13px}.brand-symbol svg{width:28px;height:28px;color:#fff}.brand b{font-size:26px}.nav-link.active{background:#315bea;border-color:#315bea}.page-dashboard .workflow-banner{display:none}.page-dashboard .page-heading{margin-bottom:28px}.page-dashboard h1{font-size:30px}.page-dashboard .task-card{min-height:96px;border-radius:9px}.page-dashboard .task-icon{background:#eef3ff;border-radius:9px;color:#315bea;width:36px;height:36px}.page-dashboard .empty-state{min-height:220px}.page-dashboard .section-heading{margin:24px 0 14px}@media(min-width:1181px){.sidebar{width:236px}.shell{margin-left:236px}.platform-backdrop{left:236px}}@media(max-height:680px){.page-dashboard h1{font-size:24px}.page-dashboard .page-heading{margin-bottom:16px}.page-dashboard .task-card{min-height:88px}.page-dashboard .empty-state{min-height:140px}.page-dashboard .section-heading{margin:14px 0 10px}}
+
+.status-error{color:var(--danger)}.notice.status-error{background:#fff1f3;border-color:#f2cdd5}
+
+/* 二级操作在来源列表上方打开，沿用右侧遮罩，左侧导航始终保持可见。 */
+.workspace-modal{width:min(1060px,100%);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100dvh - 56px)}
+.workspace-modal .platform-picker-header{flex-shrink:0}.workspace-modal .platform-picker-header>div{min-width:0}.workspace-modal .page-actions{margin-top:10px;flex-wrap:wrap}
+.workspace-modal-body{overflow-y:auto;overscroll-behavior:contain;min-height:0;padding:20px 24px;scrollbar-gutter:stable}
+.workspace-modal .form-layout{grid-template-columns:minmax(0,1fr) minmax(190px,250px);align-items:start;gap:18px}.workspace-modal .form-layout.single{grid-template-columns:minmax(0,1fr)}
+.workspace-modal .summary{position:static;min-width:0}.workspace-modal .form-footer{position:sticky;bottom:-20px;background:#fff;z-index:1;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line)}
+.workspace-modal .form-footer>div{display:flex;flex-wrap:wrap;gap:8px}.workspace-modal .field-grid{min-width:0}.workspace-modal .field input,.workspace-modal .field select,.workspace-modal .field textarea{min-width:0;max-width:100%}
+.workspace-modal .tabs{margin:0 0 18px}.workspace-modal .table-scroll{max-height:48dvh}.workspace-modal [role="alert"]{color:var(--danger)}
+@media(max-width:1050px){.workspace-modal .form-layout{grid-template-columns:minmax(0,1fr)}.workspace-modal .summary{display:block}.workspace-modal-body{padding:16px}.workspace-modal .form-footer{bottom:-16px}}
+@media(max-width:639px){.workspace-modal{max-height:calc(100dvh - 24px)}.workspace-modal .field-grid{grid-template-columns:minmax(0,1fr)}}
+.client-native .workspace-modal{max-height:calc(100dvh - 120px)}
+
+.workspace-modal>.workspace-modal-footer{position:static;flex-shrink:0;margin:0;padding:14px 24px;border-top:1px solid var(--line)}

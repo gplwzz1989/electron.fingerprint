@@ -8,6 +8,23 @@
   const canWrite = () => ['owner', 'admin', 'operator'].includes(currentWorkspace()?.role)
   const canAdmin = () => ['owner', 'admin'].includes(currentWorkspace()?.role)
   const base = () => `/api/workspaces/${state.workspaceId}`
+  const surface = () => window.WorkspaceUI.getSurface?.() || document.getElementById('page')
+  const find = selector => surface()?.querySelector(selector)
+  const findAll = selector => surface()?.querySelectorAll(selector) || []
+  const field = id => find(`[id="${id}"]`)
+  function finishPage (fallback) {
+    if (surface() !== document.getElementById('page')) {
+      if (window.WorkspaceUI.closePage) window.WorkspaceUI.closePage(); else window.WorkspaceUI.closeDialog()
+      window.WorkspaceUI.renderBase?.()
+      const route = window.WorkspaceUI.getBaseRoute?.() || window.WorkspaceUI.getRoute()
+      if (['overview', 'fingerprints', 'environments', 'proxies', 'accounts', 'members'].includes(route)) populateTable(route)
+    } else routeTo(fallback)
+  }
+  window.getMediaWorkspace = () => ({ workspaceId: state.workspaceId, userId: state.user?.id, canWrite: canWrite() })
+  document.addEventListener('media:saved', event => {
+    const message = event.detail?.message || '账号授权成功，已添加到账号列表。'
+    void reload().then(() => { window.WorkspaceUI.render(); noticeResult(message); if (event.detail?.warning) showError(event.detail.warning) }).catch(() => { noticeResult(message); showError('账号授权已保存，但账号列表暂未刷新，请刷新页面后查看。') })
+  })
   let viewRevision = 0
   let nativeTabs = { tabs: [], activeId: null }
   let clientUpdate = null
@@ -71,13 +88,13 @@
     return data
   }
   function showError (message, modal = false) {
-    const container = modal ? document.querySelector('#modal-root .platform-picker') : document.getElementById('page')
+    const container = surface() || (modal ? document.querySelector('#modal-root .platform-picker') : document.getElementById('page'))
     if (!container) return
     let panel = container.querySelector('.operation-error')
     if (!panel) { panel = document.createElement('div'); panel.className = 'notice error operation-error'; panel.setAttribute('role', 'alert'); container.prepend(panel) }
     panel.textContent = message
   }
-  function clearError () { document.querySelectorAll('.operation-error').forEach(node => node.remove()) }
+  function clearError () { findAll('.operation-error').forEach(node => node.remove()) }
   function validateFormInputs (container) {
     const fields = container.matches?.('input') ? [container] : [...container.querySelectorAll('input')]
     let firstInvalid = null
@@ -117,7 +134,7 @@
     state.lists = Object.fromEntries(resources.map((name, index) => [name, results[index].items || results[index]]))
     document.documentElement.classList.toggle('reduce-motion', Boolean(state.lists.settings?.settings?.reduceMotion))
   }
-  function routeTo (route) { if (location.hash === `#${route}`) window.WorkspaceUI.render(); else location.hash = route }
+  function routeTo (route) { if (window.WorkspaceUI.openPage) return window.WorkspaceUI.openPage(route); if (location.hash === `#${route}`) window.WorkspaceUI.render(); else location.hash = route }
   function actions (items) { return items.map(item => `<button class="row-action${item.danger ? ' danger' : ''}" type="button" data-operation="${item.action}" data-id="${escape(item.id)}" ${item.disabled ? 'disabled' : ''}>${escape(item.label)}</button>`).join('') }
   function cells (route, item) {
     if (route === 'fingerprints') return [`${escape(item.name)}<small>版本 ${item.version}</small>`, escape(`Chrome ${item.profile.browser.chromiumMajor} / ${item.profile.hardware.platform}`), escape(`${item.profile.locale.language} / ${item.profile.locale.timezone}`), String((state.lists.environments || []).filter(environment => environment.fingerprintId === item.id).length), escape(timestamp(item.updatedAt)), actions([{ action: 'edit-fingerprint', id: item.id, label: '编辑', disabled: !canWrite() }, { action: 'remove-fingerprint', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
@@ -128,6 +145,7 @@
       return route === 'overview' ? values.filter((_value, index) => index !== 4) : values
     }
     if (route === 'proxies') return [escape(item.name), escape(`${item.protocol.toUpperCase()} · ${item.host}:${item.port}`), `<span class="${item.status === 'available' ? 'status-valid' : 'status-error'}">${item.status === 'available' ? '已检测可用' : '检测失败'}</span><small>${escape(timestamp(item.checkedAt))}</small>`, escape(item.timezone), String((state.lists.environments || []).filter(environment => environment.proxyId === item.id).length), actions([{ action: 'check-proxy', id: item.id, label: '重新检测', disabled: !canWrite() }, { action: 'remove-proxy', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
+    if (route === 'accounts') return [`${escape(item.name)}<small>${escape(item.platformName)} · ${escape(item.platformUserId)}</small>`, item.status === 'valid' ? '授权有效' : '<span class="status-error">待重新授权</span>', escape(item.environmentName), escape(timestamp(item.checkedAt)), actions([{ action: 'reauthorize-account', id: item.id, label: '重新授权', disabled: !canWrite() }])]
     if (route === 'members') return [escape(item.name), escape(labelRole(item.role)), item.scope.mode === 'all' ? '全部资源' : `${item.scope.ids.length} 项资源`, '已加入', escape(item.email), actions([{ action: 'permissions', id: item.id, label: '权限', disabled: !canAdmin() || item.role === 'owner' }, { action: 'remove-member', id: item.id, label: '移除', danger: true, disabled: !canAdmin() || item.role === 'owner' || item.userId === state.user?.id }])]
     return [escape(item.name), escape(item.status), escape(item.environmentName), escape(timestamp(item.checkedAt)), '']
   }
@@ -171,7 +189,7 @@
     const panel = table.closest('.table-panel'); panel.querySelector('.pagination')?.remove()
     if (state.user && route !== 'overview') panel.insertAdjacentHTML('beforeend', `<div class="pagination"><span>共 ${records.length} 条</span><button class="button" data-operation="page-back" ${state.page <= 1 ? 'disabled' : ''}>上一页</button><span>${state.page} / ${pages}</span><button class="button" data-operation="page-next" ${state.page >= pages ? 'disabled' : ''}>下一页</button></div>`)
   }
-  const input = (route, group, index) => document.getElementById(`field-${route}-${group}-${index}`)
+  const input = (route, group, index) => field(`field-${route}-${group}-${index}`)
   function setOptions (select, options, prompt, selected = '') {
     if (!select) return
     select.replaceChildren(new Option(prompt, ''))
@@ -179,7 +197,7 @@
     select.value = selected
   }
   function assignAction (label, operation, enabled) {
-    document.querySelectorAll('#page button,#modal-root button').forEach(button => { if (button.textContent.trim() === label) { button.dataset.operation = operation; button.disabled = !enabled } })
+    findAll('button').forEach(button => { if (button.textContent.trim() === label) { button.dataset.operation = operation; button.disabled = !enabled } })
   }
   function prepareFilters (route) {
     const set = (index, options, prompt) => { const select = document.getElementById(`filter-${route}-${index}`); if (select) setOptions(select, options, prompt, select.value) }
@@ -191,10 +209,12 @@
   }
   function prepareEnvironment () {
     const edit = state.editEnvironment
+    const selectedFingerprint = input('environment-create', 1, 0)?.value || ''
+    const selectedProxy = input('environment-create', 2, 1)?.value || ''
     const fingerprints = (state.lists.fingerprints || []).map(item => ({ label: `${item.name} · 版本 ${item.version}`, value: `${item.id}@${item.version}` }))
     if (edit && !fingerprints.some(item => item.value === `${edit.fingerprintId}@${edit.fingerprintVersion}`)) fingerprints.push({ label: `当前锁定指纹 · 版本 ${edit.fingerprintVersion}`, value: `${edit.fingerprintId}@${edit.fingerprintVersion}` })
-    setOptions(input('environment-create', 1, 0), fingerprints, '选择已保存指纹', edit ? `${edit.fingerprintId}@${edit.fingerprintVersion}` : '')
-    setOptions(input('environment-create', 2, 1), (state.lists.proxies || []).map(item => ({ label: `${item.name} · ${item.timezone}`, value: item.id })), '请选择代理', edit?.proxyId || '')
+    setOptions(input('environment-create', 1, 0), fingerprints, '选择已保存指纹', edit ? `${edit.fingerprintId}@${edit.fingerprintVersion}` : selectedFingerprint)
+    setOptions(input('environment-create', 2, 1), (state.lists.proxies || []).map(item => ({ label: `${item.name} · ${item.timezone}`, value: item.id })), '请选择代理', edit?.proxyId || selectedProxy)
     if (edit) {
       input('environment-create', 0, 0).value = edit.name; input('environment-create', 0, 1).value = edit.startUrl
       input('environment-create', 2, 0).value = edit.proxyId ? '选择已有代理' : '不使用代理'
@@ -207,20 +227,20 @@
     const selected = input('environment-create', 1, 0)?.value
     if (!selected) return
     const [id, version] = selected.split('@'); const fingerprint = state.lists.fingerprints?.find(item => item.id === id)
-    document.querySelectorAll('[data-summary-label]').forEach(node => {
+    findAll('[data-summary-label]').forEach(node => {
       if (node.dataset.summaryLabel === '已选指纹') node.textContent = `${fingerprint?.name || '锁定指纹'} · 版本 ${version}`
       if (node.dataset.summaryLabel === '指纹兼容性') node.textContent = '客户端启动时检查'
       if (node.dataset.summaryLabel === '时区一致性' && input('environment-create', 2, 0)?.value === '不使用代理') node.textContent = fingerprint?.profile.locale.timezone || state.editEnvironment?.fingerprint.locale.timezone || '等待指纹信息'
     })
   }
   function renderSettings () {
-    const main = document.querySelector('.form-main'); if (!main) return
+    const main = find('.form-main'); if (!main) return
     const settings = state.lists.settings?.settings || { reduceMotion: false, pageSize: 20 }
     main.innerHTML = `<section class="form-section"><h2>团队界面设置</h2><div class="field-grid"><label class="field"><span>每页条数</span><select id="settings-page-size">${[10, 20, 50].map(size => `<option ${settings.pageSize === size ? 'selected' : ''}>${size}</option>`).join('')}</select></label><label class="field"><span>界面动效</span><select id="settings-motion"><option value="false">标准动效</option><option value="true" ${settings.reduceMotion ? 'selected' : ''}>减少动效</option></select></label></div></section><footer class="form-footer"><span>设置按团队保存。</span><button class="button primary" data-operation="save-settings" ${!canAdmin() ? 'disabled' : ''}>保存设置</button></footer>`
     if (window.workspaceBridge?.updateStatus) { main.insertAdjacentHTML('beforeend', '<section class="form-section client-update-panel" aria-live="polite"></section>'); renderClientUpdates() }
   }
   function renderClientUpdates () {
-    const panel = document.querySelector('.client-update-panel'); if (!panel) return
+    const panel = find('.client-update-panel'); if (!panel) return
     const update = clientUpdate || { status: 'checking', message: '正在读取客户端更新状态。' }
     panel.innerHTML = `<h2>客户端更新</h2><p>当前版本：${escape(update.currentVersion || '读取中')}${update.version ? ` · 可用版本：${escape(update.version)}` : ''}</p><p class="${update.status === 'error' ? 'error' : ''}" ${update.status === 'error' ? 'role="alert"' : ''}>${escape(update.message)}${update.status === 'downloading' ? ` ${Number(update.progress) || 0}%` : ''}</p>${update.notes ? `<p>${escape(update.notes)}</p>` : ''}<button class="button" data-operation="check-client-updates" ${['disabled', 'checking', 'downloading', 'installing'].includes(update.status) ? 'disabled' : ''}>检查更新</button> <button class="button primary" data-operation="install-client-update" ${update.status === 'ready' ? '' : 'disabled'}>安装更新</button>`
   }
@@ -240,20 +260,20 @@
   }
   function renderPlans () {
     const billing = state.lists.billing
-    const table = document.querySelector('#page .table-panel')
+    const table = find('.table-panel')
     if (!table) return
-    const notice = document.querySelector('#page .notice')
+    const notice = find('.notice')
     if (!billing?.plans.length) { if (notice) notice.textContent = '当前暂无在售套餐，请稍后查看。'; return }
     if (notice) notice.textContent = '价格以当前团队的订单为准。有效期内仅支持当前套餐续费，续费时长自动接续。'
     table.querySelector('tbody').innerHTML = billing.plans.map(plan => `<tr><td><strong>${escape(plan.name)}</strong></td><td>${plan.periodDays} 天</td><td>${plan.quotas.environments} 个环境 / ${plan.quotas.fingerprints} 个指纹</td><td>${plan.quotas.members} 位成员</td><td>${amountLabel(plan.amount)} <button class="row-action" data-operation="choose-plan" data-id="${escape(plan.id)}" ${!canAdmin() || (billing.subscription?.active && billing.subscription.id !== plan.id) ? 'disabled' : ''}>${billing.subscription?.active && billing.subscription.id === plan.id ? '续费' : '选择'}</button></td></tr>`).join('')
   }
   function renderPayment () {
     if (payment.workspaceId !== state.workspaceId) { payment.workspaceId = state.workspaceId; payment.order = null; payment.planId = ''; payment.requestId = '' }
-    const billing = state.lists.billing; const panel = document.querySelector('#page .payment-panel')
+    const billing = state.lists.billing; const panel = find('.payment-panel')
     if (!panel) return
     const order = payment.order
     const plan = order?.plan || billing?.plans.find(item => item.id === payment.planId)
-    const summary = document.querySelector('#page .summary')
+    const summary = find('.summary')
     if (summary) summary.innerHTML = plan ? `<h2>订阅权益</h2><dl><div><dt>浏览器环境</dt><dd>${plan.quotas.environments} 个</dd></div><div><dt>可复用指纹</dt><dd>${plan.quotas.fingerprints} 个</dd></div><div><dt>团队成员</dt><dd>${plan.quotas.members} 位</dd></div></dl><p>付款确认后开通权益；当前套餐续费时长自动接续。</p>` : '<h2>订单确认</h2><p>选择套餐后显示实际价格与权益。</p>'
     if (!plan) { panel.innerHTML = '<div class="empty-state"><h2>请先选择套餐</h2><p>选择套餐后确认金额与付款方式。</p><a class="button primary" href="#plans" data-route="plans">选择套餐</a></div>'; return }
     const methods = billing.paymentMethods
@@ -283,12 +303,14 @@
     }
     const requiresContext = {
       'fingerprint-detail': 'fingerprints', 'fingerprint-compatibility': 'fingerprints', 'environment-detail': 'environments', 'timezone-conflict': 'environments', 'proxy-failure': 'proxies',
-      'account-authorize': 'accounts', 'account-login': 'accounts', 'account-confirm': 'accounts', 'account-save-error': 'accounts', 'account-reauthorize': 'accounts', 'account-mismatch': 'accounts', 'payment-pending': 'billing'
+      'account-login': 'accounts', 'account-confirm': 'accounts', 'account-save-error': 'accounts', 'account-reauthorize': 'accounts', 'account-mismatch': 'accounts', 'payment-pending': 'billing'
     }
+    if (route === 'member-permissions' && !state.selectedMember) requiresContext[route] = 'members'
+    if (route === 'payment' && !payment.planId && !payment.order) requiresContext[route] = 'billing'
     if (requiresContext[route]) { routeTo(requiresContext[route]); noticeResult('请从具体记录进入操作流程。'); return }
     updateShell()
     if (route === 'overview') document.querySelector('#page h1').textContent = state.user ? `欢迎回来，${state.user.name}` : '欢迎使用栖界'
-    if (state.user) document.querySelectorAll('#page .form-footer>span').forEach(node => { if (node.textContent.includes('登录后')) node.textContent = canWrite() ? '修改将保存到当前团队。' : '当前角色为只读，无法保存修改。' })
+    if (state.user) findAll('.form-footer>span').forEach(node => { if (node.textContent.includes('登录后')) node.textContent = canWrite() ? '修改将保存到当前团队。' : '当前角色为只读，无法保存修改。' })
     prepareFilters(route)
     assignAction('保存到指纹库', 'save-fingerprint', Boolean(state.user && canWrite() && window.WorkspaceUI.getFingerprint().profile.id && !window.WorkspaceUI.getFingerprint().generating))
     assignAction('发送邀请', 'invite-member', Boolean(state.user && canAdmin()))
@@ -302,32 +324,32 @@
     if (route === 'member-permissions') renderPermissions()
     if (route === 'member-invite') setOptions(input('member-invite', 0, 1), [{ label: '操作成员', value: 'operator' }, { label: '只读成员', value: 'viewer' }], '选择角色')
     if (['plans', 'payment'].includes(route) && !state.lists.billing?.paymentMethods.some(method => method.enabled)) {
-      const target = document.querySelector('#page .form-main,#page .payment-panel,#page .state-content') || document.getElementById('page')
+      const target = find('.form-main,.payment-panel,.state-content') || surface()
       if (!target.querySelector('.payment-unavailable')) target.insertAdjacentHTML('afterbegin', '<div class="notice warning payment-unavailable">在线付款暂未开放，请稍后再试。</div>')
-      document.querySelectorAll('.payment-methods input').forEach(input => { input.disabled = true })
+      findAll('.payment-methods input').forEach(input => { input.disabled = true })
     }
     if (revision !== viewRevision) return
   }
   function prepareDialog (pageId) {
     if (pageId === 'signin') {
-      document.querySelector('.signin-form').noValidate = true
+      find('.signin-form').noValidate = true
       assignAction('登录', 'signin', true)
-      document.querySelector('.signin-form [data-operation="signin"]').type = 'submit'
-      document.querySelector('.signin-form input[type="email"]').required = true
-      document.querySelector('.signin-form input[type="password"]').required = true
-      document.querySelector('.signin-form').insertAdjacentHTML('beforeend', '<p class="auth-switch"><button type="button" data-operation="show-register">没有账户？注册并创建团队</button></p>')
+      find('.signin-form [data-operation="signin"]').type = 'submit'
+      find('.signin-form input[type="email"]').required = true
+      find('.signin-form input[type="password"]').required = true
+      find('.signin-form').insertAdjacentHTML('beforeend', '<p class="auth-switch"><button type="button" data-operation="show-register">没有账户？注册并创建团队</button></p>')
     }
     if (pageId === 'proxy-create') assignAction('检测并保存', 'save-proxy', Boolean(state.user && canWrite()))
     if (pageId === 'account-platforms') {
       const page = window.QijieProductDesign.pages.find(item => item.id === 'account-platforms')
-      document.querySelectorAll('[data-platform-key]').forEach(button => { const platform = page.platforms.find(item => item.key === button.dataset.platformKey); button.disabled = !state.user || platform.disabled })
+      findAll('[data-platform-key]').forEach(button => { const platform = page.platforms.find(item => item.key === button.dataset.platformKey); button.disabled = !state.user || platform.disabled })
     }
   }
   function registerForm () {
-    const form = document.querySelector('.signin-form')
+    const form = find('.signin-form')
     form.classList.add('is-registration')
     form.innerHTML = `<section class="form-section"><div class="field-grid">${[['姓名', 'name', 'text'], ['团队名称', 'workspaceName', 'text'], ['邮箱', 'email', 'email']].map(([label, name, type]) => `<label class="field${name === 'email' ? ' full' : ''}"><span>${label}</span><input required name="${name}" type="${type}" autocomplete="${name === 'email' ? 'email' : name === 'name' ? 'name' : 'organization'}"></label>`).join('')}<div class="verification-code-row field full"><label class="field"><span>邮箱验证码</span><input required name="verificationCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="六位数字验证码"></label><button class="button" type="button" data-operation="send-registration-code" disabled>获取验证码</button></div><label class="field full"><span>密码（至少十二个字符）</span><input required name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password"></label></div><p class="registration-feedback" role="status" aria-live="polite">正在检查邮件服务…</p></section><footer class="platform-picker-footer"><button class="button" type="button" data-operation="show-signin">返回登录</button><button class="button primary" type="submit" data-operation="register" disabled>验证邮箱并注册</button></footer>`
-    document.getElementById('signin-title').textContent = '注册工作空间'
+    field('signin-title').textContent = '注册工作空间'
     const describeAvailability = () => {
       if (!form.isConnected) return
       const feedback = form.querySelector('.registration-feedback')
@@ -341,18 +363,18 @@
     registration.timer = setInterval(() => { if (!form.isConnected) { clearInterval(registration.timer); return } updateRegistrationCountdown() }, 1000)
   }
   function updateRegistrationCountdown () {
-    const button = document.querySelector('[data-operation="send-registration-code"]')
+    const button = find('[data-operation="send-registration-code"]')
     if (!button || button.getAttribute('aria-busy') === 'true') return
-    const email = document.querySelector('.signin-form [name="email"]')?.value.trim().toLowerCase()
+    const email = find('.signin-form [name="email"]')?.value.trim().toLowerCase()
     const seconds = email === registration.email ? Math.max(0, Math.ceil((registration.resendAt - Date.now()) / 1000)) : 0
     button.disabled = !registration.emailDeliveryAvailable || seconds > 0
     button.textContent = seconds ? `${seconds} 秒后重新获取` : '获取验证码'
-    const submit = document.querySelector('[data-operation="register"]')
+    const submit = find('[data-operation="register"]')
     if (submit && submit.getAttribute('aria-busy') !== 'true') submit.disabled = registration.emailDeliveryAvailable !== true
   }
   function renderPermissions () {
     const target = state.selectedMember
-    const panel = document.querySelector('.permission-panel')
+    const panel = find('.permission-panel')
     if (!target || !panel) { showError('请先从成员列表选择要管理的成员。'); return }
     const resources = ['fingerprints', 'environments', 'proxies', 'accounts'].flatMap(kind => (state.lists[kind] || []).map(item => ({ ...item, kind })))
     panel.innerHTML = `<section class="form-section"><h2>${escape(target.name)}的权限</h2><div class="field-grid"><label class="field"><span>角色</span><select id="permission-role">${['admin', 'operator', 'viewer'].map(role => `<option value="${role}" ${role === target.role ? 'selected' : ''}>${labelRole(role)}</option>`).join('')}</select></label><label class="field"><span>资源范围</span><select id="permission-scope"><option value="selected">指定资源</option><option value="all" ${target.scope.mode === 'all' ? 'selected' : ''}>全部资源</option></select></label></div><div class="resource-choices">${resources.map(item => `<label><input type="checkbox" name="resource-scope" value="${item.id}" ${target.scope.ids.includes(item.id) ? 'checked' : ''}>${escape(item.name)}</label>`).join('') || '<p>团队尚无可分配的资源。</p>'}</div><button class="button primary" data-operation="save-permissions">保存权限</button></section>`
@@ -362,14 +384,14 @@
     const proxyId = input('environment-create', 2, 1)?.value
     const fingerprintId = input('environment-create', 1, 0)?.value.split('@')[0]
     state.proxyCheck = null; state.timezoneAcknowledged = false
-    document.getElementById('timezone-confirmation')?.remove()
+    field('timezone-confirmation')?.remove()
     if (mode === '不使用代理' || !proxyId) return
     const result = (await request(`${base()}/proxies/${proxyId}/check`, 'POST', {})).result
     if (input('environment-create', 2, 1)?.value !== proxyId) return
     state.proxyCheck = result
     const fingerprint = state.lists.fingerprints.find(item => item.id === fingerprintId)
-    document.querySelectorAll('[data-summary-label]').forEach(node => { if (node.dataset.summaryLabel === '代理连接') node.textContent = '实际检测通过'; if (node.dataset.summaryLabel === '时区一致性') node.textContent = fingerprint?.profile.locale.timezone === result.timezone ? '一致' : '存在差异' })
-    if (fingerprint && fingerprint.profile.locale.timezone !== result.timezone) document.querySelector('.form-main').insertAdjacentHTML('beforeend', `<label class="notice warning" id="timezone-confirmation"><input id="timezone-acknowledge" type="checkbox">出口时区为 ${escape(result.timezone)}，与指纹时区 ${escape(fingerprint.profile.locale.timezone)} 不同。我已了解差异并保留此指纹。</label>`)
+    findAll('[data-summary-label]').forEach(node => { if (node.dataset.summaryLabel === '代理连接') node.textContent = '实际检测通过'; if (node.dataset.summaryLabel === '时区一致性') node.textContent = fingerprint?.profile.locale.timezone === result.timezone ? '一致' : '存在差异' })
+    if (fingerprint && fingerprint.profile.locale.timezone !== result.timezone) find('.form-main').insertAdjacentHTML('beforeend', `<label class="notice warning" id="timezone-confirmation"><input id="timezone-acknowledge" type="checkbox">出口时区为 ${escape(result.timezone)}，与指纹时区 ${escape(fingerprint.profile.locale.timezone)} 不同。我已了解差异并保留此指纹。</label>`)
   }
   async function run (operation, button) {
     const route = window.WorkspaceUI.getRoute(); const id = button?.dataset.id
@@ -387,7 +409,7 @@
     if (operation === 'show-register') return registerForm()
     if (operation === 'show-signin') { window.WorkspaceUI.closeDialog(false); return window.WorkspaceUI.openSignin(button) }
     if (operation === 'send-registration-code') {
-      const form = document.querySelector('.signin-form'); const emailInput = form.querySelector('[name="email"]')
+      const form = find('.signin-form'); const emailInput = form.querySelector('[name="email"]')
       if (!validateFormInputs(emailInput)) return
       const email = emailInput.value.trim().toLowerCase()
       const data = await request('/api/auth/registration-code', 'POST', { email })
@@ -400,7 +422,7 @@
       payment.workspaceId = state.workspaceId; payment.planId = id; payment.order = null; payment.requestId = crypto.randomUUID(); routeTo('payment'); return
     }
     if (operation === 'create-payment') {
-      const method = document.querySelector('[name="payment-method"]:checked')?.value
+      const method = find('[name="payment-method"]:checked')?.value
       if (!method) throw new Error('请选择已开放的付款方式。')
       const result = await request(`${base()}/orders`, 'POST', { planId: payment.planId, method, requestId: payment.requestId })
       payment.order = result.order; await reload(); renderPayment(); pollPayment(); return
@@ -413,7 +435,7 @@
       await reload(); renderPayment(); pollPayment(); return
     }
     if (operation === 'signin' || operation === 'register') {
-      const form = document.querySelector('.signin-form'); if (!validateFormInputs(form)) return
+      const form = find('.signin-form'); if (!validateFormInputs(form)) return
       let body
       if (operation === 'register') body = Object.fromEntries(new FormData(form))
       else body = { email: form.querySelector('input[type="email"]').value, password: form.querySelector('input[type="password"]').value }
@@ -422,13 +444,15 @@
       await reload(); window.WorkspaceUI.closeDialog(); window.WorkspaceUI.render(); noticeResult('已登录工作空间。'); await acceptPendingInvitation(); return
     }
     if (!state.user) return window.WorkspaceUI.openSignin(button)
-    if (operation === 'logout') { await closeNativeTabs(); await request('/api/auth/logout', 'POST', {}); Object.assign(state, { user: null, csrf: '', lists: {}, workspaceId: '' }); window.WorkspaceUI.render(); return }
+    if (operation === 'logout') { document.dispatchEvent(new CustomEvent('media:context-changing')); await closeNativeTabs(); await request('/api/auth/logout', 'POST', {}); Object.assign(state, { user: null, csrf: '', lists: {}, workspaceId: '' }); window.WorkspaceUI.render(); return }
     if (operation === 'save-fingerprint') {
       const draft = window.WorkspaceUI.getFingerprint()
       if (draft.generating || !draft.profile.id) throw new Error('请等待云端指纹生成完成。')
       if (!draft.name.trim()) throw new Error('请填写指纹名称。')
-      await request(`${base()}/fingerprints`, 'POST', { name: draft.name, profile: draft.profile, ...(state.editFingerprint ? { id: state.editFingerprint.id, expectedVersion: state.editFingerprint.version } : {}) })
-      state.editFingerprint = null; await reload(); routeTo('fingerprints'); noticeResult('指纹已保存到团队数据库。'); return
+      const saved = (await request(`${base()}/fingerprints`, 'POST', { name: draft.name, profile: draft.profile, ...(state.editFingerprint ? { id: state.editFingerprint.id, expectedVersion: state.editFingerprint.version } : {}) })).item
+      state.editFingerprint = null; await reload(); finishPage('fingerprints')
+      if (window.WorkspaceUI.getRoute() === 'environment-create' && saved) { input('environment-create', 1, 0).value = `${saved.id}@${saved.version}`; updateEnvironmentSummary() }
+      noticeResult('指纹已保存到团队数据库。'); return
     }
     if (operation === 'edit-fingerprint') { state.editFingerprint = state.lists.fingerprints.find(item => item.id === id); routeTo('fingerprint-create'); window.WorkspaceUI.setFingerprint(state.editFingerprint.profile, state.editFingerprint.name); return }
     if (operation === 'edit-environment') { state.editEnvironment = (await request(`${base()}/environments/${id}`)).item; routeTo('environment-create'); return }
@@ -436,13 +460,13 @@
       const selected = input(route, 1, 0).value.split('@'); const proxyId = input(route, 2, 0).value === '选择已有代理' ? input(route, 2, 1).value : null
       if (!selected[0]) throw new Error('请先选择已保存的指纹。')
       if (input(route, 2, 0).value === '选择已有代理' && !proxyId) throw new Error('请选择代理资源。')
-      await request(`${base()}/environments`, 'POST', { name: input(route, 0, 0).value, startUrl: input(route, 0, 1).value, fingerprintId: selected[0], fingerprintVersion: Number(selected[1]), proxyId, timezoneAcknowledged: Boolean(document.getElementById('timezone-acknowledge')?.checked || state.editEnvironment?.timezoneAcknowledged), ...(state.editEnvironment ? { id: state.editEnvironment.id, expectedRevision: state.editEnvironment.revision } : {}) })
-      state.editEnvironment = null; await reload(); routeTo('environments'); noticeResult('环境已保存，指纹版本已锁定。'); return
+      await request(`${base()}/environments`, 'POST', { name: input(route, 0, 0).value, startUrl: input(route, 0, 1).value, fingerprintId: selected[0], fingerprintVersion: Number(selected[1]), proxyId, timezoneAcknowledged: Boolean(field('timezone-acknowledge')?.checked || state.editEnvironment?.timezoneAcknowledged), ...(state.editEnvironment ? { id: state.editEnvironment.id, expectedRevision: state.editEnvironment.revision } : {}) })
+      state.editEnvironment = null; await reload(); finishPage('environments'); noticeResult('环境已保存，指纹版本已锁定。'); return
     }
     if (operation === 'save-proxy') {
-      const value = (group, index) => document.getElementById(`field-proxy-create-${group}-${index}`).value
+      const value = (group, index) => field(`field-proxy-create-${group}-${index}`).value
       await request(`${base()}/proxies`, 'POST', { name: value(0, 0), protocol: value(0, 1) === 'SOCKS5' ? 'socks5' : value(0, 1) === 'HTTP / HTTPS' ? 'http' : '', host: value(0, 2), port: Number(value(0, 3)), username: value(1, 0), password: value(1, 1) })
-      await reload(); window.WorkspaceUI.closeDialog(); window.WorkspaceUI.render(); noticeResult('代理已通过连接检测并保存。'); return
+      await reload(); finishPage('proxies'); noticeResult('代理已通过连接检测并保存。'); return
     }
     if (operation === 'check-proxy') { const result = (await request(`${base()}/proxies/${id}/check`, 'POST', {})).result; await reload(); window.WorkspaceUI.render(); noticeResult(`检测通过，出口时区为 ${result.timezone}。`); return }
     if (operation.startsWith('remove-')) {
@@ -450,6 +474,7 @@
       if (!resource || !confirm('确认移除此记录？正在使用的指纹或代理不会被移除。')) return
       await request(`${base()}/${resource}/${id}`, 'DELETE'); await reload(); window.WorkspaceUI.render(); noticeResult('记录已移除。'); return
     }
+    if (operation === 'reauthorize-account') { document.dispatchEvent(new CustomEvent('media:reauthorize', { detail: state.lists.accounts.find(item => item.id === id) })); return }
     if (operation === 'launch-environment') {
       if (!window.workspaceBridge) throw new Error('请在栖界客户端中启动浏览器环境。')
       const result = await window.workspaceBridge.launch({ workspaceId: state.workspaceId, environmentId: id })
@@ -458,22 +483,35 @@
     }
     if (operation === 'permissions') { state.selectedMember = state.lists.members.find(item => item.id === id); routeTo('member-permissions'); return }
     if (operation === 'save-permissions') {
-      await request(`${base()}/members/${state.selectedMember.id}`, 'PUT', { role: document.getElementById('permission-role').value, scope: { mode: document.getElementById('permission-scope').value, ids: [...document.querySelectorAll('[name="resource-scope"]:checked')].map(item => item.value) } })
-      await reload(); routeTo('members'); noticeResult('成员权限已更新。'); return
+      await request(`${base()}/members/${state.selectedMember.id}`, 'PUT', { role: field('permission-role').value, scope: { mode: field('permission-scope').value, ids: [...findAll('[name="resource-scope"]:checked')].map(item => item.value) } })
+      state.selectedMember = null; await reload(); finishPage('members'); noticeResult('成员权限已更新。'); return
     }
     if (operation === 'invite-member') {
       const email = input('member-invite', 0, 0).value; const role = input('member-invite', 0, 1).value
       if (!['operator', 'viewer'].includes(role)) throw new Error('请选择受邀成员角色。')
       const data = await request(`${base()}/invitations`, 'POST', { email, role })
       const link = `${location.origin}/#invite/${state.workspaceId}/${data.invitation.id}/${data.token}`
-      const output = document.createElement('div'); output.className = 'notice'; output.textContent = `邀请已创建，请将此链接交给受邀成员（七天内有效）：${link}`; document.querySelector('.form-main').append(output); return
+      const output = document.createElement('div'); output.className = 'notice'; output.textContent = `邀请已创建，请将此链接交给受邀成员（七天内有效）：${link}`; find('.form-main').append(output); return
     }
     if (operation === 'save-settings') {
-      await request(`${base()}/settings`, 'PUT', { reduceMotion: document.getElementById('settings-motion').value === 'true', pageSize: Number(document.getElementById('settings-page-size').value), expectedRevision: state.lists.settings.settings.revision })
+      await request(`${base()}/settings`, 'PUT', { reduceMotion: field('settings-motion').value === 'true', pageSize: Number(field('settings-page-size').value), expectedRevision: state.lists.settings.settings.revision })
       await reload(); window.WorkspaceUI.render(); noticeResult('设置已保存。'); return
     }
     if (operation === 'page-back' || operation === 'page-next') { state.page += operation === 'page-next' ? 1 : -1; if (route === 'billing') renderBilling(); else populateTable(route) }
   }
+  document.addEventListener('workspace:modal-closed', event => {
+    const closed = event.detail?.pageId
+    const route = window.WorkspaceUI.getRoute()
+    // 同族页面切换和嵌套返回仍沿用原编辑上下文；只有真正离开该编辑流程时才清理记录标识。
+    const fingerprintPages = ['fingerprint-create', 'fingerprint-protection']
+    if (fingerprintPages.includes(closed) && !fingerprintPages.includes(route)) state.editFingerprint = null
+    if (closed === 'environment-create' && route !== 'environment-create') {
+      state.editEnvironment = null
+      state.proxyCheck = null
+      state.timezoneAcknowledged = false
+    }
+    if (closed === 'member-permissions' && route !== 'member-permissions') state.selectedMember = null
+  })
   document.addEventListener('workspace:render', () => { void render().catch(error => showError(error.message)) })
   document.addEventListener('workspace:error', event => showError(event.detail))
   document.addEventListener('workspace:dialog', event => prepareDialog(event.detail.pageId))
@@ -496,6 +534,7 @@
     const loginLink = event.target.closest('.topbar [data-route="signin"]')
     if (loginLink && state.user) { event.preventDefault(); event.stopImmediatePropagation(); routeTo('settings'); return }
     if (event.target.closest('.workspace-switch') && state.user) {
+      document.dispatchEvent(new CustomEvent('media:context-changing'))
       void closeNativeTabs().then(async () => { const current = state.workspaces.findIndex(item => item.id === state.workspaceId); state.workspaceId = state.workspaces[(current + 1) % state.workspaces.length].id; await reload(); window.WorkspaceUI.render() }).catch(error => showError(error.message)); return
     }
     const operation = event.target.closest('[data-operation]')
@@ -525,7 +564,7 @@
           const toolbar = document.createElement('div'); toolbar.className = 'native-toolbar'; toolbar.innerHTML = '<div class="native-tabs"></div><div class="native-address"><input aria-label="SaaS 页面地址（只读）" readonly spellcheck="false"></div>'; document.body.prepend(toolbar)
           renderNativeAddress()
         }
-        window.workspaceBridge.onTabsChanged(snapshot => { renderNativeTabs(snapshot); if (['overview', 'environments'].includes(window.WorkspaceUI.getRoute())) populateTable(window.WorkspaceUI.getRoute()) })
+        window.workspaceBridge.onTabsChanged(snapshot => { renderNativeTabs(snapshot); const route = window.WorkspaceUI.getBaseRoute?.() || window.WorkspaceUI.getRoute(); if (['overview', 'environments'].includes(route)) populateTable(route) })
         const snapshot = await window.workspaceBridge.tabs(); renderNativeTabs(snapshot)
         if (window.workspaceBridge.updateStatus) {
           clientUpdate = await window.workspaceBridge.updateStatus()
@@ -533,7 +572,9 @@
         }
       }
       const catalog = (await request('/api/platforms')).platforms
-      window.QijieProductDesign.pages.find(page => page.id === 'account-platforms').platforms.forEach(item => { const actual = catalog.find(platform => platform.key === item.key); item.disabled = !actual?.enabled; item.status = actual?.reason || '' })
+      const platformPage = window.QijieProductDesign.pages.find(page => page.id === 'account-platforms')
+      platformPage.platforms = catalog.map(item => ({ ...item, disabled: !item.enabled, status: item.reason || '支持扫码或网页登录' }))
+      platformPage.footnote = '请选择平台，在独立环境中完成登录和身份核验。'
       try { const data = await request('/api/auth/me'); Object.assign(state, { user: data.user, workspaces: data.workspaces, workspaceId: data.workspaces[0]?.id || '', csrf: data.csrf }); await reload() } catch (error) { if (error.message !== '请先登录工作空间。') throw error }
       state.ready = true; await render()
       await acceptPendingInvitation()

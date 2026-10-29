@@ -4,6 +4,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('desktopBridge', {
   shellVersion: 2,
   protocolVersion: 1,
+  observeSession: payload => ipcRenderer.invoke('session:open', payload),
+  readSession: payload => ipcRenderer.invoke('session:read', payload),
+  captureSession: payload => ipcRenderer.invoke('session:capture', payload),
+  closeSession: payload => ipcRenderer.invoke('session:close', payload),
   runtime: () => ipcRenderer.invoke('application:runtime'),
   prepareLaunch: payload => ipcRenderer.invoke('application:prepare-launch', payload),
   launchEncrypted: payload => ipcRenderer.invoke('application:launch-encrypted', payload),

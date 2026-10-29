@@ -1,0 +1,16 @@
+{
+  "platform": "shipinhao",
+  "clientVersion": "0.2.4",
+  "scriptVersion": "0.1.3",
+  "observedIdentityResponse": {
+    "httpStatus": 201,
+    "businessCode": 0,
+    "hasPlatformIdentity": true
+  },
+  "authorizationTaskStatus": "saved",
+  "accountListStatus": "valid",
+  "encryptedSessionPersisted": true,
+  "authorizationTabClosed": true,
+  "additionalQrScanRequired": false,
+  "reauthorizationVerified": true
+}

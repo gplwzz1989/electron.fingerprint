@@ -38,6 +38,10 @@
   const data = window.QijieProductDesign
   const drafts = new Map()
   let currentRoute = ''
+  let baseRoute = ''
+  const modalStack = []
+  let renderingModal = false
+  const primaryRoutes = new Set(['overview','fingerprints','environments','proxies','accounts','members','billing','settings'])
   let environmentReturn = false
   let platformPickerTrigger = null
   let platformPickerInert = []
@@ -129,7 +133,7 @@
     else if (page.kind === 'payment') content = `<div class="form-layout"><section class="surface payment-panel"><h2>确认订单</h2>${rows(page.rows)}<h2>选择付款方式</h2><div class="payment-methods">${page.methods.map(item=>`<label><input type="radio" name="payment-method">${icon('card')}<b>${escapeHTML(item)}</b></label>`).join('')}</div><div class="payment-code">${icon('card')}<h3>选择套餐后生成支付码</h3><p>订单与支付码生成后，使用对应应用扫码付款。</p></div><footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${(page.footer||[]).map(button).join('')}</div></footer></section>${summary(page.summary)}</div>`
     return top + tabs(page.tabs) + content
   }
-  function closePlatformPicker(restoreFocus = true, normalizeRoute = true) {
+  function clearDialog(restoreFocus = true, normalizeRoute = true) {
     const root = document.getElementById('modal-root')
     if (!root.firstElementChild) return
     if (['proxy-create','signin'].includes(modalPageId)) {
@@ -150,13 +154,14 @@
     modalPageId = pageId
     modalReturnRoute = returnRoute
     platformPickerTrigger = trigger || document.activeElement
-    platformPickerInert = Array.from(document.querySelectorAll('.sidebar, .shell'), node => ({ node, inert: node.inert }))
+    if (!platformPickerInert.length) platformPickerInert = Array.from(document.querySelectorAll('.sidebar, .shell'), node => ({ node, inert: node.inert }))
     platformPickerInert.forEach(({ node }) => { node.inert = true })
     document.body.classList.add('platform-modal-open')
-    document.querySelector('#modal-root .platform-picker-close').focus()
+    document.querySelector('#modal-root .platform-picker-close')?.focus()
     document.dispatchEvent(new CustomEvent('workspace:dialog',{detail:{pageId}}))
   }
   function openProxyDialog(trigger) {
+    if (!renderingModal) return openPage('proxy-create', { trigger })
     const root = document.getElementById('modal-root')
     if (root.firstElementChild) return
     const page = data.pages.find(item=>item.id==='proxy-create')
@@ -166,6 +171,7 @@
     activateDialog(trigger,page.id,currentRoute)
   }
   function openSigninDialog(trigger) {
+    if (!renderingModal) return openPage('signin', { trigger })
     const root = document.getElementById('modal-root')
     if (root.firstElementChild) return
     const page = data.pages.find(item=>item.id==='signin')
@@ -248,10 +254,11 @@
     validateFingerprintDraft()
   }
   function openPlatformPicker(trigger) {
+    if (!renderingModal) return openPage('account-platforms', { trigger })
     const root = document.getElementById('modal-root')
     if (root.firstElementChild) return
     const page = data.pages.find(item => item.id === 'account-platforms')
-    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker" role="dialog" aria-modal="true" aria-labelledby="platform-picker-title" aria-describedby="platform-picker-description"><header class="platform-picker-header"><div><h2 id="platform-picker-title">${escapeHTML(page.title)}</h2><p id="platform-picker-description">${escapeHTML(page.description)}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭添加账号弹框">${icon('close')}</button></header><div class="platform-picker-grid">${page.platforms.map(item => `<button class="platform-choice" type="button" data-platform-key="${escapeHTML(item.key)}" ${item.disabled ? 'disabled' : ''}><span class="platform-logo"><img src="${escapeHTML(item.icon)}" width="32" height="32" alt=""></span><strong>${escapeHTML(item.name)}</strong>${item.disabled ? `<small>${escapeHTML(item.status)}</small>` : ''}</button>`).join('')}</div><footer class="platform-picker-footer"><p>${escapeHTML(page.footnote)}</p><button class="button" type="button" data-close-platforms>取消</button></footer></section></div>`
+    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker" role="dialog" aria-modal="true" aria-labelledby="platform-picker-title" aria-describedby="platform-picker-description"><header class="platform-picker-header"><div><h2 id="platform-picker-title">${escapeHTML(page.title)}</h2><p id="platform-picker-description">${escapeHTML(page.description)}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭添加账号弹框">${icon('close')}</button></header><div class="platform-picker-grid">${page.platforms.map(item => `<button class="platform-choice" type="button" data-platform-key="${escapeHTML(item.key)}" ${item.disabled ? 'disabled' : ''}><span class="platform-logo">${item.icon ? `<img src="${escapeHTML(item.icon)}" width="32" height="32" alt="">` : `<span aria-hidden="true">${escapeHTML(item.name.slice(0, 1))}</span>`}</span><strong>${escapeHTML(item.name)}</strong>${item.disabled ? `<small>${escapeHTML(item.status)}</small>` : ''}</button>`).join('')}</div><footer class="platform-picker-footer"><p>${escapeHTML(page.footnote)}</p><button class="button" type="button" data-close-platforms>取消</button></footer></section></div>`
     activateDialog(trigger,page.id,currentRoute)
   }
   function updateSummary() {
@@ -280,40 +287,125 @@
       else if (title) {const page=data.pages.find(item=>item.id==='accounts');title.textContent=page.table.emptyTitle;description.textContent=page.table.emptyText}
     }
   }
+  function getSurface() { return document.querySelector('#modal-root [role="dialog"]') || document.getElementById('page') }
   function saveDraft() {
     if (!currentRoute) return
     const values={}
-    document.querySelectorAll('#page input[id],#page select[id],#page textarea[id]').forEach(input=>{values[input.id]={value:input.value,checked:input.checked}})
+    getSurface().querySelectorAll('input[id],select[id],textarea[id]').forEach(input=>{if (input.type !== 'password') values[input.id]={value:input.value,checked:input.checked}})
     drafts.set(currentRoute,values)
   }
-  function render() {
-    saveDraft()
-    closePlatformPicker(false, false)
-    const route=location.hash.slice(1).split('?')[0] || 'overview'
-    const parentRoute = route === 'account-platforms' ? 'accounts' : route === 'proxy-create' ? 'proxies' : route === 'signin' ? 'overview' : route
-    const page=data.pages.find(item=>item.id===parentRoute) || data.pages[0]
-    currentRoute=page.id
-    document.getElementById('page').className=`page-${page.kind} page-${page.id}`
-    document.getElementById('page').innerHTML=renderPage(page)
-    document.getElementById('page-context').textContent=page.title
-    document.querySelectorAll('#navigation [data-route]').forEach(link=>{
-      const active=link.dataset.route===page.nav
-      link.classList.toggle('active',active)
-      if(active) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current')
-    })
-    const saved=drafts.get(currentRoute)
-    if(saved) document.querySelectorAll('#page input[id],#page select[id],#page textarea[id]').forEach(input=>{if(saved[input.id] && !input.closest('[data-profile-path]')){input.value=saved[input.id].value;input.checked=saved[input.id].checked}})
-    if (currentRoute === 'account-authorize' && selectedPlatform) {
-      const platformField = document.getElementById('field-account-authorize-0-0')
-      platformField.textContent = selectedPlatform.name
+  function restoreDraft(route, surface) {
+    const saved=drafts.get(route)
+    if(saved) surface.querySelectorAll('input[id],select[id],textarea[id]').forEach(input=>{if(saved[input.id] && !input.closest('[data-profile-path]')){input.value=saved[input.id].value;input.checked=saved[input.id].checked}})
+  }
+  // 主页面始终保留在底层，二级操作只替换模态内容，不丢失列表筛选和滚动位置。
+  function renderBasePage(route, force = false) {
+    const page=data.pages.find(item=>item.id===route) || data.pages[0]
+    const surface=document.getElementById('page')
+    if (baseRoute !== page.id || force || !surface.firstElementChild) {
+      const operation=currentRoute; currentRoute=page.id
+      surface.className=`page-${page.kind} page-${page.id}`
+      surface.innerHTML=renderPage(page)
+      restoreDraft(page.id,surface)
+      currentRoute=operation
     }
-    fillFingerprintForm()
-    updateSummary()
-    window.scrollTo(0,0)
-    if (route === 'account-platforms') openPlatformPicker(document.querySelector('#page [data-route="account-platforms"]'))
-    if (route === 'proxy-create') openProxyDialog(document.querySelector('#page [data-route="proxy-create"]'))
-    if (route === 'signin') openSigninDialog(document.querySelector('.topbar [data-route="signin"]'))
-    document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:page.id}}))
+    baseRoute=page.id
+    document.getElementById('page-context').textContent=page.title
+    document.querySelectorAll('#navigation [data-route]').forEach(link=>{const active=link.dataset.route===page.nav;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')})
+  }
+  function modalFamily(route) {
+    if (['fingerprint-create','fingerprint-protection'].includes(route)) return 'fingerprint-editor'
+    if (['account-platforms','account-authorize'].includes(route)) return 'account-authorization'
+    if (['plans','payment'].includes(route)) return 'checkout'
+    return route
+  }
+  function modalClosed(pageId) { document.dispatchEvent(new CustomEvent('workspace:modal-closed',{detail:{pageId}})) }
+  function renderModal(entry) {
+    const page=data.pages.find(item=>item.id===entry.pageId)
+    currentRoute=page.id; modalPageId=page.id
+    environmentReturn=modalStack.some(entry=>entry.pageId==='environment-create')
+    authorizationReturn=modalStack.some(entry=>entry.pageId==='account-authorize')
+    const root=document.getElementById('modal-root')
+    root.replaceChildren()
+    renderingModal=true
+    try {
+      if(page.id==='signin') openSigninDialog(entry.trigger)
+      else if(page.id==='proxy-create') openProxyDialog(entry.trigger)
+      else if(page.id==='account-platforms') openPlatformPicker(entry.trigger)
+      else {
+        root.innerHTML=`<div class="platform-backdrop"><section class="platform-picker workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title" aria-describedby="workspace-modal-description"><header class="platform-picker-header"><div><h2 id="workspace-modal-title">${escapeHTML(page.title)}</h2><p id="workspace-modal-description">${escapeHTML(page.description || '')}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭${escapeHTML(page.title)}">${icon('close')}</button></header><div class="workspace-modal-body page-${page.kind} page-${page.id}">${renderPage(page)}</div></section></div>`
+        const heading=root.querySelector('.page-heading')
+        const actions=heading?.querySelector('.page-actions')
+        if(actions) root.querySelector('.platform-picker-header>div').append(actions)
+        heading?.remove()
+        const footer=root.querySelector('.form-main>.form-footer')
+        if(footer){footer.classList.add('workspace-modal-footer');root.querySelector('.workspace-modal').append(footer)}
+        activateDialog(entry.trigger,page.id,baseRoute)
+      }
+    } finally { renderingModal=false }
+    restoreDraft(page.id,getSurface())
+    if(page.id==='account-authorize' && selectedPlatform) {
+      const field=document.getElementById('field-account-authorize-0-0'); if(field) field.textContent=selectedPlatform.name
+    }
+    fillFingerprintForm();updateSummary()
+    document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:page.id,modal:true}}))
+  }
+  function restoreModal(entry) {
+    const root=document.getElementById('modal-root'); root.replaceChildren(...entry.nodes); entry.nodes=null
+    currentRoute=entry.pageId;modalPageId=entry.pageId
+    activateDialog(entry.trigger,entry.pageId,baseRoute)
+    document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:entry.pageId,modal:true,restored:true}}))
+  }
+  function closePage(restoreFocus = true) {
+    if(!modalStack.length) return
+    saveDraft()
+    const closed=modalStack.pop()
+    const parent=modalStack[modalStack.length-1]
+    if(parent) {restoreModal(parent);if(restoreFocus && closed.trigger?.isConnected)closed.trigger.focus()}
+    else { clearDialog(false,false); currentRoute=baseRoute; if(restoreFocus && closed.trigger?.isConnected)closed.trigger.focus(); document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:baseRoute}})) }
+    history.replaceState(null,'',`#${parent?.pageId || baseRoute}`)
+    modalClosed(closed.pageId)
+  }
+  function closePlatformPicker(restoreFocus = true) { closePage(restoreFocus) }
+  function openPage(route, options = {}) {
+    if(currentRoute) saveDraft()
+    let page=data.pages.find(item=>item.id===route)
+    if(!page) page=data.pages.find(item=>item.id==='overview')
+    if(options.platform) selectedPlatform=data.pages.find(item=>item.id==='account-platforms').platforms.find(item=>item.key===options.platform) || null
+    if(page.id==='account-authorize' && !selectedPlatform) page=data.pages.find(item=>item.id==='account-platforms')
+    if(primaryRoutes.has(page.id)) {
+      const closed=modalStack.splice(0)
+      clearDialog(false,false);currentRoute=page.id
+      renderBasePage(page.id, options.refresh || baseRoute !== page.id)
+      if(!options.fromHistory && location.hash!==`#${page.id}`) history.pushState(null,'',`#${page.id}`)
+      closed.reverse().forEach(entry=>modalClosed(entry.pageId))
+      document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:page.id}}));return
+    }
+    const previous=currentRoute
+    saveDraft()
+    if(!baseRoute) { renderBasePage(page.nav || 'overview'); currentRoute=baseRoute }
+    if(previous==='account-authorize' && page.id==='environment-create')authorizationReturn=true
+    if(previous==='environment-create' && page.id==='fingerprint-create')environmentReturn=true
+    const existing=modalStack.findIndex(entry=>entry.pageId===page.id)
+    if(existing>=0 && existing<modalStack.length-1) {
+      while(modalStack.length>existing+1){const closed=modalStack.pop();modalClosed(closed.pageId)}
+      restoreModal(modalStack[existing])
+    } else if(modalStack.at(-1)?.pageId===page.id) { renderModal(modalStack.at(-1)) }
+    else {
+      const top=modalStack.at(-1)
+      if(top && (options.replace || modalFamily(top.pageId)===modalFamily(page.id))) {modalStack.pop();modalClosed(top.pageId)}
+      else if(top) {top.nodes=Array.from(document.getElementById('modal-root').childNodes);top.nodes.forEach(node=>node.remove())}
+      const entry={pageId:page.id,trigger:options.trigger || document.activeElement,nodes:null}
+      modalStack.push(entry);renderModal(entry)
+    }
+    if(modalStack.at(-1)?.pageId!==page.id) return
+    if(!options.fromHistory && location.hash!==`#${page.id}`)history.pushState(null,'',`#${page.id}`)
+    else if(options.fromHistory && location.hash!==`#${page.id}`)history.replaceState(null,'',`#${page.id}`)
+  }
+  function render() {
+    const route=location.hash.slice(1).split('?')[0] || 'overview'
+    if(!baseRoute && !primaryRoutes.has(route))renderBasePage(data.pages.find(item=>item.id===route)?.nav || 'overview')
+    openPage(route,{fromHistory:true,refresh:!modalStack.length && route===baseRoute})
   }
   document.addEventListener('click',event=>{
     const category=event.target.closest('[data-form-category]')
@@ -339,9 +431,7 @@
       const platform = page.platforms.find(item => item.key === platformButton.dataset.platformKey)
       if (!platform || platform.disabled || platformButton.disabled) return
       selectedPlatform = platform
-      closePlatformPicker(false)
-      if (location.hash === '#account-authorize') render()
-      else location.hash = 'account-authorize'
+      openPage('account-authorize',{replace:true,trigger:platformButton})
       return
     }
     const link=event.target.closest('[data-route]')
@@ -350,24 +440,9 @@
     const next=link.dataset.route
     if(currentRoute==='account-authorize' && next==='environment-create') authorizationReturn=true
     if(next==='accounts') authorizationReturn=false
-    if (next === 'signin') {
-      saveDraft()
-      openSigninDialog(link)
-      return
-    }
-    if (next === 'proxy-create') {
-      saveDraft()
-      openProxyDialog(link)
-      return
-    }
-    if (next === 'account-platforms') {
-      saveDraft()
-      openPlatformPicker(link)
-      return
-    }
     if(currentRoute==='environment-create' && next==='fingerprint-create') environmentReturn=true
     if(next==='environments') environmentReturn=false
-    if(location.hash===`#${next}`) render(); else location.hash=next
+    openPage(next,{trigger:link})
   })
   document.addEventListener('input',event=>{updateFingerprintDraft(event);updateSummary()})
   document.addEventListener('change',event=>{updateFingerprintDraft(event);updateSummary()})
@@ -384,7 +459,7 @@
       return
     }
     if (event.key !== 'Tab') return
-    const focusable = Array.from(picker.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)'))
+    const focusable = Array.from(picker.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')).filter(node=>node.getClientRects().length && !node.closest('[hidden]'))
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
     if (event.shiftKey && (document.activeElement === first || !picker.contains(document.activeElement))) {
@@ -401,6 +476,11 @@
     render,
     resetDraft: route => drafts.delete(route),
     closeDialog: closePlatformPicker,
+    closePage,
+    openPage,
+    getSurface,
+    getBaseRoute: () => baseRoute,
+    renderBase: () => renderBasePage(baseRoute,true),
     openSignin: openSigninDialog,
     getFingerprint: () => ({name:fingerprintName,profile:structuredClone(fingerprintDraft),generating:generationPending}),
     setFingerprint: (profile,name='') => {generationRevision++;generationPending=false;Object.assign(fingerprintDraft,structuredClone(profile));fingerprintName=name;fillFingerprintForm();updateSummary()},
