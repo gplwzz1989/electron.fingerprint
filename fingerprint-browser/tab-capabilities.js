@@ -24,7 +24,7 @@ class TabCapabilities {
   }
   update (contents, policy) {
     const entry = this.entries.get(contents.id)
-    if (!entry || entry.kind !== 'managed') throw new ProfileValidationError('只能调整 SaaS 创建标签的能力。')
+    if (!entry || entry.kind !== 'managed') throw new ProfileValidationError('只能调整 系统创建标签的能力。')
     const normalized = this.normalize({ ...entry, ...policy })
     Object.assign(entry, normalized)
     return normalized

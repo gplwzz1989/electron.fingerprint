@@ -1,7 +1,14 @@
 data/
+.env
 .env.*
 !.env.example
 *.pem
 *.key
 *.p12
 *.pfx
+dist/
+node_modules/
+.npmrc
+!package-lock.json
+*.log
+.DS_Store

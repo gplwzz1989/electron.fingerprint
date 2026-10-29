@@ -5,9 +5,9 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { WorkspaceServer } = require('../src/workspace-server')
-const { getDefaultProfile } = require('../../fingerprint-browser/profile-store')
+const { getDefaultProfile } = require('../src/fingerprint/profile-store')
 const { createSmtpMailbox } = require('./smtp-mailbox')
-const { createLaunchRequest } = require('../../fingerprint-browser/fingerprint-envelope')
+const { createLaunchRequest } = require('./desktop-protocol-consumer')
 
 test('真实数据库、会话、权限和资源完整链路', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-workspace-acceptance-'))

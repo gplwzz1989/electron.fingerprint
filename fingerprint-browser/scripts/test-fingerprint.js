@@ -8,7 +8,7 @@ const { getLaunchOptions } = require('./start')
 const { createDiagnosticTLS } = require('./fingerprint-tls')
 const { validateTLSReference } = require('../test/tls-client-hello')
 
-const projectRoot = path.resolve(__dirname, '..', '..')
+const projectRoot = path.resolve(__dirname, '..')
 const execute = promisify(execFile)
 
 async function hashFile (filename) {
@@ -217,7 +217,7 @@ async function run () {
   await createDiagnosticTLS(path.join(output, 'tls'))
   const tracked = [
     'fingerprint-browser/profile-store.js', 'fingerprint-browser/browser-tabs.js',
-    'fingerprint-browser/fingerprint-protection.js', 'fingerprint-browser/renderer/saas-app.js',
+    'fingerprint-browser/fingerprint-protection.js', 'fingerprint-browser/desktop-preload.js',
     'fingerprint-browser/package.json', 'fingerprint-browser/scripts/test-fingerprint.js',
     'fingerprint-browser/test/fingerprint-isolation.test.js', 'fingerprint-browser/test/fingerprint-probes.js',
     'fingerprint-browser/test/fingerprint-contexts.test.js',
@@ -235,7 +235,7 @@ async function run () {
     'dist/fingerprint-browser-win-x64/指纹浏览器.exe',
     'dist/fingerprint-browser-win-x64/release-manifest.json'
   ]
-  const files = await Promise.all([executable, ...tracked.map(file => path.join(projectRoot, file)), path.join(output, 'tls', 'ca.pem'), path.join(output, 'tls', 'server.pem')].map(hashFile))
+  const files = await Promise.all([executable, ...tracked.flatMap(file => file.startsWith('fingerprint-browser/') ? [path.join(projectRoot, file.slice('fingerprint-browser/'.length))] : file.startsWith('dist/') ? [path.join(projectRoot, file)] : process.env.FP_KERNEL_SOURCE_ROOT ? [path.join(process.env.FP_KERNEL_SOURCE_ROOT, file)] : []), path.join(output, 'tls', 'ca.pem'), path.join(output, 'tls', 'server.pem')].map(hashFile))
   if (files[0].missing) throw new Error('未找到指纹版运行时，请设置 FP_ELECTRON_RUNTIME。')
   let git = { available: false }
   try {

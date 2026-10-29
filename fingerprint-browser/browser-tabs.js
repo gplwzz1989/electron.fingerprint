@@ -163,6 +163,7 @@ class TabBrowser {
         kind: 'managed',
         environmentId: tab.environmentId,
         profileId: tab.profile.id,
+        externalReference: this.environmentRepository.get(tab.environmentId)?.externalReference,
         profileName: tab.profile.name,
         revision: tab.profile.revision,
         title: tab.title,
@@ -339,7 +340,7 @@ class TabBrowser {
     this.onSessionCreated(tabSession)
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => callback(isPermissionAllowed(permission)))
     tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
-    const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' ? { preload: path.join(__dirname, 'workspace-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
+    const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' ? { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
     const contents = view.webContents
     const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: '新标签页', url, error: '', loading: false, networkProxy: options.proxy }
     this.tabs.set(tab.id, tab)

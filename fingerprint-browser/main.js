@@ -39,7 +39,8 @@ const { PlatformAutomationManager } = require('./platform-automation')
 const { isXPlatformUrl } = require('./platform-automation/platforms/x/selectors')
 const { generateStealthScript } = require('./stealth-engine')
 const { getClientConfig } = require('./client-config')
-const { createLaunchRequest } = require('./fingerprint-envelope')
+const { EncryptedLaunchRequests } = require('./encrypted-launch-requests')
+const encryptedLaunchRequests = new EncryptedLaunchRequests()
 const { ClientUpdater } = require('./client-updater')
 const { spawn } = require('node:child_process')
 const { createLocalProfileProtection } = require('./local-profile-protection')
@@ -65,6 +66,8 @@ app.on('web-contents-created', (_event, contents) => {
 
 try {
   clientConfig = getClientConfig({ packaged: app.isPackaged })
+  if (!process.env.FP_BROWSER_DATA_DIR && clientConfig.applicationId !== 'com.qijie.fingerprintbrowser') initialDataRoot = path.join(app.getPath('appData'), clientConfig.applicationId)
+  app.setName(clientConfig.appName)
   if (!process.env.FP_BROWSER_DATA_DIR && clientConfig.environment !== 'prod') initialDataRoot = path.join(initialDataRoot, clientConfig.environment)
   app.setPath('userData', initialDataRoot)
   app.setPath('sessionData', initialDataRoot)
@@ -97,7 +100,7 @@ function notifyBusiness (channel) {
   }
 }
 
-const APPLICATION_ID = 'com.qijie.fingerprintbrowser' + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
+const APPLICATION_ID = clientConfig.applicationId + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
 const APPLICATION_ICON = process.platform === 'win32'
   ? path.join(__dirname, 'assets', 'saas.ico')
   : path.join(__dirname, 'assets', 'saas.png')
@@ -297,27 +300,6 @@ async function installClientUpdate () {
   } catch (error) { return { ok: false, error: /^(更新|启动配置)/.test(error.message) ? error.message : '无法开始安装更新，请稍后重试。' } }
 }
 
-async function cloudFingerprintRequest (route, body) {
-  const cookies = await dashboardView.webContents.session.cookies.get({ url: clientConfig.appUrl })
-  const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
-  const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error', signal: AbortSignal.timeout(15000) })
-  const me = await meResponse.json()
-  if (!meResponse.ok || !me.ok) throw new ProfileValidationError('请先登录 SaaS 工作空间，再创建指纹。')
-  const response = await fetch(new URL(route, clientConfig.appUrl), { method: body === undefined ? 'GET' : 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30000) })
-  const data = await response.json()
-  if (!response.ok || !data.ok) throw new ProfileValidationError(data.message || '云端指纹生成失败，请稍后重试。')
-  return data
-}
-
-async function saveCloudFingerprint (payload) {
-  const me = await cloudFingerprintRequest('/api/auth/me')
-  const workspaceId = payload?.workspaceId || (me.workspaces.length === 1 ? me.workspaces[0].id : '')
-  if (!/^[a-zA-Z0-9-]+$/.test(workspaceId)) throw new ProfileValidationError('请选择指纹所属的 SaaS 团队，并提供 workspaceId。')
-  const existing = profileRepository.list().find(item => item.id === payload.id)
-  const data = await cloudFingerprintRequest(`/api/workspaces/${workspaceId}/fingerprints`, { name: payload.name, profile: payload.fingerprint, ...(existing ? { id: existing.id, expectedVersion: payload.revision ?? existing.revision } : {}) })
-  return createProfileRecord({ ...payload, id: data.item.id, fingerprint: data.item.profile })
-}
-
 function registerIpc () {
   const channels = new WeakMap()
   const handle = (channel, listener) => ipcMain.handle(channel, async (event, ...args) => {
@@ -329,8 +311,8 @@ function registerIpc () {
     if (quitting) throw new ProfileValidationError('应用正在退出，请稍后重新打开。')
     capabilityRegistry.assert(event, channels.get(event))
   }
-  handle('workspace:runtime', async event => {
-    try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
+  handle('application:runtime', async event => {
+    try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment, protocolVersion: 1, appName: clientConfig.appName } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
   })
   handle('updates:status', async () => ({ ok: true, ...clientUpdater.snapshot() }))
   handle('updates:check', async () => ({ ok: true, ...await clientUpdater.check() }))
@@ -344,27 +326,19 @@ function registerIpc () {
     const response = await fetch(target, { method, redirect: 'error', headers: { Authorization: `Bearer ${automationServer.token}`, 'Content-Type': 'application/json' }, ...(['GET', 'HEAD'].includes(method) ? {} : { body: JSON.stringify(payload.body || {}) }), signal: AbortSignal.timeout(60000) })
     return { ok: true, status: response.status, data: await response.json() }
   })
-  handle('workspace:launch', async (event, payload) => {
+  handle('application:prepare-launch', async (event, payload) => ({ ok: true, ...encryptedLaunchRequests.prepare(event.sender, payload) }))
+  handle('application:launch-encrypted', async (event, payload) => {
     try {
       assertTrusted(event)
-      if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new ProfileValidationError('环境标识无效。')
-      const cookies = await dashboardView.webContents.session.cookies.get({ url: clientConfig.appUrl })
-      const cookie = cookies.filter(item => item.name === 'qijie_session').map(item => `${item.name}=${item.value}`).join('; ')
-      const meResponse = await fetch(new URL('/api/auth/me', clientConfig.appUrl), { headers: { Cookie: cookie }, redirect: 'error', signal: AbortSignal.timeout(15000) })
-      const me = await meResponse.json()
-      if (!meResponse.ok || !me.ok) throw new ProfileValidationError('登录已失效，请重新登录。')
-      const encryption = createLaunchRequest(payload.workspaceId, payload.environmentId)
-      const response = await fetch(new URL(`/api/workspaces/${payload.workspaceId}/environments/${payload.environmentId}/launch`, clientConfig.appUrl), {
-        method: 'POST', redirect: 'error', headers: { Cookie: cookie, Origin: new URL(clientConfig.appUrl).origin, 'X-CSRF-Token': me.csrf, 'Content-Type': 'application/json' }, body: JSON.stringify(encryption.request), signal: AbortSignal.timeout(60000)
-      })
-      const data = await response.json()
-      if (!response.ok || !data.ok) throw new ProfileValidationError(data.message || '无法读取环境启动配置。')
-      let decrypted
-      try { decrypted = encryption.open(data.envelope) } catch (error) { throw new ProfileValidationError(error.message) }
+      const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
       const profile = createProfileRecord(decrypted)
+      const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
+      const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
+      profile.id = legacy ? legacy.profileId : nativeId
       assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
       let existing = environmentRepository.list().find(item => item.profileId === profile.id)
       if (existing) {
+        if (!existing.externalReference) existing = await environmentRepository.update(existing.id, { externalReference: reference })
         const configurationChanged = JSON.stringify(existing.fingerprint) !== JSON.stringify(profile.fingerprint) || JSON.stringify(existing.proxy) !== JSON.stringify(profile.proxy)
         if (configurationChanged && existing.status === 'open') throw new ProfileValidationError('服务端环境配置已变化，请先关闭本机环境后重试。')
         if (configurationChanged || existing.profileName !== profile.name || existing.creationUrl !== profile.url) {
@@ -374,11 +348,11 @@ function registerIpc () {
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
         if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id } }
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-        return { ok: true, ...await tabBrowser.reopen(existing.id, policy) }
+        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy) }
       }
-      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true })
+      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: reference })
       const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-      return { ok: true, ...await tabBrowser.openEnvironment(environment, policy) }
+      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy) }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
@@ -480,8 +454,7 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const platform = options?.platform || (process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32')
-      const hardware = (await cloudFingerprintRequest('/api/fingerprint-generate', { platform })).parameters
-      return { ok: true, hardware }
+      throw new ProfileValidationError('浏览器基座不生成业务指纹，请由接入应用生成并提供参数。')
     } catch (error) {
       return errorResult('生成自洽硬件指纹', error, '生成自洽硬件指纹失败。')
     }
@@ -703,7 +676,8 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const platform = { darwin: 'MacIntel', linux: 'Linux x86_64' }[process.platform] || 'Win32'
-      const fingerprint = (await cloudFingerprintRequest('/api/fingerprint-draft', { platform, presetId: payload?.presetId })).profile
+      if (!payload?.fingerprint) throw new ProfileValidationError('请由接入应用提供指纹参数，基座不生成业务指纹。')
+      const fingerprint = structuredClone(payload.fingerprint)
       const id = fingerprint.id
       // 仅新草稿默认限制非代理 UDP，不改写已保存环境的开关。
       fingerprint.modules.webrtc = true
@@ -743,8 +717,7 @@ function registerIpc () {
       }
       assertFingerprintSave(payload?.fingerprint, fingerprintRuntime, payload?.proxy, options)
       if (Object.hasOwn(payload || {}, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(payload.tlsFingerprint, fingerprintRuntime.chromiumVersion)
-      const canonical = await saveCloudFingerprint(payload)
-      const nextProfile = await profileRepository.save(canonical)
+      const nextProfile = await profileRepository.save(payload)
       notifyBusiness('profiles:changed')
       return { ok: true, profile: clone(nextProfile), profiles: profileRepository.list() }
     } catch (error) {
@@ -872,7 +845,7 @@ async function createDashboard () {
     height: 900,
     minWidth: 980,
     minHeight: 680,
-    title: '指纹浏览器 · 栖界工作空间',
+    title: clientConfig.appName,
     backgroundColor: '#f1f3f6',
     frame: false,
     icon: APPLICATION_ICON,
@@ -887,7 +860,7 @@ async function createDashboard () {
   const window = dashboardWindow
   const shellUrl = pathToFileURL(path.join(__dirname, 'browser-shell.html')).href
   capabilityRegistry.register(window.webContents, 'shell', { pinnedUrl: shellUrl })
-  dashboardView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'workspace-preload.js'), additionalArguments: bridgeArguments(), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
+  dashboardView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments(), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
   const view = dashboardView
   const contents = view.webContents
   capabilityRegistry.register(contents, 'home', { pinnedUrl: clientConfig.appUrl })
@@ -907,7 +880,7 @@ async function createDashboard () {
   dashboardWindow.webContents.on('will-navigate', (event, url) => { if (url !== shellUrl) event.preventDefault() })
   await window.loadURL(shellUrl)
   try { await contents.loadURL(clientConfig.appUrl) } catch {
-    tabBrowser.homeError = 'SaaS 页面无法加载，请检查服务地址或网络后刷新。'
+    tabBrowser.homeError = '固定首页无法加载，请检查服务地址或网络后刷新。'
   }
   tabBrowser.notify()
 }
@@ -950,8 +923,7 @@ async function start () {
       environmentRepository,
       groupRepository,
       tabBrowser,
-      xGrokAutomation,
-      resolveCloudProfile: saveCloudFingerprint
+      xGrokAutomation
     })
     try {
       await automationServer.start()

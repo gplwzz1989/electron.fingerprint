@@ -1,9 +1,9 @@
 {
-  "name": "fingerprint-browser",
-  "productName": "栖界指纹浏览器",
-  "version": "0.1.1",
-  "private": true,
-  "description": "基于本地指纹版 Electron 的多配置浏览器",
+  "name": "@qijie/desktop-base",
+  "productName": "浏览器基座",
+  "version": "0.2.0",
+  "private": false,
+  "description": "独立可配置的第三方桌面浏览器基座",
   "main": "main.js",
   "scripts": {
     "start": "node scripts/start.js",
@@ -11,17 +11,18 @@
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
     "test:client-security": "node --test test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js",
-    "test": "node test/profile-store.test.js && node test/profile-repository.test.js && node test/environment-repository.test.js && node test/group-repository.test.js && node test/workspace-access.test.js && node test/environment-checkpoint.test.js && node test/fingerprint-protection.test.js && node test/fingerprint-review.test.js && node test/fingerprint-context-report.test.js && node test/tls-client-hello.test.js && node test/tls-reference-report.test.js && node test/tls-fingerprint.test.js && node test/tls-cross-version.test.js && node test/webgl-topology.test.js && node test/automation-server.test.js && node test/browser-tabs-popups.test.js && node test/dropdown-presets.test.js && node test/environment-edit-timezone.test.js && node test/media-hub.test.js && node test/creator-hub.test.js && node test/nodeservice-publisher.test.js && node test/geo-ip.test.js && node test/humanoid-actions.test.js && node test/humanoid-actions-ime.test.js && node test/platform-automation.test.js && node test/stealth-protection.test.js && node test/x-roaming.test.js",
+    "test": "node --test test/project-boundary.test.js test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js test/profile-repository.test.js test/environment-repository.test.js test/browser-tabs-popups.test.js",
     "prepare:ffmpeg": "node scripts/ensure-ffmpeg.js",
     "test:fingerprint": "node scripts/test-fingerprint.js",
     "test:fingerprint:contexts": "node scripts/test-fingerprint.js --contexts",
     "test:fingerprint:tls": "node scripts/test-fingerprint.js --tls",
     "test:fingerprint:tls:baseline": "node scripts/test-fingerprint.js --tls-baseline",
     "test:tabs": "node scripts/test-tabs.js",
-    "test:environments": "node scripts/test-environments.js"
+    "test:environments": "node scripts/test-environments.js",
+    "package:source": "pwsh -NoProfile -File scripts/package-source.ps1"
   },
   "scripts说明": {
-    "package": "生成 Windows 安装包和便携包，统一使用 SaaS 图标及产品信息；固定文件名覆盖更新，清理历史版本产物，并通知资源管理器刷新图标缓存。需要 PowerShell 7、Release 内核、NSIS 和资源编辑工具。",
+    "package": "使用本项目资源和显式提供的运行时，生成 Windows 安装包与便携包；不会导入业务项目或触发原生编译。",
     "test:package": "在管理员终端验证安装包、客户端及卸载器图标、产品信息和快捷方式，并验证安装、启动、默认用户数据目录、卸载及数据保留。本机已安装客户端时不执行此验证。",
     "test:package:data": "无需管理员权限，启动发行程序验证默认数据目录及新建环境的 profile 数据目录。程序默认安装在 Program Files，可在安装器中更改；数据默认位于本机用户的 AppData/Local/Programs/栖界/指纹浏览器。"
   },

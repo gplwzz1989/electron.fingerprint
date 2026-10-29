@@ -3,9 +3,10 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { WorkspaceServer } = require('../src/workspace-server')
 const { createSmtpMailbox } = require('../test/smtp-mailbox')
+const { readServerConfig } = require('../src/server-config')
 
 // 页面验收使用独立 MySQL 数据库，不向开发或生产数据库写入测试账号。
-const directory = path.resolve(__dirname, '../../dist/workspace-refactor-acceptance')
+const directory = path.resolve(process.env.SAAS_ACCEPTANCE_DIR || readServerConfig().SAAS_ACCEPTANCE_DIR || path.join(__dirname, '../dist/browser-acceptance'))
 fs.mkdirSync(directory, { recursive: true })
 const metadata = path.join(directory, 'mysql-browser-server.json')
 const prior = fs.existsSync(metadata) ? JSON.parse(fs.readFileSync(metadata, 'utf8')) : null

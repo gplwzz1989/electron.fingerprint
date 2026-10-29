@@ -1,10 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// URL 工作空间仅暴露必要能力，远程页面不能访问文件系统或任意 IPC。
-contextBridge.exposeInMainWorld('workspaceBridge', {
+// 远程应用仅暴露必要能力，远程页面不能访问文件系统或任意 IPC。
+contextBridge.exposeInMainWorld('desktopBridge', {
   shellVersion: 2,
-  runtime: () => ipcRenderer.invoke('workspace:runtime'),
-  launch: payload => ipcRenderer.invoke('workspace:launch', payload),
+  protocolVersion: 1,
+  runtime: () => ipcRenderer.invoke('application:runtime'),
+  prepareLaunch: payload => ipcRenderer.invoke('application:prepare-launch', payload),
+  launchEncrypted: payload => ipcRenderer.invoke('application:launch-encrypted', payload),
   tabs: () => ipcRenderer.invoke('tabs:list'),
   selectTab: id => ipcRenderer.invoke('tabs:select', id),
   closeTab: id => ipcRenderer.invoke('tabs:close', id),

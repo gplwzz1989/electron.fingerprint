@@ -5,7 +5,7 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { WorkspaceServer } = require('../src/workspace-server')
-const { getDefaultProfile, createProxyConfig } = require('../../fingerprint-browser/profile-store')
+const { getDefaultProfile, createProxyConfig } = require('../src/fingerprint/profile-store')
 const { createSmtpMailbox } = require('./smtp-mailbox')
 
 test('实际代理检测、环境保存与客户端启动配置兼容', { skip: !process.env.SAAS_TEST_PROXY_URL }, async () => {

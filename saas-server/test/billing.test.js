@@ -7,7 +7,7 @@ const path = require('node:path')
 const { WorkspaceServer } = require('../src/workspace-server')
 const { createSmtpMailbox } = require('./smtp-mailbox')
 const { signedFields, sign, responseObject } = require('../src/payment-providers')
-const { getDefaultProfile } = require('../../fingerprint-browser/profile-store')
+const { getDefaultProfile } = require('../src/fingerprint/profile-store')
 
 // 仅测试拦截支付平台网络，使用临时 RSA 密钥验证真实签名、回调与 MySQL 事务；不向真实商户扣款。
 test('隔离支付协议与真实数据库权益验收', async t => {

@@ -5,3 +5,16 @@ scratch/
 build-config.json
 client-config.json
 automation-access.json
+dist/
+runtime/
+node_modules/
+.idea/
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+*.log
+.DS_Store

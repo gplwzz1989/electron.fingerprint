@@ -1,5 +1,26 @@
 {
-  "dev": { "appUrl": "http://127.0.0.1:8088/", "updateUrl": "", "updatePublicKey": "", "updatesEnabled": true },
-  "test": { "appUrl": "", "updateUrl": "", "updatePublicKey": "", "updatesEnabled": true },
-  "prod": { "appUrl": "", "updateUrl": "", "updatePublicKey": "", "updatesEnabled": true }
+  "dev": {
+    "appUrl": "http://127.0.0.1:8088/",
+    "appName": "浏览器基座",
+    "applicationId": "com.example.desktopbase",
+    "updateUrl": "",
+    "updatePublicKey": "",
+    "updatesEnabled": false
+  },
+  "test": {
+    "appUrl": "",
+    "appName": "浏览器基座",
+    "applicationId": "com.example.desktopbase",
+    "updateUrl": "",
+    "updatePublicKey": "",
+    "updatesEnabled": false
+  },
+  "prod": {
+    "appUrl": "",
+    "appName": "浏览器基座",
+    "applicationId": "com.example.desktopbase",
+    "updateUrl": "",
+    "updatePublicKey": "",
+    "updatesEnabled": false
+  }
 }

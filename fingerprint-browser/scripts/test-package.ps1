@@ -1,7 +1,7 @@
 param([switch]$DataDirectoryOnly)
 
 $ErrorActionPreference = 'Stop'
-$workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $testRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist/installer-test'))
 $installRoot = Join-Path $testRoot 'program'
 $registry = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser'
@@ -19,7 +19,7 @@ function Assert-BrandIcon ([string]$Program, [string]$IconFile) {
   try {
     for ($x = 0; $x -lt $actualBitmap.Width; $x++) {
       for ($y = 0; $y -lt $actualBitmap.Height; $y++) {
-        if ($actualBitmap.GetPixel($x, $y).ToArgb() -ne $expectedBitmap.GetPixel($x, $y).ToArgb()) { throw '程序图标与 SaaS 图标不一致。' }
+        if ($actualBitmap.GetPixel($x, $y).ToArgb() -ne $expectedBitmap.GetPixel($x, $y).ToArgb()) { throw '程序图标与配置资源不一致。' }
       }
     }
   } finally {

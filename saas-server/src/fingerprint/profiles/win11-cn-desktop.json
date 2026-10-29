@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "win11-cn-desktop",
+  "enabled": true,
+  "browser": {
+    "family": "Chrome",
+    "chromiumMajor": 138,
+    "userAgent": null,
+    "acceptLanguage": "zh-CN,zh;q=0.9"
+  },
+  "locale": {
+    "language": "zh-CN",
+    "languages": ["zh-CN", "zh"],
+    "timezone": "Asia/Shanghai"
+  },
+  "hardware": {
+    "hardwareConcurrency": 8,
+    "deviceMemory": 8,
+    "platform": "Win32"
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "availWidth": 1920,
+    "availHeight": 1040,
+    "deviceScaleFactor": 1
+  },
+  "graphics": {
+    "webglVendor": "Google Inc. (Intel)",
+    "webglRenderer": "ANGLE (Intel, Intel(R) UHD Graphics, D3D11)"
+  },
+  "noise": {
+    "seed": "win11-cn-desktop-stable",
+    "canvas": false,
+    "audio": false,
+    "rects": false
+  },
+  "modules": {
+    "ua": true,
+    "clientHints": true,
+    "locale": true,
+    "timezone": true,
+    "navigator": true,
+    "screen": true,
+    "webgl": true,
+    "canvas": false,
+    "audio": false,
+    "fonts": false,
+    "webrtc": false,
+    "runtimeInspector": false
+  }
+}

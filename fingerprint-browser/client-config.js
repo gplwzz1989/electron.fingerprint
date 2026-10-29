@@ -24,16 +24,20 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   }
   const environment = config.environment || (packaged ? 'prod' : 'dev')
   if (!['dev', 'test', 'prod'].includes(environment)) throw new Error('客户端环境配置无效，请选择 dev、test 或 prod。')
-  const input = (!packaged && env.FP_APP_URL) || config.appUrl || (!packaged && environment === 'dev' ? 'http://127.0.0.1:8088/' : '')
+  const input = (!packaged && env.FP_APP_URL) || config.appUrl || ''
   if (!input) throw new Error('未配置工作空间地址，请在打包时指定正式页面 URL。')
   const appUrl = validateAppUrl(input)
   if (config.updatePublicKey && (typeof config.updatePublicKey !== 'string' || /PRIVATE KEY/.test(config.updatePublicKey))) throw new Error('客户端更新配置只能包含公钥，禁止写入签名私钥。')
   if (config.updatesEnabled === true && !config.updatePublicKey) throw new Error('已开启自动更新，但未配置更新验签公钥。')
-  const updates = { enabled: Boolean(config.updatePublicKey) && config.updatesEnabled !== false, publicKey: config.updatePublicKey || '', channel: environment, url: config.updateUrl || new URL(`/api/client-updates/${environment}/win32/x64.json`, appUrl).href }
+  if (config.updatesEnabled === true && !config.updateUrl) throw new Error('已开启自动更新，但未配置更新清单地址。')
+  const updates = { enabled: Boolean(config.updatePublicKey && config.updateUrl) && config.updatesEnabled !== false, publicKey: config.updatePublicKey || '', channel: environment, url: config.updateUrl || '' }
   if (updates.enabled) {
     try { if (crypto.createPublicKey(updates.publicKey).asymmetricKeyType !== 'ed25519') throw new Error(); updates.url = updateUrl(updates.url, environment) } catch { throw new Error('更新地址或验签公钥配置无效，请检查打包配置。') }
   }
-  return { appUrl, environment, updates }
+  const applicationId = config.applicationId || 'com.qijie.fingerprintbrowser'
+  const appName = config.appName || '浏览器基座'
+  if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*){2,}$/.test(applicationId) || !/^[\p{L}\p{N} _.-]{1,60}$/u.test(appName)) throw new Error('应用标识或名称无效，请检查打包配置。')
+  return { appUrl, environment, updates, applicationId, appName }
 }
 
 module.exports = { getClientConfig, validateAppUrl }

@@ -10,7 +10,7 @@
 
 连接参数放在服务端 `.env.dev`、`.env.test`、`.env.prod` 中，程序根据 `SAAS_ENV` 选择环境；这些文件不提交，也不会打进客户端包。数据库连接和邮件服务共用配置读取入口。
 
-首次拉取后，将 `saas-server/.env.example` 复制为所需环境文件并填写数据库、发件邮箱与授权码；将 `fingerprint-browser/build-config.example.json` 复制为 `fingerprint-browser/build-config.json`，再填写各环境的页面地址。Git 仅提交样例，真实环境配置、客户端本地打包配置和支付证书均已忽略；不要将真实凭据填入样例文件。
+首次拉取后，将本项目 `.env.example` 复制为所需环境文件并填写数据库、发件邮箱与授权码。本项目可独立安装、测试和部署，不需要桌面源码；网页通过自身 SDK 与公开桌面协议接入，详见 `docs/desktop-integration.md`。Git 仅提交样例，真实环境配置和支付证书均已忽略；不要将真实凭据填入样例文件。
 
 | 配置项 | QQ 邮箱配置 |
 | --- | --- |

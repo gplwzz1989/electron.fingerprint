@@ -47,7 +47,7 @@
     if (changed) editing = false
     list.replaceChildren()
     pinned.replaceChildren()
-    const home = { ...snapshot.home, id: null, title: '首页 · 栖界', kind: 'home' }
+    const home = { ...snapshot.home, id: null, title: '首页', kind: 'home' }
     for (const tab of [home, ...snapshot.tabs]) {
       const item = document.createElement('div'); item.className = `tab${tab.id === snapshot.activeId ? ' active' : ''}${tab.loading ? ' loading' : ''}${tab.error ? ' error' : ''}`; item.setAttribute('role', 'tab'); item.setAttribute('aria-selected', String(tab.id === snapshot.activeId))
       item.dataset.id = tab.id || ''; item.draggable = Boolean(tab.id)
@@ -59,7 +59,7 @@
     updateLayout()
     const tab = snapshot.tabs.find(entry => entry.id === snapshot.activeId) || home
     if (tab.error && (changed || oldTab?.error !== tab.error)) showError(tab.error)
-    address.readOnly = !snapshot.activeId; address.setAttribute('aria-label', address.readOnly ? 'SaaS 页面地址（只读）' : '网页地址'); document.getElementById('readonly-label').hidden = !address.readOnly
+    address.readOnly = !snapshot.activeId; address.setAttribute('aria-label', address.readOnly ? '固定首页地址（只读）' : '网页地址'); document.getElementById('readonly-label').hidden = !address.readOnly
     if (!editing) address.value = tab.url === 'about:blank' && tab.kind === 'ordinary' ? '' : tab.url || ''
     address.placeholder = '搜索或输入网址'; address.title = tab.url || ''
     const reload = document.querySelector('[data-action="reload"]'); reload.setAttribute('aria-label', tab.loading ? '停止加载' : '刷新'); reload.title = tab.loading ? '停止加载' : '刷新'

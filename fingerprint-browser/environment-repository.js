@@ -46,6 +46,7 @@ function normalizeEnvironment (record, dataRoot) {
     id: record.id,
     schemaVersion: Number.isInteger(record.schemaVersion) && record.schemaVersion > 0 ? record.schemaVersion : 1,
     profileId: profile.id,
+    ...(record.externalReference ? { externalReference: clone(record.externalReference) } : {}),
     profileName: profile.name,
     group: profile.group,
     storage: profile.storage,
@@ -262,7 +263,7 @@ class EnvironmentRepository {
     return task
   }
 
-  async create (profile, creationUrl, { preserveFingerprint = false } = {}) {
+  async create (profile, creationUrl, { preserveFingerprint = false, externalReference = null } = {}) {
     return await this.enqueue(async () => {
       const now = Date.now()
       const id = randomUUID()
@@ -274,6 +275,7 @@ class EnvironmentRepository {
         id,
         schemaVersion: 1,
         profileId: environmentProfile.id,
+        ...(externalReference ? { externalReference } : {}),
         profileName: environmentProfile.name,
         group: environmentProfile.group || DEFAULT_ENVIRONMENT_GROUP,
         storage: environmentProfile.storage || DEFAULT_ENVIRONMENT_STORAGE,

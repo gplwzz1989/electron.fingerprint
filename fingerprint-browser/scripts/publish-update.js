@@ -25,7 +25,8 @@ async function main () {
   const name = `qijie-${options.version}-${options.channel}-${sha256.slice(0, 16)}.exe`
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) throw new Error('更新版本号无效。')
   const publishedAt = Date.now()
-  const manifest = { format: 'qijie-update-v1', version: options.version, channel: options.channel, platform: 'win32', arch: 'x64', sha256, size: (await fs.stat(options.artifact)).size, url: updateUrl(new URL(`/api/client-updates/artifacts/${name}`, options['base-url']).href, options.channel), publishedAt, expiresAt: publishedAt + 30 * 86400000, notes: options['notes-file'] ? (await fs.readFile(options['notes-file'], 'utf8')).trim() : '修复已知问题并改善使用体验。' }
+  const downloadBase = options['base-url'].replace(/\/?$/, '/')
+  const manifest = { format: 'qijie-update-v1', version: options.version, channel: options.channel, platform: 'win32', arch: 'x64', sha256, size: (await fs.stat(options.artifact)).size, url: updateUrl(new URL(name, downloadBase).href, options.channel), publishedAt, expiresAt: publishedAt + 30 * 86400000, notes: options['notes-file'] ? (await fs.readFile(options['notes-file'], 'utf8')).trim() : '修复已知问题并改善使用体验。' }
   const payload = Buffer.from(JSON.stringify(manifest)); const envelope = { payload: payload.toString('base64'), signature: crypto.sign(null, payload, key).toString('base64') }
   verifyManifest(envelope, { publicKey, channel: options.channel, platform: 'win32', arch: 'x64', currentVersion: '0.0.0' })
   await fs.mkdir(directory, { recursive: true, mode: 0o755 })

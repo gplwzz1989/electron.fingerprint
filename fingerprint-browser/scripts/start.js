@@ -13,7 +13,7 @@ function runtimeExecutable (root, platform = process.platform) {
 }
 
 function getLaunchOptions (env = process.env, extraArgs = []) {
-  const runtimeRoot = env.FP_ELECTRON_RUNTIME || env.ELECTRON_OVERRIDE_DIST_PATH || path.resolve(projectRoot, '..', '..', 'electron-fp-build', 'src', 'out', 'Release')
+  const runtimeRoot = env.FP_ELECTRON_RUNTIME || env.ELECTRON_OVERRIDE_DIST_PATH || path.join(projectRoot, 'runtime')
   const config = getClientConfig({ env, directory: projectRoot })
   const baseDataRoot = resolveDataRoot(env)
   const dataRoot = env.FP_BROWSER_DATA_DIR || config.environment === 'prod' ? baseDataRoot : path.join(baseDataRoot, config.environment)

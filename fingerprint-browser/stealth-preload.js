@@ -431,7 +431,7 @@ try {
   const { contextBridge, ipcRenderer } = require('electron')
   const contract = JSON.parse(decodeURIComponent(argument.slice('--qijie-api-contract='.length)))
   for (const [group, methods] of Object.entries(contract)) {
-    const api = group === 'browserApi' ? { hostPlatform: process.platform } : { shellVersion: 2 }
+    const api = group === 'browserApi' ? { hostPlatform: process.platform } : { shellVersion: 2, protocolVersion: 1 }
     for (const [method, channel] of Object.entries(methods)) api[method] = payload => ipcRenderer.invoke(channel, method === 'createGroup' && typeof payload === 'string' ? { name: payload } : payload)
     for (const [method, channel] of Object.entries({ onTabsChanged: 'tabs:changed', onProfilesChanged: 'profiles:changed', onEnvironmentsChanged: 'environments:changed', onGroupsChanged: 'groups:changed' })) {
       api[method] = callback => { if (typeof callback !== 'function') return () => {}; const listener = (_event, payload) => callback(payload); ipcRenderer.on(channel, listener); return () => ipcRenderer.removeListener(channel, listener) }

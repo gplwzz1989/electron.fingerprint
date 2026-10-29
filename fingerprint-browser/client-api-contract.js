@@ -7,13 +7,13 @@ const browserApi = {
   detectExitIp: 'proxy:detect-ip', alignProxyGeo: 'proxy:align-geo', randomHardware: 'profiles:randomHardware', humanoidClick: 'actions:click', humanoidType: 'actions:type', humanoidImeType: 'actions:ime-type', humanoidScroll: 'actions:scroll', humanoidDrag: 'actions:drag', getTLSPresets: 'tls:presets', resolveTLSConfig: 'tls:resolve',
   toggleXPanel: 'x-grok:toggle-panel', getXStatus: 'x-grok:status', toggleX: 'x-grok:toggle', updateXConfig: 'x-grok:update-config', requestLocalApi: 'automation:request'
 }
-const workspaceBridge = {
-  runtime: 'workspace:runtime', launch: 'workspace:launch', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request', updateStatus: 'updates:status', checkUpdates: 'updates:check', installUpdate: 'updates:install'
+const desktopBridge = {
+  runtime: 'application:runtime', prepareLaunch: 'application:prepare-launch', launchEncrypted: 'application:launch-encrypted', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request', updateStatus: 'updates:status', checkUpdates: 'updates:check', installUpdate: 'updates:install'
 }
-const bridgeContract = { browserApi, workspaceBridge }
-const businessChannels = new Set([...Object.values(browserApi), ...Object.values(workspaceBridge)])
+const bridgeContract = { browserApi, desktopBridge }
+const businessChannels = new Set([...Object.values(browserApi), ...Object.values(desktopBridge)])
 const shellChannels = new Set(['tabs:list', 'tabs:select', 'tabs:close', 'tabs:reorder', 'tabs:navigate', 'tabs:dashboard', 'tabs:ordinary', 'tabs:devtools', 'window:action'])
 const managementChannels = new Set(['tabs:create-managed', 'tabs:set-capabilities', 'updates:install'])
-const capabilityGroups = new Set(['workspace', 'presets', 'profiles', 'environments', 'groups', 'tabs', 'proxy', 'actions', 'tls', 'x-grok', 'automation'])
+const capabilityGroups = new Set(['application', 'workspace', 'presets', 'profiles', 'environments', 'groups', 'tabs', 'proxy', 'actions', 'tls', 'x-grok', 'automation'])
 const bridgeArguments = () => ['--qijie-api-contract=' + encodeURIComponent(JSON.stringify(bridgeContract))]
 module.exports = { bridgeContract, businessChannels, shellChannels, managementChannels, capabilityGroups, bridgeArguments }

@@ -4,7 +4,7 @@
 
 ## 部署
 
-1. 解压后保留 `saas-server` 与 `fingerprint-browser` 两个同级目录。后者只含服务端共用的指纹参数处理代码，不是桌面运行时。
+1. 解压后只需 `saas-server` 目录及包内启动脚本。全部服务端模块已归入自身 `src/`，无需桌面项目目录或运行时。
 2. 首次部署时，将 `saas-server/.env.example` 复制为 `saas-server/.env.prod`，填写 `DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`。已有环境配置应保留，不要覆盖。
 3. 填写 `SAAS_PUBLIC_URL` 为对外 HTTPS 页面地址；默认 `HOST=127.0.0.1`、`PORT=8088`，可在同机使用反向代理提供 HTTPS。让该地址与客户端 prod 打包配置中的地址一致。
 4. QQ 邮件填写 `SMTP_USER`、`SMTP_PASSWORD`（SMTP 授权码）、`SMTP_FROM`，默认 `smtp.qq.com:465`、SSL 已预填。支付配置和套餐说明见 `saas-server/README.md`；未配置真实商户时保持关闭。
@@ -12,7 +12,7 @@
 
 程序从配置文件连接 MySQL，并在对应数据库创建所需表；不会初始化演示账号。配置文件只保留样例，包中没有真实数据库密码、邮箱授权码、商户证书或用户数据。服务端 `data/workspace/encryption.key` 在首次启动时生成，后续升级应与数据库一同保留和备份，以继续解密指纹、环境快照、代理凭据与验证码摘要。
 
-客户端从 0.1.1 开始使用加密启动协议。首次升级应先安装新客户端，再切换服务端；服务端启动会在事务中将旧明文指纹迁移为密文，不改变历史版本与种子。旧客户端不能继续使用明文启动协议。客户端更新公开目录由 `.env.prod` 的 `CLIENT_UPDATES_DIR` 配置，仅发布经过签名的环境清单和安装包，私钥必须放在目录之外；具体发布流程见仓库 `fingerprint-browser/UPDATE-AND-FINGERPRINT.md`。
+桌面接入通过版本化的通用桥接和加密协议完成，业务 SDK 由网页自身提供。服务端启动会在事务中将旧明文指纹迁移为密文，不改变历史版本与种子；仍兼容已发行的旧加密消息。可选更新公开目录由 `.env.prod` 的 `CLIENT_UPDATES_DIR` 配置，私钥必须放在目录之外；第三方也可使用独立静态更新站点。接入说明见本项目 `docs/desktop-integration.md`。
 
 ## 升级与检查
 

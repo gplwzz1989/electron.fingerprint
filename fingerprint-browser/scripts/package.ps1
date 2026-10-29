@@ -10,8 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$workspaceRoot = (Resolve-Path (Join-Path $projectRoot '..')).Path
-$distRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist'))
+$distRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist'))
 $outputRoot = if ($OutputRoot) { [IO.Path]::GetFullPath($OutputRoot) } else { $distRoot }
 if (!$outputRoot.Equals($distRoot, [StringComparison]::OrdinalIgnoreCase) -and
     !$outputRoot.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -49,7 +48,7 @@ try {
   if (!$AppUrl) { $failureMessage = "请在打包配置文件中填写 $Environment 环境的工作空间 URL。"; throw $failureMessage }
   $validatedUrl = & node -e "process.stdout.write(require(process.argv[1]).validateAppUrl(process.argv[2]))" (Join-Path $projectRoot 'client-config.js') $AppUrl
   if ($LASTEXITCODE -ne 0) { throw '工作空间 URL 校验失败。' }
-  if (!$RuntimeRoot) { $RuntimeRoot = Join-Path $workspaceRoot '../electron-fp-build/src/out/Release' }
+  if (!$RuntimeRoot) { throw '请通过 RuntimeRoot 参数或 FP_ELECTRON_RUNTIME 指定已有运行时目录，基座不会编译内核。' }
   $RuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
   if (!$Compiler) { $Compiler = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis/nsis-3.0.4.1/makensis.exe' }
   if (!(Test-Path -LiteralPath $Compiler)) { throw '未找到安装包编译工具。' }
@@ -91,21 +90,27 @@ try {
   foreach ($directory in @('assets', 'platform-automation')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination $application -Recurse -Force
   }
-  $clientSettings = @{ environment = $Environment; appUrl = [string]$validatedUrl; updateUrl = $environmentConfig.$Environment.updateUrl; updatePublicKey = $environmentConfig.$Environment.updatePublicKey; updatesEnabled = $environmentConfig.$Environment.updatesEnabled -ne $false }
+  New-Item -ItemType Directory -Path (Join-Path $application 'renderer') -Force | Out-Null
+  foreach ($file in @('x-grok-panel.html','x-grok-panel.js','x-grok-panel-preload.js','automation-panel.css')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot "renderer/$file") -Destination (Join-Path $application 'renderer') -Force
+  }
+  $clientSettings = @{ environment = $Environment; appUrl = [string]$validatedUrl; appName = $environmentConfig.$Environment.appName; applicationId = $environmentConfig.$Environment.applicationId; updateUrl = $environmentConfig.$Environment.updateUrl; updatePublicKey = $environmentConfig.$Environment.updatePublicKey; updatesEnabled = $environmentConfig.$Environment.updatesEnabled -eq $true }
   $clientSettings | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'client-config.json') -Encoding utf8NoBOM
   & node -e "require(process.argv[1]).getClientConfig({packaged:true,directory:process.argv[2]})" (Join-Path $application 'client-config.js') $application
   if ($LASTEXITCODE -ne 0) { throw '客户端更新配置校验失败。' }
   # 工作空间业务页面仍由 URL 提供；发行包只携带原生浏览器控制条和无权限的新标签空白页。
   $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($clientSettings.appName) { $metadata.productName = $clientSettings.appName }
+  $applicationId = if ($clientSettings.applicationId) { $clientSettings.applicationId } else { 'com.qijie.fingerprintbrowser' }
   $version = $metadata.version
   $failureMessage = '写入应用图标与产品信息失败，请检查资源编辑工具和输出程序。'
   $program = Join-Path $payload '指纹浏览器.exe'
   # 只修改发行包内的程序资源，保留原始内核及其版本记录。
   & $ResourceEditor $program --set-icon (Join-Path $application 'assets/saas.ico') --set-version-string ProductName $metadata.productName --set-version-string FileDescription $metadata.productName --set-version-string CompanyName '栖界' --set-version-string OriginalFilename '指纹浏览器.exe' --set-version-string InternalName $metadata.productName --set-file-version $version --set-product-version $version
   if ($LASTEXITCODE -ne 0) { throw '应用品牌资源更新失败。' }
-  $commit = git -C $workspaceRoot rev-parse HEAD
-  $sourceDirty = [bool](git -C $workspaceRoot status --porcelain -- fingerprint-browser saas-server)
-  @{ product = $metadata.productName; version = $version; sourceCommit = $commit; sourceDirty = $sourceDirty; clientShellVersion = 2; environment = $Environment; appUrl = [string]$validatedUrl; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $RuntimeRoot 'electron.exe')).Hash; executableSha256 = (Get-FileHash -LiteralPath $program).Hash; installDirectory = '%ProgramFiles%\栖界\指纹浏览器'; dataDirectory = '%LOCALAPPDATA%\Programs\栖界\指纹浏览器' } |
+  $commit = '未记录'; $sourceDirty = $false
+  if (Get-Command git -ErrorAction SilentlyContinue) { $revision = & git -C $projectRoot rev-parse HEAD 2>$null; if ($LASTEXITCODE -eq 0) { $commit = $revision; $sourceDirty = [bool](& git -C $projectRoot status --porcelain -- .) } }
+  @{ product = $metadata.productName; version = $version; sourceCommit = $commit; sourceDirty = $sourceDirty; clientShellVersion = 2; environment = $Environment; appUrl = [string]$validatedUrl; runtimeSha256 = (Get-FileHash -LiteralPath (Join-Path $RuntimeRoot 'electron.exe')).Hash; executableSha256 = (Get-FileHash -LiteralPath $program).Hash; applicationId = $applicationId; installDirectory = ('%ProgramFiles%\' + $metadata.productName); dataDirectory = $(if ($applicationId -eq 'com.qijie.fingerprintbrowser') { '%LOCALAPPDATA%\Programs\栖界\指纹浏览器' } else { '%APPDATA%\' + $applicationId }) } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'release-manifest.json') -Encoding utf8NoBOM
 
   # 卸载只删除安装包内的文件和空目录，用户数据和额外文件不会被递归删除。
@@ -116,7 +121,7 @@ try {
   $uninstallLines | Set-Content -LiteralPath $uninstallList -Encoding utf8NoBOM
 
   $failureMessage = '安装包编译失败，请查看 dist/installer-build/安装包编译.log。'
-  & $Compiler /INPUTCHARSET UTF8 /OUTPUTCHARSET UTF8 "/DPAYLOAD_DIR=$payload" "/DOUTPUT_FILE=$compiledInstaller" "/DAPP_VERSION=$version" "/DUNINSTALL_FILES=$uninstallList" (Join-Path $PSScriptRoot 'installer.nsi') |
+  & $Compiler /INPUTCHARSET UTF8 /OUTPUTCHARSET UTF8 "/DPAYLOAD_DIR=$payload" "/DOUTPUT_FILE=$compiledInstaller" "/DAPP_VERSION=$version" "/DAPP_NAME=$($metadata.productName)" "/DAPP_KEY=Software\Microsoft\Windows\CurrentVersion\Uninstall\$applicationId" "/DUNINSTALL_FILES=$uninstallList" (Join-Path $PSScriptRoot 'installer.nsi') |
     Out-File -LiteralPath (Join-Path $buildRoot '安装包编译.log') -Encoding utf8
   if ($LASTEXITCODE -ne 0) { throw '安装包编译失败。' }
   # 先完成编译，再覆盖固定产物；旧安装器被占用时保留已编译的新包。

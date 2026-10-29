@@ -6,7 +6,7 @@ const os = require('node:os')
 const crypto = require('node:crypto')
 const assert = require('node:assert/strict')
 const { WorkspaceServer } = require(path.join(process.env.FP_CLOUD_TEST_SERVER_ROOT || path.resolve(__dirname, '../../saas-server'), 'src/workspace-server'))
-const { createSmtpMailbox } = require('../../saas-server/test/smtp-mailbox')
+const { createSmtpMailbox } = require(path.join(process.env.FP_CLOUD_TEST_SERVER_ROOT || path.resolve(__dirname, '../../saas-server'), 'test/smtp-mailbox'))
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-cloud-native-'))
 const report = process.argv[2]
 const results = []; let server; let mailbox
@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
   const environment = (await api(`/api/workspaces/${workspaceId}/environments`, { name: '加密启动验收', fingerprintId: fingerprint.id, fingerprintVersion: fingerprint.version, startUrl: origin + '/api/health' })).item
   results.push('云端生成、真实邮箱注册与独立 MySQL 指纹入库成功')
   process.env.FP_APP_URL = origin + '/'; process.env.FP_BUILD_ENV = 'test'; process.env.FP_BROWSER_DATA_DIR = path.join(directory, 'client'); process.env.FP_AUTOMATION_PORT = '62871'
-  let clientRoot = path.resolve(__dirname, '..')
+  let clientRoot = path.resolve(__dirname, '../../fingerprint-browser')
   if (process.env.FP_CLOUD_TEST_CLIENT_ROOT) {
     clientRoot = path.join(directory, 'packaged-application')
     fs.cpSync(process.env.FP_CLOUD_TEST_CLIENT_ROOT, clientRoot, { recursive: true })
@@ -54,10 +54,10 @@ app.whenReady().then(async () => {
   const raw = fs.readFileSync(path.join(clientDirectory, 'environments.json'), 'utf8')
   assert(raw.includes('qijie-device-storage-v1')); assert(!raw.includes(fingerprint.profile.noise.seed))
   const { safeStorage } = require('electron/main')
-  const { createLocalProfileProtection } = require('../local-profile-protection')
-  const { EnvironmentRepository } = require('../environment-repository')
+  const { createLocalProfileProtection } = require(path.join(clientRoot, 'local-profile-protection'))
+  const { EnvironmentRepository } = require(path.join(clientRoot, 'environment-repository'))
   const decoded = createLocalProfileProtection(safeStorage).decode(JSON.parse(raw))
-  const local = decoded.find(record => record.profileId === environment.id)
+  const local = decoded.find(record => record.externalReference?.resourceId === environment.id)
   assert.equal(local.fingerprint.noise.seed, fingerprint.profile.noise.seed)
   const snapshot = fs.readFileSync(path.join(local.dataDir, 'fingerprint.json'), 'utf8')
   assert(!snapshot.includes(fingerprint.profile.noise.seed)); assert(snapshot.includes('qijie-device-storage-v1'))

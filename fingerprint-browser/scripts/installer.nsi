@@ -8,11 +8,15 @@ Unicode true
 ${StrStr}
 Var AutoUpdate
 
-!define APP_NAME "栖界指纹浏览器"
+!ifndef APP_NAME
+!define APP_NAME "浏览器基座"
+!endif
+!ifndef APP_KEY
 !define APP_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser"
+!endif
 Name "${APP_NAME}"
 OutFile "${OUTPUT_FILE}"
-InstallDir "$PROGRAMFILES64\栖界\指纹浏览器"
+InstallDir "$PROGRAMFILES64\${APP_NAME}"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 SetOverwrite on
@@ -67,16 +71,10 @@ Function .onInit
         SetErrorLevel 1
         Abort
       ${EndIf}
-      MessageBox MB_ICONEXCLAMATION|MB_YESNO "检测到栖界指纹浏览器正在运行。确认后将强制结束客户端，未保存的操作可能丢失，是否继续安装？" IDYES app_terminate
+      MessageBox MB_ICONEXCLAMATION "检测到浏览器基座仍在运行，请先正常关闭客户端后重新安装。"
       Abort
     ${EndIf}
     Goto app_check_done
-  app_terminate:
-    nsExec::ExecToStack 'taskkill /IM "指纹浏览器.exe" /T /F'
-    Pop $0
-    Pop $1
-    Sleep 500
-    Goto app_check
   app_check_done:
 FunctionEnd
 
