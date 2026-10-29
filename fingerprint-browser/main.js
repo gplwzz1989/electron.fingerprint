@@ -1,7 +1,7 @@
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { randomUUID } = require('node:crypto')
-const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeStorage } = require('electron/main')
+const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeStorage, screen } = require('electron/main')
 const { pathToFileURL } = require('node:url')
 const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
@@ -840,11 +840,16 @@ function registerIpc () {
 
 async function createDashboard () {
   clientConfig = getClientConfig({ packaged: app.isPackaged })
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(1180, Math.max(1, area.width - 80))
+  const height = Math.min(800, Math.max(1, area.height - 80))
   dashboardWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 980,
-    minHeight: 680,
+    width,
+    height,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    minWidth: Math.min(980, width),
+    minHeight: Math.min(680, height),
     title: clientConfig.appName,
     backgroundColor: '#f1f3f6',
     frame: false,
