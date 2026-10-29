@@ -18,11 +18,13 @@ test('网页 SDK 识别旧服务与错误密文协议，在调用客户端解密
   try {
     const payload = { workspaceId: 'isolated-workspace', environmentId: 'isolated-environment' }
     const old = await window.workspaceBridge.launch(payload)
-    assert.equal(old.ok, false); assert.match(old.error, /旧版本/); assert.equal(prepared, 0); assert.equal(decrypted, 0)
+    assert.equal(old.ok, false); assert.match(old.error, /协议不兼容/); assert.equal(prepared, 1); assert.equal(decrypted, 0)
     modern = true
     const mismatch = await window.workspaceBridge.launch(payload)
     assert.equal(mismatch.ok, false); assert.match(mismatch.error, /协议不兼容/); assert.equal(decrypted, 0)
     format = 'desktop-launch-v1'
     assert.equal((await window.workspaceBridge.launch(payload)).ok, true); assert.equal(decrypted, 1)
+    modern = false
+    assert.equal((await window.workspaceBridge.launch(payload)).ok, true, '兼容未声明能力、但已返回新版密文的 0.2.0 服务。')
   } finally { await new Promise(resolve => server.close(resolve)) }
 })
