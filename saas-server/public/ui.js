@@ -39,6 +39,39 @@
   const environmentManagementTabs = data.environmentManagementTabs
   const isEnvironmentManagement = route => environmentManagementTabs.some(([, id]) => id === route)
   const navigationRoute = route => isEnvironmentManagement(route) ? 'environments' : route
+  const navigationLabels = { overview: '总览', environments: '环境', accounts: '账号', members: '团队', billing: '订阅', settings: '设置' }
+  const narrowNavigation = window.matchMedia('(max-width:639px)')
+  const sidebar = document.getElementById('workspace-sidebar')
+  const navigationToggle = document.querySelector('.navigation-toggle')
+  const navigationBackdrop = document.querySelector('.navigation-backdrop')
+  function setNavigationOpen (open, restoreFocus = false) {
+    document.body.classList.toggle('navigation-closed', !open)
+    document.body.classList.toggle('navigation-overlay', open && narrowNavigation.matches)
+    sidebar.inert = !open
+    sidebar.setAttribute('aria-hidden', String(!open))
+    navigationToggle.setAttribute('aria-expanded', String(open))
+    navigationToggle.setAttribute('aria-label', open ? '收起导航' : '展开导航')
+    navigationToggle.title = open ? '收起导航' : '展开导航'
+    navigationBackdrop.hidden = !open || !narrowNavigation.matches
+    if (restoreFocus) navigationToggle.focus()
+    else if (open && narrowNavigation.matches) sidebar.querySelector('.sidebar-close').focus()
+  }
+  setNavigationOpen(!narrowNavigation.matches)
+  narrowNavigation.addEventListener('change', () => setNavigationOpen(!narrowNavigation.matches))
+  document.addEventListener('click', event => {
+    if (event.target.closest('.navigation-toggle')) setNavigationOpen(document.body.classList.contains('navigation-closed'))
+    else if (event.target.closest('[data-navigation-close]')) setNavigationOpen(false, true)
+    else if (narrowNavigation.matches && event.target.closest('.sidebar [data-route]')) setNavigationOpen(false, true)
+  })
+  document.addEventListener('keydown', event => {
+    if (!document.body.classList.contains('navigation-overlay')) return
+    if (event.key === 'Escape') { event.preventDefault(); setNavigationOpen(false, true); return }
+    if (event.key !== 'Tab') return
+    const nodes = Array.from(sidebar.querySelectorAll('a[href], button:not(:disabled)')).filter(node => node.getClientRects().length)
+    const first = nodes[0]; const last = nodes.at(-1)
+    if (event.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) { event.preventDefault(); last?.focus() }
+    else if (!event.shiftKey && (document.activeElement === last || !sidebar.contains(document.activeElement))) { event.preventDefault(); first?.focus() }
+  })
   const drafts = new Map()
   let currentRoute = ''
   let baseRoute = ''
@@ -315,7 +348,7 @@
       currentRoute=operation
     }
     baseRoute=page.id
-    document.getElementById('page-context').textContent=isEnvironmentManagement(page.id) ? '浏览器环境管理' : page.title
+    document.getElementById('page-context').textContent=navigationLabels[navigationRoute(page.id)] || page.title
     document.querySelectorAll('#navigation [data-route]').forEach(link=>{const active=link.dataset.route===navigationRoute(page.nav);link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')})
   }
   function modalFamily(route) {
