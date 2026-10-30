@@ -8,6 +8,7 @@ const browserApi = {
   toggleXPanel: 'x-grok:toggle-panel', getXStatus: 'x-grok:status', toggleX: 'x-grok:toggle', updateXConfig: 'x-grok:update-config', requestLocalApi: 'automation:request'
 }
 const desktopBridge = {
+  platformStatus: 'platform:status', startPlatformTask: 'platform:start', pollPlatformTask: 'platform:poll', cancelPlatformTask: 'platform:cancel',
   observeSession: 'session:open', readSession: 'session:read', captureSession: 'session:capture', closeSession: 'session:close', runtime: 'application:runtime', prepareLaunch: 'application:prepare-launch', launchEncrypted: 'application:launch-encrypted', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request', updateStatus: 'updates:status', checkUpdates: 'updates:check', installUpdate: 'updates:install'
 }
 const bridgeContract = { browserApi, desktopBridge }

@@ -9,6 +9,8 @@ const capabilityRegistry = new TabCapabilities()
 const { SessionObserver } = require('./session-observer')
 const { validateSessionSnapshot } = require('./session-restore')
 let sessionObserver
+const { PlatformRuntime } = require('./platform-runtime')
+let platformRuntime
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
 const { GroupRepository, DEFAULT_GROUP_NAME } = require('./group-repository')
@@ -316,6 +318,19 @@ function registerIpc () {
   }
   handle('application:runtime', async event => {
     try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment, protocolVersion: 1, appName: clientConfig.appName } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
+  })
+  for (const action of ['status', 'start', 'poll', 'cancel']) handle(`platform:${action}`, async (event, input) => {
+    if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
+    platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+    try {
+      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version } }
+      if (action === 'poll' || action === 'cancel') return { ok: true, ...await platformRuntime.poll(event.sender, input?.id, action === 'cancel') }
+      sessionObserver ||= new SessionObserver(tabBrowser)
+      const desktop = {}
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload) })
+      desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
+      return { ok: true, ...await platformRuntime.start(event.sender, input, desktop) }
+    } catch (error) { if (error instanceof ProfileValidationError) throw error; throw new ProfileValidationError('平台能力不可用，请检查客户端能力包配置。') }
   })
   for (const action of ['open', 'read', 'capture', 'close']) handle(`session:${action}`, async (event, input) => {
     const entry = capabilityRegistry.entries.get(event.sender.id)

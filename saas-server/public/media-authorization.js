@@ -26,18 +26,29 @@
     if (box) { box.textContent = message; box.classList.toggle('status-error', error); box.setAttribute('role', error ? 'alert' : 'status') }
   }
   async function loadRuntime (signal) {
-    const manifest = await api('/api/platform-runtime')
     if (signal?.aborted) throw new Error('已取消授权。')
-    if (window.MediaPlatform?.version === manifest.version) return
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script'); script.src = manifest.url; script.integrity = manifest.integrity; script.crossOrigin = 'anonymous'
-      const finish = error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); if (error) { script.remove(); reject(error) } else resolve() }
-      const abort = () => finish(new Error('已取消授权。'))
-      const timer = setTimeout(() => finish(new Error('授权脚本下载超时，请检查网络后重试。')), 15000)
-      signal?.addEventListener('abort', abort, { once: true })
-      script.onload = () => finish(); script.onerror = () => finish(new Error('授权脚本下载或校验失败，请刷新后重试。')); document.head.append(script)
-    })
-    if (window.MediaPlatform?.version !== manifest.version) throw new Error('授权脚本版本不匹配。')
+    const desktop = window.workspaceBridge
+    if (!desktop?.platformStatus) throw new Error('请升级客户端以使用独立平台能力。')
+    const result = await desktop.platformStatus()
+    if (!result?.ok) throw new Error(result?.error || '客户端平台能力不可用。')
+  }
+  async function runPlatform ({ task, tabId, signal, onProgress }) {
+    const desktop = window.workspaceBridge
+    const started = await desktop.startPlatformTask({ task, tabId })
+    if (!started?.ok) throw new Error(started?.error || '平台任务启动失败。')
+    const abort = () => { void desktop.cancelPlatformTask({ id: started.id }).catch(() => {}) }
+    signal.addEventListener('abort', abort, { once: true })
+    let finished = false
+    try {
+      while (!signal.aborted) {
+        const state = await desktop.pollPlatformTask({ id: started.id })
+        if (!state?.ok) throw new Error(state?.error || '平台任务已结束。')
+        onProgress(state.message)
+        if (state.done) { finished = true; if (state.error) throw new Error(state.error); return state.result }
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      throw new Error('已取消授权。')
+    } finally { signal.removeEventListener('abort', abort); if (!finished) await desktop.cancelPlatformTask({ id: started.id }).catch(() => {}) }
   }
   async function save (pending) {
     if (saving) throw new Error('正在保存授权，请稍候。')
@@ -122,7 +133,7 @@
     let path
     try {
       await loadRuntime(controller.signal); assertContext(context)
-      const runner = window.MediaPlatform
+      const runner = { run: runPlatform }
       const task = (await api(`/api/workspaces/${workspaceId}/authorizations`, 'POST', { platform: account?.platform || selectedPlatform, environmentId, accountId: account?.id })).task
       path = `/api/workspaces/${workspaceId}/authorizations/` + task.id
       assertContext(context)

@@ -18,7 +18,12 @@ function fixture ({ manifestGate, failConfirm = false, failComplete = false, wai
   }
   let tabOpen = true; let launches = 0; let tabEnvironment = 'environment-test'
   const desktop = { observeSession: async () => ({ ok: true, id: 'test-observer' }), captureSession: async () => { calls.push(['native:capture']); return { ok: true, ciphertext: 'recaptured-test-envelope' } }, closeSession: async () => ({ ok: true }), closeTab: async id => { calls.push(['native:close-tab', id]); if (closeFails) return { ok: false }; tabOpen = false; return { ok: true } }, navigate: async () => ({ ok: true }), launch: async payload => { launches++; tabOpen = true; tabEnvironment = payload.environmentId; return { ok: true } }, tabs: async () => ({ ok: true, tabs: tabOpen ? [{ id: 'tab-test', profileId: tabEnvironment }] : [] }), dashboard: async () => ({ ok: true }) }
-  const window = { workspaceBridge: desktop, getMediaWorkspace: () => ({ ...context }), MediaPlatform: { version: 'test', run: async ({ signal }) => waitingRunner ? new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('已取消授权。')), { once: true })) : ({ ciphertext: 'test-only-envelope' }) } }
+  let releasePoll
+  desktop.platformStatus = async () => { calls.push(['native:platform-status']); if (manifestGate) await manifestGate; return { ok: true, version: 'test' } }
+  desktop.startPlatformTask = async () => ({ ok: true, id: 'test-runtime-task' })
+  desktop.pollPlatformTask = async () => waitingRunner ? new Promise(resolve => { releasePoll = resolve }) : ({ ok: true, done: true, result: { ciphertext: 'test-only-envelope' } })
+  desktop.cancelPlatformTask = async () => { releasePoll?.({ ok: true, done: true, error: '已取消授权。' }); return { ok: true } }
+  const window = { workspaceBridge: desktop, getMediaWorkspace: () => ({ ...context }) }
   let modalOpen = modal
   if (modal) window.WorkspaceUI = {
     getSurface: () => modalOpen ? modalSurface : pageSurface,
@@ -37,7 +42,7 @@ function fixture ({ manifestGate, failConfirm = false, failComplete = false, wai
     else if (url.endsWith('/confirm')) { confirms++; savedAccounts = 1; if (failConfirm && confirms === 1) { code = 503; data = { ok: false, message: '隔离测试响应丢失' } } else data.task = { status: 'saved', accountId: 'test-account' } }
     return { ok: code === 200, status: code, json: async () => data }
   }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/media-authorization.js'), 'utf8'), { window, document, fetch, AbortController, AbortSignal, confirm: () => { confirmations++; return true }, CustomEvent: class { constructor (type, init) { this.type = type; this.detail = init?.detail } }, location: {} })
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/media-authorization.js'), 'utf8'), { window, document, fetch, AbortController, AbortSignal, setTimeout, confirm: () => { confirmations++; return true }, CustomEvent: class { constructor (type, init) { this.type = type; this.detail = init?.detail } }, location: {} })
   return {
     calls, events, status, baseStatus, confirmations: () => confirmations, savedAccounts: () => savedAccounts,
     closeTab () { tabOpen = false }, launches: () => launches,
@@ -48,10 +53,10 @@ function fixture ({ manifestGate, failConfirm = false, failComplete = false, wai
 }
 async function drain () { for (let i = 0; i < 15; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-test('脚本加载期间重复开始互斥，取消后不会再创建授权任务', async () => {
+test('客户端能力加载期间重复开始互斥，取消后不会再创建授权任务', async () => {
   let release; const state = fixture({ manifestGate: new Promise(resolve => { release = resolve }) })
   state.click('start'); state.click('start'); await drain()
-  assert.equal(state.calls.filter(([url]) => url === '/api/platform-runtime').length, 1)
+  assert.equal(state.calls.filter(([url]) => url === 'native:platform-status').length, 1)
   assert.match(state.status.textContent, /已有授权/)
   state.click('cancel'); release(); await drain()
   assert.equal(state.calls.filter(([url]) => url.endsWith('/authorizations')).length, 0)

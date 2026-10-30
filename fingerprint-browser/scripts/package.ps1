@@ -5,7 +5,8 @@ param(
   [string]$OutputRoot,
   [string]$AppUrl,
   [ValidateSet('dev', 'test', 'prod')][string]$Environment = 'prod',
-  [string]$BuildConfig
+  [string]$BuildConfig,
+  [string]$PlatformRuntimeRoot = $env:FP_PLATFORM_RUNTIME_DIR
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,12 @@ try {
   if ($LASTEXITCODE -ne 0) { throw '工作空间 URL 校验失败。' }
   if (!$RuntimeRoot) { throw '请通过 RuntimeRoot 参数或 FP_ELECTRON_RUNTIME 指定已有运行时目录，基座不会编译内核。' }
   $RuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
+  if (!$PlatformRuntimeRoot) { throw '请通过 PlatformRuntimeRoot 指定已发布的平台能力目录。' }
+  $PlatformRuntimeRoot = (Resolve-Path -LiteralPath $PlatformRuntimeRoot).Path
+  if ($PlatformRuntimeRoot.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '平台能力输入不能位于待清理目录。' }
+  & node -e "new (require(process.argv[1]).PlatformRuntime)(process.argv[2]).load().catch(()=>{console.error('平台能力包校验失败。');process.exitCode=1})" (Join-Path $projectRoot 'platform-runtime.js') $PlatformRuntimeRoot
+  if ($LASTEXITCODE -ne 0) { throw '平台能力包不可用，已保留旧产物。' }
+  $platformManifest = Get-Content -LiteralPath (Join-Path $PlatformRuntimeRoot 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
   if (!$Compiler) { $Compiler = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis/nsis-3.0.4.1/makensis.exe' }
   if (!(Test-Path -LiteralPath $Compiler)) { throw '未找到安装包编译工具。' }
   if (!$ResourceEditor) { $ResourceEditor = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/winCodeSign/winCodeSign-2.6.0/rcedit-x64.exe' }
@@ -94,6 +101,9 @@ try {
     Copy-Item -LiteralPath (Join-Path $RuntimeRoot $name) -Destination $destination -Force
   }
   $application = Join-Path $payload 'resources/app'
+  $platformDestination = Join-Path $payload 'resources/platform-runtime'
+  New-Item -ItemType Directory -Path $platformDestination -Force | Out-Null
+  foreach ($file in @('manifest.json', $platformManifest.file)) { Copy-Item -LiteralPath (Join-Path $PlatformRuntimeRoot $file) -Destination $platformDestination -Force }
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   foreach ($file in @('browser-shell.html', 'browser-shell.css', 'new-tab.html', 'new-tab.css', 'update-installer.ps1')) {
