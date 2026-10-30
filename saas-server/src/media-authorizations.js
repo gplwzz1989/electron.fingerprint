@@ -106,7 +106,7 @@ class MediaAuthorizations {
         if (!snapshot) throw new UserError('授权会话数据不存在，请重新开始。', 409)
         await this.db.mediaSessions.write(workspaceId, accountId, 'account', snapshot)
         await this.db.mediaSessions.remove(workspaceId, id, 'authorization')
-        await this.db.put('accounts', workspaceId, accountId, { ...task.identity, platform: task.platform.key, platformName: task.platform.name, environmentId: task.environmentId, environmentName: environment.name, status: 'valid', checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
+        await this.db.put('accounts', workspaceId, accountId, { ...task.identity, platform: task.platform.key, platformName: task.platform.name, environmentId: task.environmentId, environmentName: environment.name, authorizationOperationId: task.id, status: 'valid', checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
         // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
         if (!account && member.role === 'operator' && member.scope.mode === 'selected') {
           await this.db.execute('UPDATE members SET scope=? WHERE workspace_id=? AND user_id=?', [JSON.stringify({ ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] }), workspaceId, userId])

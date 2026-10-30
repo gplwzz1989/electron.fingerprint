@@ -45,8 +45,6 @@
     try {
       status('正在核验平台身份，请稍候…')
       const result = await api(pending.path + '/complete', 'POST', pending.envelope)
-      assertContext(pending)
-      if (result.task.status !== 'saved' && !confirm(`请确认授权账号：${result.task.identity.name}\n平台账号标识：${result.task.identity.platformUserId}`)) { await api(pending.path + '/cancel', 'POST', {}); retrySave = null; status('已取消保存。'); return }
       assertContext(pending); confirming = true
       const savedTask = result.task.status === 'saved' ? result.task : (await api(pending.path + '/confirm', 'POST', {})).task
       if (savedTask?.status !== 'saved') throw new Error('服务端尚未确认账号保存成功，请重试保存。')

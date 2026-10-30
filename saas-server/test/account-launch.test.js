@@ -41,6 +41,7 @@ test('账号启动只向授权客户端返回密文，恢复独立账号会话�
     assert.equal(profile.id, accountId); assert.notEqual(profile.id, environmentId)
     assert.equal(profile.url, platformService.catalog[0].url)
     assert.equal(profile.session.format, 'desktop-session-v1')
+    assert.equal(profile.localSessionSource.resourceId, environmentId)
     assert.deepEqual(profile.session.cookies, snapshot.cookies)
     assert.deepEqual(profile.session.storage, snapshot.storage)
     const wrongEnvironment = createLaunchRequest(workspace, environmentId)

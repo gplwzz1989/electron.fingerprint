@@ -1,4 +1,6 @@
 const crypto = require('node:crypto')
+const fs = require('node:fs/promises')
+const path = require('node:path')
 const { ProfileValidationError } = require('./profile-store')
 
 // 仅提供通用观察与加密采集能力，平台规则由业务控制页提供。
@@ -26,6 +28,7 @@ class SessionObserver {
     if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength < 2048) throw new ProfileValidationError('授权加密公钥无效。')
     const id = crypto.randomUUID(); const job = { id, owner, contents, origins, paths, storageKeys, publicKey: input.publicKey, operationId: input.operationId, responses: [], pending: new Map(), cursor: 0, diagnostics: { matchedResponses: 0, parsedResponses: 0, failedResponses: 0, lastType: null, lastStatus: null } }
     job.attached = !contents.debugger.isAttached()
+    job.dataDir = tab.dataDir
     if (job.attached) contents.debugger.attach('1.3')
     job.listener = async (_event, method, data) => {
       try {
@@ -91,10 +94,12 @@ class SessionObserver {
     await job.contents.session.cookies.flushStore()
     this.get(owner, input.id)
     const domains = job.origins.map(origin => new URL(origin).hostname)
-    const cookies = (await job.contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, '')))).map(cookie => ({ ...cookie, httpOnly: false, secure: false, ...(cookie.sameParty !== undefined ? { sameParty: false } : {}) }))
+    const cookies = (await job.contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, ''))))
     this.get(owner, input.id)
     const payload = Buffer.from(JSON.stringify({ operationId: job.operationId, cookies, storage: job.storage }))
     if (payload.length > 160000) throw new ProfileValidationError('授权数据过大，请使用独立环境重新登录。')
+    // 保存本机采集凭据，服务端确认相同授权任务后可复用原会话，不再次灌入云端 Cookie。
+    if (job.dataDir) await fs.writeFile(path.join(job.dataDir, 'local-session-capture.json'), JSON.stringify({ operationId: job.operationId }), { encoding: 'utf8', mode: 0o600 })
     const key = crypto.randomBytes(32); const iv = crypto.randomBytes(12)
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
     cipher.setAAD(Buffer.from(job.operationId))

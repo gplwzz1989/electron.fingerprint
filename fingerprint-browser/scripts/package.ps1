@@ -12,9 +12,8 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $distRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist'))
 $outputRoot = if ($OutputRoot) { [IO.Path]::GetFullPath($OutputRoot) } else { $distRoot }
-if (!$outputRoot.Equals($distRoot, [StringComparison]::OrdinalIgnoreCase) -and
-    !$outputRoot.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-  throw '打包产物目录必须位于工作区 dist 目录内。'
+if (!$outputRoot.Equals($distRoot, [StringComparison]::OrdinalIgnoreCase)) {
+  throw '打包产物必须使用 fingerprint-browser/dist 固定目录。'
 }
 $payload = Join-Path $outputRoot 'fingerprint-browser-win-x64'
 $buildRoot = Join-Path $outputRoot 'installer-build'
@@ -54,7 +53,9 @@ try {
   if (!(Test-Path -LiteralPath $Compiler)) { throw '未找到安装包编译工具。' }
   if (!$ResourceEditor) { $ResourceEditor = Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/winCodeSign/winCodeSign-2.6.0/rcedit-x64.exe' }
   if (!(Test-Path -LiteralPath $ResourceEditor)) { throw '未找到应用图标与产品信息编辑工具。' }
-  New-Item -ItemType Directory -Path $outputRoot, $buildRoot -Force | Out-Null
+  foreach ($inputPath in @($RuntimeRoot, $BuildConfig, $Compiler, $ResourceEditor)) {
+    if ([IO.Path]::GetFullPath($inputPath).StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '打包输入或工具位于待清理目录，请先使用目录外的已有资源。' }
+  }
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $reference = [IO.Compression.ZipFile]::OpenRead((Join-Path $RuntimeRoot 'dist.zip'))
   try { $runtimeFiles = @($reference.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.TrimStart('./') }) } finally { $reference.Dispose() }
@@ -66,12 +67,24 @@ try {
   }
 
   $failureMessage = '清理旧产物失败，请关闭从旧产物启动的客户端，并确认旧目录没有用户数据。'
-  $oldOutputs = Get-ChildItem -LiteralPath $outputRoot -Force | Where-Object {
-    ($_.PSIsContainer -and $_.Name -match '^fingerprint-browser-(unified-windows-x64-v\d+|win-x64-saas-v\d+|win-x64)$') -or
-    (!$_.PSIsContainer -and $_.Name -match '^指纹浏览器-.*windows-x64.*\.zip(?:\.sha256)?$')
+  if (Test-Path -LiteralPath $outputRoot) {
+    $pending = [Collections.Generic.Queue[string]]::new()
+    $pending.Enqueue($outputRoot)
+    while ($pending.Count) {
+      $directory = $pending.Dequeue()
+      if ((Get-Item -LiteralPath $directory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '产物目录包含链接，已停止清理。' }
+      foreach ($item in (Get-ChildItem -LiteralPath $directory -Force)) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '产物目录包含链接，已停止清理。' }
+        if ($item.Name -in @('data','workspace','profiles.json','environments.json','encryption.key','.env','.env.dev','.env.prod')) { throw '历史产物包含用户数据或真实配置，已停止清理。' }
+        if ($item.PSIsContainer) { $pending.Enqueue($item.FullName) }
+      }
+    }
+    $running = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($outputRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) }
+    if ($running) { throw '旧产物正在运行，请先关闭客户端再打包。' }
+    $oldOutputs = Get-ChildItem -LiteralPath $outputRoot -Force
+    foreach ($item in $oldOutputs) { Remove-Output $item.FullName }
   }
-  foreach ($item in $oldOutputs) { Remove-Output $item.FullName }
-  New-Item -ItemType Directory -Path $payload -Force | Out-Null
+  New-Item -ItemType Directory -Path $payload, $buildRoot -Force | Out-Null
 
   $failureMessage = '复制运行时和应用文件失败，请检查输出目录是否可写。'
   foreach ($name in $runtimeFiles) {
@@ -145,6 +158,8 @@ public static class PackageIconCache {
 '@
   foreach ($programFile in @($installer, $program)) { [PackageIconCache]::SHChangeNotify(0x2000, 0x1005, $programFile, [IntPtr]::Zero) }
   [PackageIconCache]::SHChangeNotify(0x08000000, 0x1000, $null, [IntPtr]::Zero)
+  Copy-Item -LiteralPath (Join-Path $buildRoot '安装包编译.log') -Destination (Join-Path $outputRoot '安装包编译.log') -Force
+  Remove-Output $buildRoot
   Write-Host "已生成安装包：$installer"
   Write-Host "已生成便携包：$portable"
   Write-Host '产物名称固定，后续打包会覆盖更新。'

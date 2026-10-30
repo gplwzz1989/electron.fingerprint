@@ -117,7 +117,7 @@
     if (!node) { node = document.createElement('div'); node.id = 'workspace-result'; node.className = 'workspace-result'; node.setAttribute('role', 'status'); document.querySelector('.shell').append(node) }
     clearTimeout(noticeTimer)
     node.classList.toggle('workspace-result--success', success)
-    node.textContent = message; noticeTimer = setTimeout(() => node.remove(), 5000)
+    node.textContent = message; noticeTimer = setTimeout(() => node.remove(), success ? 3000 : 5000)
   }
   function updateShell () {
     const login = document.querySelector('.topbar [data-route="signin"]')
@@ -130,11 +130,24 @@
       switcher.setAttribute('aria-label', '切换团队')
     } else { switcher.disabled = true; switcher.innerHTML = '<span>选择团队<small>登录后加载团队</small></span>' }
   }
-  async function reload () {
+  let dataRevision = 0
+  const routeResources = {
+    overview: ['environments', 'fingerprints', 'proxies', 'billing', 'settings'],
+    fingerprints: ['fingerprints', 'environments', 'settings'],
+    environments: ['environments', 'fingerprints', 'proxies', 'settings'],
+    proxies: ['proxies', 'environments', 'settings'],
+    accounts: ['accounts', 'environments', 'settings'],
+    members: ['members', 'settings'],
+    billing: ['billing'],
+    settings: ['settings']
+  }
+  async function reload (resources = ['fingerprints', 'environments', 'proxies', 'accounts', 'members', 'billing', 'settings']) {
+    const revision = ++dataRevision
     if (!state.user || !state.workspaceId) { state.lists = {}; return }
-    const resources = ['fingerprints', 'environments', 'proxies', 'accounts', 'members', 'billing', 'settings']
-    const results = await Promise.all(resources.map(resource => request(`${base()}/${resource}`)))
-    state.lists = Object.fromEntries(resources.map((name, index) => [name, results[index].items || results[index]]))
+    const workspaceId = state.workspaceId; const userId = state.user.id
+    const results = await Promise.all(resources.map(resource => request(`/api/workspaces/${workspaceId}/${resource}`)))
+    if (revision !== dataRevision || workspaceId !== state.workspaceId || userId !== state.user?.id) return
+    Object.assign(state.lists, Object.fromEntries(resources.map((name, index) => [name, results[index].items || results[index]])))
     document.documentElement.classList.toggle('reduce-motion', Boolean(state.lists.settings?.settings?.reduceMotion))
   }
   function routeTo (route) { if (window.WorkspaceUI.openPage) return window.WorkspaceUI.openPage(route); if (location.hash === `#${route}`) window.WorkspaceUI.render(); else location.hash = route }
@@ -303,8 +316,15 @@
       } catch (error) { showError(error.message) }
     }, 15000)
   }
-  async function render () {
+  async function render (refresh = false) {
     const revision = ++viewRevision; const route = window.WorkspaceUI.getRoute()
+    if (refresh && state.ready && state.user && routeResources[route]) {
+      try { await reload(routeResources[route]) } catch (error) {
+        if (revision === viewRevision) showError(error.message)
+        return
+      }
+      if (revision !== viewRevision) return
+    }
     if (['fingerprint-create', 'fingerprint-protection'].includes(route) && state.user && !window.WorkspaceUI.getFingerprint().profile.id) {
       await loadFingerprintDefaults()
       if (revision !== viewRevision) return
@@ -551,7 +571,7 @@
     }
     if (closed === 'member-permissions' && route !== 'member-permissions') state.selectedMember = null
   })
-  document.addEventListener('workspace:render', () => { void render().catch(error => showError(error.message)) })
+  document.addEventListener('workspace:render', event => { void render(!event.detail?.modal).catch(error => showError(error.message)) })
   document.addEventListener('workspace:error', event => showError(event.detail))
   document.addEventListener('workspace:dialog', event => prepareDialog(event.detail.pageId))
   document.addEventListener('click', event => {

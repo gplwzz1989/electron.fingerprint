@@ -343,11 +343,24 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
-      const restoredSession = decrypted.session === undefined ? null : validateSessionSnapshot(decrypted.session)
       const profile = createProfileRecord(decrypted)
       const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
       const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
       profile.id = legacy ? legacy.profileId : nativeId
+      // 只有同来源、同团队、同授权任务的本机采集记录才能复用，跨设备仍走云端恢复。
+      let localSessionEnvironment = null
+      const source = decrypted.localSessionSource
+      if (typeof source?.resourceId === 'string' && typeof source.operationId === 'string' && source.operationId) {
+        const candidate = environmentRepository.list().find(item => item.externalReference?.origin === reference.origin && item.externalReference?.scope === reference.scope && item.externalReference?.resourceId === source.resourceId)
+        if (candidate) {
+          try {
+            const capture = JSON.parse(await fs.readFile(path.join(candidate.dataDir, 'local-session-capture.json'), 'utf8'))
+            if (capture.operationId === source.operationId) localSessionEnvironment = candidate
+          } catch { /* 本机采集记录缺失时按跨设备流程恢复，不猜测登录状态。 */ }
+        }
+      }
+      if (localSessionEnvironment) profile.id = localSessionEnvironment.profileId
+      const restoredSession = !localSessionEnvironment && decrypted.session !== undefined ? validateSessionSnapshot(decrypted.session) : null
       // 与环境仓储的本机标识归一化保持一致，远端资源标识仍由 reference 保存。
       profile.fingerprint.id = profile.id
       assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)

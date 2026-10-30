@@ -349,7 +349,7 @@ class WorkspaceServer {
           const currentMember = await db.membership(workspaceId, user.id)
           const currentEnvironment = await db.get('environments', workspaceId, currentAccount.environmentId)
           const session = { format: 'desktop-session-v1', origins: platform.origins, cookies: snapshot.cookies, storage: snapshot.storage, version: snapshot.sessionVersion }
-          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url, session })
+          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url, session, localSessionSource: { resourceId: currentEnvironment.id, operationId: currentAccount.authorizationOperationId } })
         })
         return send({ envelope })
       }

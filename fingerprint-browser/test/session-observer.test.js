@@ -109,7 +109,7 @@ test('日志返回拒绝的 Promise 不产生未处理拒绝，默认日志不�
   } finally { console.info = originalInfo; console.warn = originalWarn; await state.observer.close(state.owner, id) }
 })
 
-test('页面加载完成后再采集并加密，安全布尔属性统一关闭且不修改本机 Cookie', async () => {
+test('页面加载完成后再采集并加密，保留安全属性且不修改本机 Cookie', async () => {
   const state = fixture(); let loading = true; let flushed = false; let reads = 0
   const cookie = { name: 'test-cookie', value: 'test-secret', domain: '.example.com', path: '/', httpOnly: true, secure: true, sameParty: true, sameSite: 'lax', hostOnly: false, expirationDate: 2000000000 }
   state.contents.isLoading = () => loading
@@ -125,7 +125,7 @@ test('页面加载完成后再采集并加密，安全布尔属性统一关闭�
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'))
     decipher.setAAD(Buffer.from(state.input.operationId)); decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
     const payload = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString())
-    assert.deepEqual(payload.cookies, [{ ...cookie, httpOnly: false, secure: false, sameParty: false }])
+    assert.deepEqual(payload.cookies, [cookie])
     assert.equal(cookie.httpOnly, true); assert.equal(cookie.secure, true)
   } finally { await state.observer.close(state.owner, id) }
 })

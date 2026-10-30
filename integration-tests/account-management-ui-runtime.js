@@ -54,6 +54,8 @@ app.whenReady().then(async () => {
   const accountScreenshot = report.replace(/\.json$/, '-accounts.png')
   await new Promise(resolve => setTimeout(resolve, 150))
   fs.writeFileSync(accountScreenshot, (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG())
+  await new Promise(resolve => setTimeout(resolve, 3100))
+  assert.equal(await page('document.getElementById("workspace-result") === null'), true)
   assert.equal(errors.length, 0, errors.join('\n'))
   results.push('平台选择四个真实本地图标已加载；成功提示为顶部绿色气泡；无控制台错误')
   fs.writeFileSync(report, JSON.stringify({ ok: true, results, toast, screenshots: [pickerScreenshot, accountScreenshot], errors }, null, 2))

@@ -18,7 +18,10 @@ function validateSessionSnapshot (snapshot) {
     if (cookie.sameSite !== undefined && !['unspecified', 'no_restriction', 'lax', 'strict'].includes(cookie.sameSite)) fail()
     for (const key of ['secure', 'httpOnly', 'hostOnly']) if (cookie[key] !== undefined && typeof cookie[key] !== 'boolean') fail()
     const path = cookie.path || '/'
-    const result = { url: `https://${domain}${path}`, name: cookie.name, value: cookie.value, path, secure: cookie.secure === true, httpOnly: cookie.httpOnly === true }
+    // 兼容旧版采集将安全属性置为 false 的快照；只补足 Chromium 强制要求的属性，不扩大域或路径。
+    const secure = cookie.secure === true || cookie.sameSite === 'no_restriction' || /^__(Secure|Host|Http)-/.test(cookie.name)
+    const httpOnly = cookie.httpOnly === true || /^__(Http|Host-Http)-/.test(cookie.name)
+    const result = { url: `https://${domain}${path}`, name: cookie.name, value: cookie.value, path, secure, httpOnly }
     if (cookie.hostOnly !== true) result.domain = cookie.domain
     if (cookie.expirationDate !== undefined) result.expirationDate = cookie.expirationDate
     if (cookie.sameSite !== undefined) result.sameSite = cookie.sameSite
@@ -39,26 +42,28 @@ async function restoreSessionSnapshot (contents, snapshot, { dataDir } = {}) {
     if (prior?.version === snapshot.version && prior.complete === true) return { verify: async () => {}, cleanup: async () => {}, reused: true }
     if (typeof prior?.version === 'number' && typeof snapshot.version === 'number' && snapshot.version < prior.version) throw new ProfileValidationError('云端会话版本较旧，已保留本机登录状态。')
   }
-  const persist = async () => {
+  let persistPromise
+  const persist = () => {
+    // 加载事件与打开账号流程可能同时校验；同一版本只写一次，避免 Windows 并发替换文件失败。
+    if (!persistPromise) persistPromise = persistVersion()
+    return persistPromise
+  }
+  const persistVersion = async () => {
     if (!markerFile) return
     const temporary = markerFile + '.' + randomUUID() + '.tmp'
     await fs.writeFile(temporary, JSON.stringify({ version: snapshot.version, complete: true }), { encoding: 'utf8', mode: 0o600 })
     await fs.rename(temporary, markerFile)
   }
-  const previous = await contents.session.cookies.get({})
-  try {
-    for (const cookie of snapshot.cookies) await contents.session.cookies.set(cookie)
-    await contents.session.cookies.flushStore()
-  } catch {
-    for (const cookie of snapshot.cookies) {
-      try {
-        await contents.session.cookies.remove(cookie.url, cookie.name)
-        const prior = previous.find(item => item.name === cookie.name && item.domain.replace(/^\./, '') === new URL(cookie.url).hostname && item.path === cookie.path)
-        if (prior) await contents.session.cookies.set(validateSessionSnapshot({ format: 'desktop-session-v1', origins: snapshot.origins, cookies: [prior] }).cookies[0])
-      } catch { /* 保留失败事实，不输出任何 Cookie 值。 */ }
-    }
-    throw new ProfileValidationError('云端 Cookie 未能完整恢复，请关闭环境后重试。')
+  const logCookieFailure = (message, error, index) => {
+    // 只记录位置与内核拒绝代码，不输出 Cookie 值或原始错误对象。
+    const reasons = String(error?.message || '').match(/\bEXCLUDE_[A-Z_]+\b/g) || []
+    try { console.warn(message, { index, reasons: [...new Set(reasons)] }) } catch { /* 保留失败事实，不输出任何 Cookie 值。 */ }
   }
+  // 与 desktop 一致逐条尽力恢复；单条失败不撤销已写入项，也不阻止后续 Cookie 与账号页面打开。
+  for (const [index, cookie] of snapshot.cookies.entries()) {
+    try { await contents.session.cookies.set(cookie) } catch (error) { logCookieFailure('[会话恢复] Cookie 写入失败，已跳过并继续。', error, index) }
+  }
+  try { await contents.session.cookies.flushStore() } catch (error) { logCookieFailure('[会话恢复] Cookie 持久化未完成，继续打开账号。', error) }
   const pending = new Set(Object.keys(snapshot.storage))
   if (!pending.size) return { verify: persist, cleanup: async () => {} }
   // 新建 WebContents 尚无渲染目标时先初始化空白文档，不向平台发送未恢复的请求。

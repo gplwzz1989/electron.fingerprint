@@ -23,6 +23,7 @@ app.whenReady().then(async () => {
   const targetSession = session.fromPath(path.join(directory, 'session'))
   targetSession.setCertificateVerifyProc((_request, callback) => callback(0))
   const snapshot = { format: 'desktop-session-v1', origins: [origin], cookies: [{ domain: '127.0.0.1', name: 'isolated-import-cookie', value: 'isolated-import-value', path: '/', httpOnly: true, secure: true, hostOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 3600 }], storage: { [origin]: { 'isolated-import-key': 'isolated-storage-value' } }, version: 1 }
+  for (const attributes of [{ name: 'isolated-none', sameSite: 'no_restriction' }, { name: '__Secure-isolated' }, { name: '__Host-isolated' }]) snapshot.cookies.push({ ...snapshot.cookies[0], secure: false, ...attributes })
   const encryption = createLaunchRequest('isolated-workspace', 'isolated-resource')
   const profile = { id: 'isolated-resource', fingerprint: {}, session: snapshot }
   const envelope = sealLaunch(profile, encryption.request, { scope: 'isolated-workspace', resourceId: 'isolated-resource' })
@@ -39,6 +40,8 @@ app.whenReady().then(async () => {
   const restored = (await targetSession.cookies.get({})).find(cookie => cookie.name === 'isolated-import-cookie')
   assert(restored.httpOnly && restored.secure && restored.hostOnly && restored.sameSite === 'lax')
   assert.equal(await window.webContents.executeJavaScript('document.cookie.includes("isolated-import-cookie")'), false)
+  for (const cookie of snapshot.cookies.slice(1)) assert.equal((await targetSession.cookies.get({ name: cookie.name }))[0]?.secure, true)
+  checks.push('旧快照 SameSite=None、__Secure- 和 __Host- Cookie 可在真实内核恢复')
   checks.push('首次页面脚本前恢复localStorage，首次HTTPS请求带HttpOnly Cookie且网页不可读取')
   await window.webContents.executeJavaScript('localStorage.setItem("isolated-import-key","website-refreshed-value")')
   await window.webContents.reload(); await new Promise(resolve => window.webContents.once('did-finish-load', resolve))
@@ -59,9 +62,13 @@ app.whenReady().then(async () => {
   await assert.rejects(restoreSessionSnapshot(window.webContents, validateSessionSnapshot(snapshot), { dataDir: path.join(directory, 'session') }), /版本较旧/)
   checks.push('更高版本允许重新恢复，旧版本不能覆盖较新会话')
   const failedDirectory = path.join(directory, 'failed-session'); fs.mkdirSync(failedDirectory)
-  const failure = { ...snapshot, version: 3, cookies: [{ ...snapshot.cookies[0], name: '__Secure-isolated-test', secure: false }] }
-  await assert.rejects(restoreSessionSnapshot(window.webContents, validateSessionSnapshot(failure), { dataDir: failedDirectory }), /Cookie 未能完整恢复/)
-  assert.equal(fs.existsSync(path.join(failedDirectory, 'session-restore-version.json')), false)
-  checks.push('恢复失败不写成功版本标记')
+  const failure = { ...snapshot, version: 3, cookies: [{ ...snapshot.cookies[0], name: '__Host-isolated-test', path: '/invalid', secure: true }, { ...snapshot.cookies[0], name: 'isolated-after-failure' }] }
+  const partial = await restoreSessionSnapshot(window.webContents, validateSessionSnapshot(failure), { dataDir: failedDirectory })
+  await window.loadURL(origin + '/partial-restore'); await partial.verify()
+  assert.equal((await targetSession.cookies.get({ name: '__Host-isolated-test' })).length, 0)
+  assert.equal((await targetSession.cookies.get({ name: 'isolated-after-failure' })).length, 1)
+  assert.equal((await targetSession.cookies.get({ name: 'isolated-import-cookie' })).length, 1)
+  assert.equal(fs.existsSync(path.join(failedDirectory, 'session-restore-version.json')), true)
+  checks.push('单条 Cookie 被内核拒绝仍写入后续项、保留已有 Cookie 并正常打开账号页面')
   fs.writeFileSync(report, JSON.stringify({ ok: true, electron: process.versions.electron, checks }, null, 2))
 }).catch(error => { fs.writeFileSync(report, JSON.stringify({ ok: false, message: error.message, checks }, null, 2)); process.exitCode = 1 }).finally(() => { clearTimeout(timeout); window?.destroy(); server?.close(); app.exit(process.exitCode || 0) })
