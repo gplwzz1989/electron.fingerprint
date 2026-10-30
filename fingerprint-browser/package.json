@@ -1,7 +1,7 @@
 {
   "name": "@qijie/desktop-base",
   "productName": "浏览器基座",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": false,
   "description": "独立可配置的第三方桌面浏览器基座",
   "main": "main.js",
@@ -11,7 +11,7 @@
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
     "test:client-security": "node --test test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js",
-    "test": "node --test test/encrypted-launch-identity.test.js test/session-observer.test.js test/project-boundary.test.js test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js test/profile-repository.test.js test/environment-repository.test.js test/browser-tabs-popups.test.js",
+    "test": "node --test test/session-restore.test.js test/encrypted-launch-identity.test.js test/session-observer.test.js test/project-boundary.test.js test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js test/profile-repository.test.js test/environment-repository.test.js test/browser-tabs-popups.test.js",
     "prepare:ffmpeg": "node scripts/ensure-ffmpeg.js",
     "test:fingerprint": "node scripts/test-fingerprint.js",
     "test:fingerprint:contexts": "node scripts/test-fingerprint.js --contexts",

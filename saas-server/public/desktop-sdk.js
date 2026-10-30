@@ -10,16 +10,19 @@
       let request
       try {
         if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new Error('环境标识无效。')
+        if (payload.accountId !== undefined && !/^[a-zA-Z0-9-]+$/.test(payload.accountId)) throw new Error('账号标识无效。')
+        if (payload.accountId && !desktop.capabilities?.includes('session-restore-v1')) throw new Error('请更新并重启客户端后打开账号，当前客户端不支持跨设备会话恢复。')
         const healthResponse = await fetch('/api/health', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) })
         const health = await healthResponse.json()
         if (!healthResponse.ok || !health.ok) throw new Error('SaaS 服务暂不可用，请稍后重试。')
         if (Array.isArray(health.launchProtocols) && !health.launchProtocols.includes('desktop-launch-v1')) throw new Error('SaaS 服务仍是旧版本，请更新并重启服务后再启动环境。')
-        request = await desktop.prepareLaunch({ scope: payload.workspaceId, resourceId: payload.environmentId })
+        request = await desktop.prepareLaunch({ scope: payload.workspaceId, resourceId: payload.accountId || payload.environmentId })
         if (!request.ok) throw new Error(request.error || '客户端启动请求创建失败。')
         const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin', signal: AbortSignal.timeout(15000) })
         const me = await meResponse.json()
         if (!meResponse.ok || !me.ok) throw new Error('登录已失效，请重新登录。')
-        const response = await fetch(`/api/workspaces/${payload.workspaceId}/environments/${payload.environmentId}/launch`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrf }, body: JSON.stringify(request), signal: AbortSignal.timeout(60000) })
+        const route = payload.accountId ? `accounts/${payload.accountId}` : `environments/${payload.environmentId}`
+        const response = await fetch(`/api/workspaces/${payload.workspaceId}/${route}/launch`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrf }, body: JSON.stringify(request), signal: AbortSignal.timeout(60000) })
         const data = await response.json()
         if (!response.ok || !data.ok) throw new Error(data.message || '无法取得环境启动配置。')
         if (data.envelope?.format !== 'desktop-launch-v1') throw new Error('SaaS 返回的启动协议不兼容，请更新并重启服务后重试。')

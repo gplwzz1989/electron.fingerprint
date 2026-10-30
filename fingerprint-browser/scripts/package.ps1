@@ -4,7 +4,7 @@ param(
   [string]$ResourceEditor = $env:FP_RESOURCE_EDITOR,
   [string]$OutputRoot,
   [string]$AppUrl,
-  [ValidateSet('dev', 'test', 'prod')][string]$Environment = 'dev',
+  [ValidateSet('dev', 'test', 'prod')][string]$Environment = 'prod',
   [string]$BuildConfig
 )
 

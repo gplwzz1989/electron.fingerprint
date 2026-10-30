@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "results": [
+    "四平台头像回退及平台徽标加载；有效账号禁用重授权，失效账号允许；无桥接禁用打开账号",
+    "平台选择四个真实本地图标已加载；成功提示为顶部绿色气泡；无控制台错误"
+  ],
+  "toast": {
+    "text": "账号授权成功，已添加到账号列表。",
+    "background": "rgb(239, 250, 243)",
+    "color": "rgb(22, 115, 71)",
+    "position": "fixed",
+    "top": 63.990386962890625,
+    "bottom": 111.92308044433594,
+    "viewport": 800
+  },
+  "screenshots": [
+    "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\account-management-ui-report-platforms.png",
+    "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\account-management-ui-report-accounts.png"
+  ],
+  "errors": []
+}

@@ -3,6 +3,7 @@ const path = require('node:path')
 const net = require('node:net')
 const { randomUUID } = require('node:crypto')
 const { app, BrowserWindow, WebContentsView, session } = require('electron/main')
+const { restoreSessionSnapshot } = require('./session-restore')
 const { applyFingerprintConfig } = require('./runtime-compat')
 const { applyEnvironmentTLSFingerprintConfig } = require('./tls-fingerprint')
 const { ProfileValidationError, normalizeUrl } = require('./profile-store')
@@ -410,7 +411,7 @@ class TabBrowser {
     }
   }
 
-  async reopen (environmentId, policy) {
+  async reopen (environmentId, policy, sessionSnapshot) {
     const environment = this.environmentRepository.get(environmentId)
     if (!environment) throw new ProfileValidationError('找不到浏览器环境。')
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
@@ -419,12 +420,12 @@ class TabBrowser {
     } catch {
       throw new ProfileValidationError('环境数据目录不存在，无法恢复登录状态。')
     }
-    return await this.openEnvironment(environment, policy)
+    return await this.openEnvironment(environment, policy, sessionSnapshot)
   }
 
-  async openEnvironment (environment, policy) {
+  async openEnvironment (environment, policy, sessionSnapshot) {
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
-    return await this.openPage(environment, environment.id, undefined, policy)
+    return await this.openPage(environment, environment.id, undefined, policy, sessionSnapshot)
   }
 
   async openPageTab (environmentId, targetUrl) {
@@ -439,7 +440,7 @@ class TabBrowser {
     return await this.openPage(environment, randomUUID(), targetUrl)
   }
 
-  async openPage (environment, tabId, targetUrl, policy = {}) {
+  async openPage (environment, tabId, targetUrl, policy = {}, sessionSnapshot) {
     const profile = {
       id: environment.profileId,
       name: environment.profileName,
@@ -492,6 +493,7 @@ class TabBrowser {
     const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
     this.capabilityRegistry?.register(contents, 'managed', { capabilities: ['*'], allowedOrigins: /^https?:/.test(url) ? [new URL(url).origin] : [], ...policy })
+    const restore = sessionSnapshot ? await restoreSessionSnapshot(contents, sessionSnapshot, { dataDir }) : null
     this.bindShortcuts(contents)
     if (typeof contents.setBackgroundThrottling === 'function') {
       contents.setBackgroundThrottling(false)
@@ -589,10 +591,12 @@ class TabBrowser {
     this.select(tabId)
     try {
       await loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
+      if (restore) await restore.verify()
       if (this.xGrokAutomation) {
         this.xGrokAutomation.onEnvironmentOpened(environment, tabId, url)
       }
     } catch (error) {
+      if (restore) await restore.cleanup()
       console.error('[加载标签网页]', error)
       tab.preserveLastUrl = false
       if (this.tabs.has(tabId)) {

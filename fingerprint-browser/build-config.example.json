@@ -16,10 +16,10 @@
     "updatesEnabled": false
   },
   "prod": {
-    "appUrl": "",
+    "appUrl": "https://qijie.xinmeitool.com",
     "appName": "浏览器基座",
     "applicationId": "com.example.desktopbase",
-    "updateUrl": "",
+    "updateUrl": "https://qijie.xinmeitool.com/api/client-updates/prod/win32/x64.json",
     "updatePublicKey": "",
     "updatesEnabled": false
   }

@@ -118,7 +118,7 @@ app.whenReady().then(async () => {
     await route(base); await open(secondary, base)
     await page('WorkspaceUI.getSurface().querySelector("[data-close-platforms]").click()')
     await until(() => page(`WorkspaceUI.getRoute() === '${base}'`), secondary + ' 关闭后来源丢失')
-    assert.equal(await page('document.querySelectorAll("#navigation .nav-link span").length'), 8)
+    assert.equal(await page('document.querySelectorAll("#navigation .nav-link span").length'), 6)
     results.push(secondary + '：模态打开和关闭返回来源')
   }
   await route('billing'); await open('plans', 'billing')
@@ -157,7 +157,7 @@ app.whenReady().then(async () => {
   results.push('URL直接进入二级页时具备来源与关闭行为')
   for (const zoom of [1, 1.25, 1.5, 2]) {
     window.webContents.setZoomFactor(zoom)
-    assert.equal(await page('Array.from(document.querySelectorAll("#navigation .nav-link span")).filter(item => getComputedStyle(item).display !== "none" && item.getBoundingClientRect().width > 0).length'), 8)
+    assert.equal(await page('Array.from(document.querySelectorAll("#navigation .nav-link span")).filter(item => getComputedStyle(item).display !== "none" && item.getBoundingClientRect().width > 0).length'), 6)
   }
   window.webContents.setZoomFactor(1); window.setSize(860, 650)
   await route('environments'); await open('environment-create', 'environments')
@@ -175,6 +175,6 @@ app.whenReady().then(async () => {
   window.hide()
   await close('environments'); results.push('860×650窗口模态边界与截图检查')
   assert(!errors.some(message => /SyntaxError|TypeError|ReferenceError|Unhandled/.test(message)), errors.join('\n'))
-  results.push('100%—200%缩放八导航常驻，无脚本异常')
+  results.push('100%—200%缩放六导航常驻，无脚本异常')
   fs.writeFileSync(report, JSON.stringify({ ok: true, results, errors, screenshot, databaseName: db.configuration.database }, null, 2))
 }).catch(error => { fs.writeFileSync(report, JSON.stringify({ ok: false, message: error.message, stack: error.stack, results, errors }, null, 2)); process.exitCode = 1 }).finally(async () => { clearTimeout(timer); window?.destroy(); if (server) await server.stop(); app.exit(process.exitCode || 0) })

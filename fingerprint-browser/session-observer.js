@@ -80,9 +80,18 @@ class SessionObserver {
   }
   async capture (owner, input) {
     const job = this.get(owner, input.id)
+    // 等待授权页面及其资源结束加载，超时或取消时不上传未完成的会话。
+    const deadline = Date.now() + 30000
+    while (job.contents.isLoading()) {
+      if (Date.now() >= deadline) throw new ProfileValidationError('授权页面加载超时，请等待页面加载完成后重新采集。')
+      await new Promise(resolve => setTimeout(resolve, 100))
+      this.get(owner, input.id)
+    }
     await this.read(owner, input)
+    await job.contents.session.cookies.flushStore()
+    this.get(owner, input.id)
     const domains = job.origins.map(origin => new URL(origin).hostname)
-    const cookies = (await job.contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, ''))))
+    const cookies = (await job.contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, '')))).map(cookie => ({ ...cookie, httpOnly: false, secure: false, ...(cookie.sameParty !== undefined ? { sameParty: false } : {}) }))
     this.get(owner, input.id)
     const payload = Buffer.from(JSON.stringify({ operationId: job.operationId, cookies, storage: job.storage }))
     if (payload.length > 160000) throw new ProfileValidationError('授权数据过大，请使用独立环境重新登录。')

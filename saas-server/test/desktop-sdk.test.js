@@ -28,3 +28,20 @@ test('网页 SDK 识别旧服务与错误密文协议，在调用客户端解密
     assert.equal((await window.workspaceBridge.launch(payload)).ok, true, '兼容未声明能力、但已返回新版密文的 0.2.0 服务。')
   } finally { await new Promise(resolve => server.close(resolve)) }
 })
+
+test('账号打开校验会话恢复能力，使用账号独立资源与专用启动接口', async () => {
+  const calls = []; const prepared = []
+  const bridge = { protocolVersion: 1, capabilities: [], prepareLaunch: async payload => { prepared.push(payload); return { ok: true, requestId: 'isolated-account-request' } }, launchEncrypted: async () => ({ ok: true, tabId: 'isolated-account-tab' }) }
+  const window = { desktopBridge: bridge }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/desktop-sdk.js'), 'utf8'), { window, AbortSignal, fetch: async url => {
+    calls.push(url)
+    return { ok: true, json: async () => url === '/api/health' ? { ok: true, launchProtocols: ['desktop-launch-v1'] } : url === '/api/auth/me' ? { ok: true, csrf: 'isolated-csrf' } : { ok: true, envelope: { format: 'desktop-launch-v1' } } }
+  } })
+  const payload = { workspaceId: 'isolated-workspace', environmentId: 'isolated-environment', accountId: 'isolated-account' }
+  assert.match((await window.workspaceBridge.launch(payload)).error, /不支持跨设备会话恢复/)
+  assert.equal(calls.length, 0)
+  bridge.capabilities.push('session-restore-v1')
+  assert.equal((await window.workspaceBridge.launch(payload)).tabId, 'isolated-account-tab')
+  assert.equal(prepared[0].resourceId, payload.accountId)
+  assert.equal(calls.at(-1), '/api/workspaces/isolated-workspace/accounts/isolated-account/launch')
+})

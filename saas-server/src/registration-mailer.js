@@ -5,9 +5,9 @@ const { readServerConfig } = require('./server-config')
 const { normalizeEmail } = require('./email-address')
 
 class RegistrationMailer {
-  constructor (database, configFile) {
+  constructor (database, configFile, runtimeConfig) {
     this.database = database
-    const config = readServerConfig(configFile)
+    const config = runtimeConfig || readServerConfig(configFile)
     const host = config.SMTP_HOST || ''; const port = Number(config.SMTP_PORT || 465)
     const secure = config.SMTP_SECURE === undefined ? port === 465 : config.SMTP_SECURE === 'true'
     const local = ['localhost', '127.0.0.1', '::1'].includes(host)

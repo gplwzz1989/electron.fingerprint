@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
   const key = crypto.privateDecrypt({ key: keys.privateKey, oaepHash: 'sha256' }, Buffer.from(envelope.wrappedKey, 'base64'))
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64')); decipher.setAAD(Buffer.from(operationId)); decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
   const session = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString())
-  assert(session.cookies.some(cookie => cookie.httpOnly && cookie.value === 'runtime-test-secret'))
+  assert(session.cookies.some(cookie => cookie.httpOnly === false && cookie.secure === false && cookie.value === 'runtime-test-secret'))
   assert.equal(session.storage[origin]['isolated-key'], 'runtime-storage-secret')
   await observer.close(contents, job.id); assert.equal(observer.jobs.size, 0)
   assert.equal(contents.debugger.isAttached(), false)

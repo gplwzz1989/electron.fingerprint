@@ -4,8 +4,8 @@ const { readServerConfig } = require('./server-config')
 const { UserError } = require('./mysql-database')
 
 class ClientUpdateService {
-  constructor (configFile) {
-    const config = readServerConfig(configFile)
+  constructor (configFile, runtimeConfig) {
+    const config = runtimeConfig || readServerConfig(configFile)
     this.directory = config.CLIENT_UPDATES_DIR ? path.resolve(path.dirname(configFile || process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`)), config.CLIENT_UPDATES_DIR) : null
   }
   async handle (req, res, pathname) {

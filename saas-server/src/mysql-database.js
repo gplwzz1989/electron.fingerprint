@@ -5,6 +5,7 @@ const path = require('node:path')
 const { AsyncLocalStorage } = require('node:async_hooks')
 const { hashPassword } = require('./auth')
 const { readServerConfig } = require('./server-config')
+const { MediaSessionStore } = require('./media-session-store')
 
 class UserError extends Error {
   constructor (message, status = 400) { super(message); this.status = status }
@@ -34,6 +35,7 @@ class WorkspaceDatabase {
       this.key = fs.readFileSync(keyFile)
     }
     if (this.key.length !== 32) throw new Error('服务端数据加密密钥无效，请恢复原密钥。')
+    this.mediaSessions = new MediaSessionStore(this, UserError)
     this.ready = this.initialize()
   }
   async initialize () {
@@ -60,6 +62,7 @@ class WorkspaceDatabase {
       try { await this.pool.query('ALTER TABLE users ADD COLUMN email_verified_at BIGINT NULL') } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
     }
     await this.migrateFingerprintEncryption()
+    await this.mediaSessions.initialize()
   }
   encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
   decodeFingerprint (value) {
@@ -195,6 +198,22 @@ class WorkspaceDatabase {
   }
   encrypt (text) { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv); return Buffer.concat([iv, cipher.update(text), cipher.final(), cipher.getAuthTag()]).toString('base64') }
   decrypt (value) { const bytes = Buffer.from(value, 'base64'); const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, bytes.subarray(0, 12)); decipher.setAuthTag(bytes.subarray(-16)); return Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]).toString('utf8') }
+  async readAccountSession (workspaceId, userId, accountId) {
+    return await this.transaction(async () => {
+      await this.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
+      const row = (await this.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
+      if (!row) throw new UserError('你没有该团队的访问权限。', 403)
+      const member = { ...row, scope: parse(row.scope) }; this.assertWrite(member)
+      const accountRow = (await this.execute("SELECT data FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, accountId]))[0]
+      const account = accountRow && parse(accountRow.data)
+      if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
+      const environment = (await this.execute("SELECT id FROM records WHERE kind='environments' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, account.environmentId]))[0]
+      if (!environment || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
+      const snapshot = await this.mediaSessions.read(workspaceId, accountId, 'account')
+      if (!snapshot) throw new UserError('账号会话尚未保存，请重新授权。', 409)
+      return snapshot
+    })
+  }
   async close () { await this.ready; await this.pool.end() }
 }
 

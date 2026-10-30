@@ -14,10 +14,10 @@ function fixture (frames = []) {
     detach () { this.attached = false },
     async sendCommand () { return {} }
   })
-  const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false, debugger: debuggerApi, mainFrame: { framesInSubtree: frames }, session: { cookies: { get: async () => [] } } })
+  const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false, isLoading: () => false, debugger: debuggerApi, mainFrame: { framesInSubtree: frames }, session: { cookies: { get: async () => [], flushStore: async () => {} } } })
   const observer = new SessionObserver({ getTab: () => ({ kind: 'managed', view: { webContents: contents } }) })
-  const { publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' } })
-  return { observer, owner, contents, input: { tabId: 'test-only', operationId: 'test-operation', origins: ['https://example.com'], publicKey, storageKeys: ['a', 'b'] } }
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' } })
+  return { observer, owner, contents, privateKey, input: { tabId: 'test-only', operationId: 'test-operation', origins: ['https://example.com'], publicKey, storageKeys: ['a', 'b'] } }
 }
 
 test('同来源多个 frame 合并存储字段，忽略其他来源', async () => {
@@ -107,4 +107,34 @@ test('日志返回拒绝的 Promise 不产生未处理拒绝，默认日志不�
     assert.equal(job.diagnostics.parsedResponses, 1)
     assert.equal(job.diagnostics.failedResponses, 0)
   } finally { console.info = originalInfo; console.warn = originalWarn; await state.observer.close(state.owner, id) }
+})
+
+test('页面加载完成后再采集并加密，安全布尔属性统一关闭且不修改本机 Cookie', async () => {
+  const state = fixture(); let loading = true; let flushed = false; let reads = 0
+  const cookie = { name: 'test-cookie', value: 'test-secret', domain: '.example.com', path: '/', httpOnly: true, secure: true, sameParty: true, sameSite: 'lax', hostOnly: false, expirationDate: 2000000000 }
+  state.contents.isLoading = () => loading
+  state.contents.session.cookies.flushStore = async () => { flushed = true }
+  state.contents.session.cookies.get = async () => { reads++; assert(!loading); assert(flushed); return [cookie, { name: 'other', value: 'excluded', domain: 'other.example' }] }
+  const { id } = await state.observer.open(state.owner, state.input)
+  try {
+    const capturing = state.observer.capture(state.owner, { id })
+    assert.equal(reads, 0)
+    loading = false
+    const envelope = await capturing
+    const key = crypto.privateDecrypt({ key: state.privateKey, oaepHash: 'sha256' }, Buffer.from(envelope.wrappedKey, 'base64'))
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'))
+    decipher.setAAD(Buffer.from(state.input.operationId)); decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
+    const payload = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString())
+    assert.deepEqual(payload.cookies, [{ ...cookie, httpOnly: false, secure: false, sameParty: false }])
+    assert.equal(cookie.httpOnly, true); assert.equal(cookie.secure, true)
+  } finally { await state.observer.close(state.owner, id) }
+})
+
+test('等待加载期间取消授权，不采集 Cookie', async () => {
+  const state = fixture(); state.contents.isLoading = () => true
+  state.contents.session.cookies.get = async () => { assert.fail('取消后不应采集') }
+  const { id } = await state.observer.open(state.owner, state.input)
+  const capturing = state.observer.capture(state.owner, { id })
+  await state.observer.close(state.owner, id)
+  await assert.rejects(capturing, /已结束/)
 })

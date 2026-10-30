@@ -12,6 +12,9 @@ class MediaAuthorizations {
     if (task.targetAccountId && !this.db.canAccess(member, task.targetAccountId)) throw new UserError('无法更新此账号。', 403)
     return member
   }
+  assertReauthorizable (account) {
+    if (!['invalid', 'expired'].includes(account?.status)) throw new UserError('账号授权仍有效，无需重新授权。', 409)
+  }
   assertActive (task) {
     if (task.expiresAt <= Date.now() || task.status === 'cancelled') throw new UserError('授权已结束，请重新开始。', 409)
   }
@@ -42,6 +45,7 @@ class MediaAuthorizations {
     if (task.targetAccountId) {
       const account = await this.db.get('accounts', workspaceId, task.targetAccountId)
       if (!account || account.platform !== platform.key || account.environmentId !== body.environmentId) throw new UserError('重新授权的账号与环境不匹配。')
+      this.assertReauthorizable(account)
     }
     const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
     task.publicKey = keys.publicKey; task.privateKey = this.db.encrypt(keys.privateKey)
@@ -59,6 +63,7 @@ class MediaAuthorizations {
       return await this.locked(workspaceId, userId, id, async current => {
         if (current.status === 'saved') return this.public(current)
         this.assertActive(current)
+        await this.db.mediaSessions.remove(workspaceId, id, 'authorization')
         return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, status: 'cancelled', privateKey: null, credential: null }, current.revision))
       })
     }
@@ -80,8 +85,10 @@ class MediaAuthorizations {
         if (current.targetAccountId) {
           const account = await this.db.get('accounts', workspaceId, current.targetAccountId)
           if (!account || account.platform !== current.platform.key || account.environmentId !== current.environmentId || account.platformUserId !== verified.platformUserId) throw new UserError('登录身份与原账号不一致，请登录原账号。', 409)
+          this.assertReauthorizable(account)
         }
-        return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, privateKey: null, status: 'review', identity: { platformUserId: verified.platformUserId, name: verified.name, avatar: verified.avatar }, credential: this.db.encrypt(JSON.stringify(verified.session)) }, current.revision))
+        await this.db.mediaSessions.write(workspaceId, id, 'authorization', verified.session)
+        return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, privateKey: null, status: 'review', identity: { platformUserId: verified.platformUserId, name: verified.name, avatar: verified.avatar }, credential: null, sessionStorage: 'relational-v1' }, current.revision))
       })
     }
     if (action === 'confirm') {
@@ -92,9 +99,13 @@ class MediaAuthorizations {
         const accountId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, task.platform.key, task.identity.platformUserId])).digest('hex').slice(0, 48)
         const account = await this.db.get('accounts', workspaceId, accountId)
         if (task.targetAccountId && (task.targetAccountId !== accountId || !account || account.environmentId !== task.environmentId)) throw new UserError('原账号记录已变化，请重新授权。', 409)
+        if (account) this.assertReauthorizable(account)
         if (account && !this.db.canAccess(member, accountId)) throw new UserError('此账号已在团队中，请联系管理员分配权限。', 403)
         if ((await this.db.list('accounts', workspaceId)).some(item => item.environmentId === task.environmentId && item.platform === task.platform.key && item.id !== accountId)) throw new UserError('此环境已绑定同平台的其他账号，请使用独立环境。', 409)
-        await this.db.put('account-sessions', workspaceId, accountId, { credential: task.credential, updatedAt: Date.now() }, (await this.db.get('account-sessions', workspaceId, accountId))?.revision ?? null)
+        const snapshot = await this.db.mediaSessions.read(workspaceId, id, 'authorization')
+        if (!snapshot) throw new UserError('授权会话数据不存在，请重新开始。', 409)
+        await this.db.mediaSessions.write(workspaceId, accountId, 'account', snapshot)
+        await this.db.mediaSessions.remove(workspaceId, id, 'authorization')
         await this.db.put('accounts', workspaceId, accountId, { ...task.identity, platform: task.platform.key, platformName: task.platform.name, environmentId: task.environmentId, environmentName: environment.name, status: 'valid', checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
         // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
         if (!account && member.role === 'operator' && member.scope.mode === 'selected') {

@@ -14,8 +14,8 @@ function cents (value) {
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
 }
 function readKey (file, privateKey = false) {
-  if (!file || !path.isAbsolute(file)) throw new Error('支付证书路径必须为服务端绝对路径。')
-  const value = fs.readFileSync(file, 'utf8')
+  if (!file || (!file.includes('-----BEGIN ') && !path.isAbsolute(file))) throw new Error('支付证书内容或服务端路径无效。')
+  const value = file.includes('-----BEGIN ') ? file : fs.readFileSync(file, 'utf8')
   const key = privateKey ? crypto.createPrivateKey(value) : crypto.createPublicKey(value)
   if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength < 2048) throw new Error('支付证书须使用至少 2048 位 RSA 密钥。')
   return { key, value }
@@ -39,8 +39,8 @@ class WechatPayProvider {
     this.key = 'wechat'; this.name = '微信支付'; this.config = config
     this.appId = config.WECHAT_PAY_APP_ID; this.merchantId = config.WECHAT_PAY_MCH_ID
     if (!/^[a-zA-Z0-9]{1,32}$/.test(this.appId) || !/^\d{6,32}$/.test(this.merchantId) || !/^[A-Fa-f0-9]{1,64}$/.test(config.WECHAT_PAY_SERIAL_NO)) throw new Error('微信支付商户配置不完整。')
-    this.privateKey = readKey(config.WECHAT_PAY_PRIVATE_KEY_PATH, true).key
-    const platform = readKey(config.WECHAT_PAY_PLATFORM_CERT_PATH)
+    this.privateKey = readKey(config.WECHAT_PAY_PRIVATE_KEY || config.WECHAT_PAY_PRIVATE_KEY_PATH, true).key
+    const platform = readKey(config.WECHAT_PAY_PLATFORM_CERT || config.WECHAT_PAY_PLATFORM_CERT_PATH)
     this.platformKey = platform.key
     if (platform.value.includes('BEGIN CERTIFICATE')) {
       this.certificate = new crypto.X509Certificate(platform.value)
@@ -115,8 +115,8 @@ class AlipayProvider {
     this.key = 'alipay'; this.name = '支付宝'; this.config = config
     this.appId = config.ALIPAY_APP_ID; this.sellerId = config.ALIPAY_SELLER_ID
     if (!/^\d{10,32}$/.test(this.appId) || !/^\d{10,32}$/.test(this.sellerId)) throw new Error('支付宝商户配置不完整。')
-    this.privateKey = readKey(config.ALIPAY_PRIVATE_KEY_PATH, true).key
-    this.platformKey = readKey(config.ALIPAY_PUBLIC_KEY_PATH).key
+    this.privateKey = readKey(config.ALIPAY_PRIVATE_KEY || config.ALIPAY_PRIVATE_KEY_PATH, true).key
+    this.platformKey = readKey(config.ALIPAY_PUBLIC_KEY || config.ALIPAY_PUBLIC_KEY_PATH).key
     this.notifyUrl = notifyUrl(config.ALIPAY_NOTIFY_URL, this.key)
     if (config.ALIPAY_SANDBOX === 'true' && process.env.SAAS_ENV === 'prod') throw new Error('生产环境不能使用支付宝沙箱。')
     this.gateway = config.ALIPAY_SANDBOX === 'true' ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do' : 'https://openapi.alipay.com/gateway.do'

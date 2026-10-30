@@ -5,11 +5,11 @@
   "main": "src/workspace-server.js",
   "scripts": {
     "start": "node src/workspace-server.js",
-    "test": "node --test test/desktop-sdk.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
+    "test": "node --test test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/media-session-store.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
     "package:source": "pwsh -NoProfile -File scripts/package-source.ps1"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "private": true,
   "dependencies": {

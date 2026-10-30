@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>系统管理 · 栖界</title>
+  <link rel="stylesheet" href="/system-admin.css">
+  <script src="/system-admin.js" defer></script>
+</head>
+<body>
+  <section id="login" class="login-shell" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">栖</div><p class="eyebrow">栖界 · 平台控制台</p>
+      <h1>系统管理员登录</h1><p class="muted">使用已授予系统管理权限的账号。</p>
+      <label>邮箱<input name="email" type="email" autocomplete="username" required></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">登录控制台</button>
+      <p id="login-message" role="alert"></p><a href="/">返回工作空间</a>
+    </form>
+  </section>
+  <div id="console" class="admin-shell" hidden>
+    <aside class="admin-sidebar">
+      <a class="brand" href="/">栖界<span>系统控制台</span></a>
+      <div class="nav-caption">平台配置</div>
+      <nav id="admin-nav" aria-label="系统设置分类"></nav>
+      <a class="back-link" href="/">← 返回工作空间</a>
+    </aside>
+    <main>
+      <header class="topline"><span>平台级配置 / 系统管理</span><div><span id="identity"></span><button id="logout" type="button">退出登录</button></div></header>
+      <div class="page-content">
+        <div class="page-heading"><div><p class="eyebrow">平台运行设置</p><h1>系统配置</h1><p class="muted">集中管理邮件、支付、套餐与更新。保存后自动生效。</p></div><span class="permission-tag">系统管理员</span></div>
+        <div class="service-status" id="service-status"></div>
+        <form id="settings-form">
+          <div id="settings-panels"></div>
+          <footer class="save-bar"><div><strong id="save-state">配置加载中</strong><p id="revision" class="muted"></p></div><div class="save-actions"><button id="reload" type="button">重新加载</button><button class="primary" type="submit">保存配置</button></div></footer>
+        </form>
+        <p id="message" role="status" aria-live="polite"></p>
+        <details class="audit"><summary>最近配置变更</summary><div id="audit-list"></div></details>
+      </div>
+    </main>
+  </div>
+  <p id="initial-message" class="initial-message" role="status">正在连接系统控制台…</p>
+</body>
+</html>

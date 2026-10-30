@@ -20,8 +20,10 @@
 ```powershell
 npm test
 npm run package:source
-pwsh -NoProfile -File scripts/package.ps1 -Environment dev -RuntimeRoot "已有运行时目录"
+pwsh -NoProfile -File scripts/package.ps1 -Environment prod -RuntimeRoot "已有运行时目录"
 ```
+
+默认打包环境为 `prod`，首页为 `https://qijie.xinmeitool.com`；开发包需显式指定 `-Environment dev`。生产更新清单地址为 `https://qijie.xinmeitool.com/api/client-updates/prod/win32/x64.json`，配置正式验签公钥并发布签名清单后再开启自动更新。
 
 产物只写入本项目 `dist/`；脚本可在没有父级 Git 仓库的解压目录运行。Windows 安装包需要既有 NSIS 与资源编辑工具，可通过脚本参数指定。安装器按应用名称和标识配置安装目录、卸载注册项，不强杀运行中的其他基座。
 

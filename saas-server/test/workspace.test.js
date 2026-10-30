@@ -9,6 +9,25 @@ const { getDefaultProfile } = require('../src/fingerprint/profile-store')
 const { createSmtpMailbox } = require('./smtp-mailbox')
 const { createLaunchRequest } = require('./desktop-protocol-consumer')
 
+test('配置文件端口覆盖进程端口，缺少配置端口时保留环境端口', () => {
+  const { loadEnvironment } = require('../src/workspace-server')
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-port-config-'))
+  const prior = process.env.PORT
+  try {
+    process.env.PORT = '9999'
+    fs.writeFileSync(path.join(directory, '.env.prod'), 'PORT=18088\n', 'utf8')
+    loadEnvironment(directory, 'prod')
+    assert.equal(process.env.PORT, '18088')
+    fs.writeFileSync(path.join(directory, '.env.prod'), '# 未指定端口\n', 'utf8')
+    process.env.PORT = '9999'
+    loadEnvironment(directory, 'prod')
+    assert.equal(process.env.PORT, '9999')
+  } finally {
+    if (prior === undefined) delete process.env.PORT
+    else process.env.PORT = prior
+  }
+})
+
 test('真实数据库、会话、权限和资源完整链路', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-workspace-acceptance-'))
   const databaseName = 'qijie_workspace_test_' + crypto.randomBytes(8).toString('hex')
@@ -111,11 +130,11 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
       await api('/api/auth/logout', { account: 'owner', method: 'POST', body: {} })
       await api('/api/auth/me', { account: 'owner', expected: 401 })
     })
-    await t.test('正式页面及八个静态导航均由服务提供', async () => {
+    await t.test('正式页面及六个静态导航均由服务提供', async () => {
       const health = await api('/api/health')
       assert(health.data.launchProtocols.includes('desktop-launch-v1'))
       const response = await fetch(origin + '/'); assert.equal(response.status, 200)
-      const html = await response.text(); assert.equal((html.match(/class="nav-link/g) || []).length, 8)
+      const html = await response.text(); assert.equal((html.match(/class="nav-link/g) || []).length, 6)
       assert(html.includes('workspace.js')); assert(!html.includes('prototype.js'))
       assert(response.headers.get('content-security-policy').includes("default-src 'self'"))
       const blocked = await fetch(origin + '/api/health', { headers: { Origin: 'https://untrusted.example' } }); assert.equal(blocked.status, 403)

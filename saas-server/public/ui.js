@@ -36,6 +36,9 @@
     team: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21v-3a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3M16 5a3 3 0 0 1 0 6M22 21v-3a5 5 0 0 0-3-4.6"/>'
   })
   const data = window.QijieProductDesign
+  const environmentManagementTabs = data.environmentManagementTabs
+  const isEnvironmentManagement = route => environmentManagementTabs.some(([, id]) => id === route)
+  const navigationRoute = route => isEnvironmentManagement(route) ? 'environments' : route
   const drafts = new Map()
   let currentRoute = ''
   let baseRoute = ''
@@ -120,7 +123,8 @@
     return `<section class="surface table-panel">${filters?.length ? `<div class="table-tools"><label class="search-field">${icon('search')}<input id="search-${currentRoute}" aria-label="搜索列表" placeholder="搜索名称或编号"></label>${filters.map((value,index)=>`<select id="filter-${currentRoute}-${index}" aria-label="${escapeHTML(value)}">${(currentRoute==='accounts' && value==='全部平台' ? ['全部平台',...data.pages.find(item=>item.id==='account-platforms').platforms.map(item=>item.name)] : currentRoute==='accounts' && value==='授权状态' ? ['全部授权状态','授权有效','待重新授权','授权异常'] : [value]).map(option=>`<option>${escapeHTML(option)}</option>`).join('')}</select>`).join('')}</div>` : ''}<div class="table-scroll"><table><thead><tr>${item.columns.map(label=>`<th scope="col">${escapeHTML(label)}</th>`).join('')}</tr></thead><tbody><tr><td colspan="${item.columns.length}"><div class="empty-state"><span class="empty-icon">${icon('folder')}</span><h2>${escapeHTML(item.emptyTitle)}</h2><p>${escapeHTML(item.emptyText)}</p>${button(item.action)}</div></td></tr></tbody></table></div></section>`
   }
   function renderPage(page) {
-    const top = `<header class="page-heading"><div><h1>${escapeHTML(page.title)}</h1><p class="page-description">${escapeHTML(page.description)}</p></div><div class="page-actions">${(page.actions || []).map(button).join('')}</div></header>`
+    const environmentManagement = isEnvironmentManagement(page.id)
+    const top = `<header class="page-heading"><div><h1>${escapeHTML(environmentManagement ? '浏览器环境管理' : page.title)}</h1><p class="page-description">${escapeHTML(page.description)}</p></div><div class="page-actions">${(page.actions || []).map(button).join('')}</div></header>`
     let content = ''
     if (page.kind === 'dashboard') {
       content = `<section class="workflow-banner"><div><h2>从指纹资源到独立会话</h2><p>指纹可复用，环境独立保存登录数据，平台账号由系统完成授权与更新。</p></div><span>${icon('fingerprint')}<i></i>${icon('browser')}<i></i>${icon('users')}</span></section><div class="task-grid">${page.tiles.map(item=>`<a class="surface task-card" href="#${item.target}" data-route="${item.target}"><span class="task-icon">${icon(item.icon)}</span><h2>${escapeHTML(item.title)}</h2><p>${escapeHTML(item.text)}</p><span class="task-arrow">${icon('arrow')}</span></a>`).join('')}</div><div class="section-heading"><h2>最近使用的环境</h2><a href="#environments" data-route="environments">全部环境 →</a></div>${table(page.table)}`
@@ -131,7 +135,8 @@
     else if (page.kind === 'permissions') content = `${notice(page.notice)}<section class="surface permission-panel"><table><thead><tr>${page.permissionColumns.map(item=>`<th>${escapeHTML(item)}</th>`).join('')}</tr></thead><tbody>${page.permissionRows.map(row=>`<tr>${row.map((cell,index)=>`<${index?'td':'th'}>${escapeHTML(cell)}</${index?'td':'th'}>`).join('')}</tr>`).join('')}</tbody></table></section>`
     else if (page.kind === 'billing') content = `${notice(page.notice)}<div class="usage-grid">${page.rows.map(([label,value])=>`<div class="surface usage-card"><span>${escapeHTML(label)}</span><b>${escapeHTML(value)}</b></div>`).join('')}</div><div class="section-heading"><h2>订阅订单</h2></div>${table(page.table)}`
     else if (page.kind === 'payment') content = `<div class="form-layout"><section class="surface payment-panel"><h2>确认订单</h2>${rows(page.rows)}<h2>选择付款方式</h2><div class="payment-methods">${page.methods.map(item=>`<label><input type="radio" name="payment-method">${icon('card')}<b>${escapeHTML(item)}</b></label>`).join('')}</div><div class="payment-code">${icon('card')}<h3>选择套餐后生成支付码</h3><p>订单与支付码生成后，使用对应应用扫码付款。</p></div><footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${(page.footer||[]).map(button).join('')}</div></footer></section>${summary(page.summary)}</div>`
-    return top + tabs(page.tabs) + content
+    const managementTabs = environmentManagement ? `<nav class="environment-management-tabs" aria-label="浏览器环境管理分类">${environmentManagementTabs.map(([label,id]) => `<a class="environment-management-tab${id === page.id ? ' active' : ''}" href="#${id}" data-route="${id}" ${id === page.id ? 'aria-current="page"' : ''}>${escapeHTML(label)}</a>`).join('')}</nav>` : ''
+    return top + managementTabs + tabs(page.tabs) + content
   }
   function clearDialog(restoreFocus = true, normalizeRoute = true) {
     const root = document.getElementById('modal-root')
@@ -310,8 +315,8 @@
       currentRoute=operation
     }
     baseRoute=page.id
-    document.getElementById('page-context').textContent=page.title
-    document.querySelectorAll('#navigation [data-route]').forEach(link=>{const active=link.dataset.route===page.nav;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')})
+    document.getElementById('page-context').textContent=isEnvironmentManagement(page.id) ? '浏览器环境管理' : page.title
+    document.querySelectorAll('#navigation [data-route]').forEach(link=>{const active=link.dataset.route===navigationRoute(page.nav);link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')})
   }
   function modalFamily(route) {
     if (['fingerprint-create','fingerprint-protection'].includes(route)) return 'fingerprint-editor'

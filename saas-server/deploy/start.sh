@@ -9,4 +9,4 @@ if [ ! -f "$server_directory/.env.$server_environment" ]; then
 fi
 export SAAS_ENV="$server_environment"
 cd "$server_directory"
-exec node src/workspace-server.js
+exec node server/index.js

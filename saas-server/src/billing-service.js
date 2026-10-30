@@ -9,9 +9,9 @@ const { WechatPayProvider, AlipayProvider } = require('./payment-providers')
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value
 const unavailable = () => new UserError('支付通道尚未开放，请完成商户配置与验收。', 503)
 class BillingService {
-  constructor (database, configFile) {
+  constructor (database, configFile, runtimeConfig) {
     this.database = database; this.configFile = configFile
-    this.config = readServerConfig(configFile); this.providers = new Map()
+    this.config = runtimeConfig || readServerConfig(configFile); this.providers = new Map()
     if (this.config.PAYMENTS_ENABLED === 'true') {
       for (const Provider of [WechatPayProvider, AlipayProvider]) {
         try { const provider = new Provider(this.config); this.providers.set(provider.key, provider) } catch { /* 未完整配置的通道保持关闭，不输出商户密钥或证书内容。 */ }
@@ -20,10 +20,10 @@ class BillingService {
     this.plans = this.readPlans()
   }
   readPlans () {
-    if (!this.config.BILLING_PLANS_FILE) return []
+    if (!Array.isArray(this.config.BILLING_PLANS) && !this.config.BILLING_PLANS_FILE) return []
     try {
-      const file = path.resolve(path.dirname(this.configFile || process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`)), this.config.BILLING_PLANS_FILE)
-      const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+      const file = this.config.BILLING_PLANS_FILE && path.resolve(path.dirname(this.configFile || process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`)), this.config.BILLING_PLANS_FILE)
+      const data = Array.isArray(this.config.BILLING_PLANS) ? { plans: this.config.BILLING_PLANS } : JSON.parse(fs.readFileSync(file, 'utf8'))
       if (!Array.isArray(data.plans) || data.plans.length > 50) throw new Error()
       const ids = new Set()
       return data.plans.filter(plan => plan.enabled === true).map(plan => {

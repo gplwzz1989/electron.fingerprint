@@ -2,6 +2,11 @@
   'use strict'
   const definitions = {
   "version": "2026-10-27",
+  "environmentManagementTabs": [
+    ["环境管理", "environments"],
+    ["指纹管理", "fingerprints"],
+    ["代理管理", "proxies"]
+  ],
   "nav": [
     {
       "id": "overview",
@@ -10,20 +15,10 @@
       "group": "工作空间"
     },
     {
-      "id": "fingerprints",
-      "title": "指纹管理",
-      "icon": "fingerprint",
-      "group": "核心资源"
-    },
-    {
       "id": "environments",
-      "title": "浏览器环境",
-      "icon": "browser"
-    },
-    {
-      "id": "proxies",
-      "title": "代理管理",
-      "icon": "globe"
+      "title": "浏览器环境管理",
+      "icon": "browser",
+      "group": "核心资源"
     },
     {
       "id": "accounts",

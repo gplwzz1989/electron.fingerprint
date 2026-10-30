@@ -54,9 +54,13 @@ SMTP 加密行为参见 [Nodemailer 官方 SMTP 文档](https://nodemailer.com/s
 
 协议依据：[微信 Native 下单](https://pay.wechatpay.cn/doc/v3/merchant/4012791877)、[微信平台验签](https://pay.wechatpay.cn/doc/v3/merchant/4013053420)、[支付宝官方 Node SDK 签名规则](https://github.com/alipay/alipay-sdk-nodejs-all)。`test/billing.test.js` 仅在测试进程拦截支付网络并生成临时证书，覆盖真实密码学校验及独立 MySQL 事务，不代表真实商户收款已经验收。SMTP、平台授权和实际付款的外部验收状态须单独记录。
 
+## 系统管理后台
+
+生产包使用精简启动配置，邮件、支付、套餐、更新目录和公开地址在 `/system-admin.html` 维护，并加密存入数据库。部署后运行 `node saas-server/server/index.js --init-system-admin 管理员邮箱` 初始化系统管理员；该命令仅在服务器本地执行。旧环境文件的业务配置仅在首次初始化时迁入数据库，本文前述文件字段保留兼容迁移说明；后续以后台配置为准。平台授权脚本与身份核验模块随生产包提供。
+
 ## 当前开发与客户端
 
-开发客户端读取 `fingerprint-browser/build-config.json` 的 `dev` 地址，默认 `http://127.0.0.1:8088/`；`test`、`prod` 地址由部署者填写，未配置时打包会拒绝。客户端不包含业务 HTML、服务端环境文件或数据库密码。
+开发客户端读取 `fingerprint-browser/build-config.json` 的 `dev` 地址，默认 `http://127.0.0.1:8088/`；`test` 地址由部署者填写；`prod` 首页为 `https://qijie.xinmeitool.com`，打包脚本默认使用 `prod`。生产部署时在 `.env.prod` 设置 `SAAS_PUBLIC_URL=https://qijie.xinmeitool.com`；客户端生产更新清单地址为 `https://qijie.xinmeitool.com/api/client-updates/prod/win32/x64.json`，服务端通过 `CLIENT_UPDATES_DIR` 提供签名清单和安装包。客户端不包含业务 HTML、服务端环境文件或数据库密码。
 
 `npm start` 读取对应环境文件并连接 MySQL；`npm test` 使用独立的 `qijie_workspace_test_*` 数据库，不向开发库初始化测试账号。`node scripts/acceptance-server.js` 只用于已有隔离库的网页验收；`--local-mailbox` 额外启用本机测试收件器，正式服务禁止启用。配置文件中的数据库密码按完整原值读取，不要省略末尾字符。
 

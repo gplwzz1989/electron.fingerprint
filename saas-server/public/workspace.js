@@ -23,7 +23,7 @@
   window.getMediaWorkspace = () => ({ workspaceId: state.workspaceId, userId: state.user?.id, canWrite: canWrite() })
   document.addEventListener('media:saved', event => {
     const message = event.detail?.message || '账号授权成功，已添加到账号列表。'
-    void reload().then(() => { window.WorkspaceUI.render(); noticeResult(message); if (event.detail?.warning) showError(event.detail.warning) }).catch(() => { noticeResult(message); showError('账号授权已保存，但账号列表暂未刷新，请刷新页面后查看。') })
+    void reload().then(() => { window.WorkspaceUI.render(); noticeResult(message, true); if (event.detail?.warning) showError(event.detail.warning) }).catch(() => { noticeResult(message, true); showError('账号授权已保存，但账号列表暂未刷新，请刷新页面后查看。') })
   })
   let viewRevision = 0
   let nativeTabs = { tabs: [], activeId: null }
@@ -103,7 +103,7 @@
       label?.querySelector('.field-error')?.remove(); field.removeAttribute('aria-invalid')
       if (field.checkValidity()) continue
       const title = label?.querySelector('span')?.textContent.replace(/\s*\*$/, '') || '此项'
-      const message = field.validity.valueMissing ? `请填写${title}。` : field.type === 'email' ? '请填写完整、有效的邮箱地址。' : field.name === 'verificationCode' ? '请输入六位数字验证码。' : field.validity.tooShort ? '密码至少需要十二个字符。' : '请检查输入内容。'
+      const message = field.validity.valueMissing ? `请填写${title}。` : field.type === 'email' ? '请填写完整、有效的邮箱地址。' : field.name === 'verificationCode' ? '请输入六位数字验证码。' : field.validity.tooShort ? `密码至少需要 ${field.minLength} 个字符。` : '请检查输入内容。'
       field.setAttribute('aria-invalid', 'true')
       const error = document.createElement('small'); error.className = 'field-error'; error.textContent = message; label?.append(error)
       firstInvalid ||= field
@@ -111,10 +111,13 @@
     if (firstInvalid) { firstInvalid.focus(); showError('请检查标红的输入项。', true); return false }
     return true
   }
-  function noticeResult (message) {
+  let noticeTimer
+  function noticeResult (message, success = false) {
     let node = document.getElementById('workspace-result')
     if (!node) { node = document.createElement('div'); node.id = 'workspace-result'; node.className = 'workspace-result'; node.setAttribute('role', 'status'); document.querySelector('.shell').append(node) }
-    node.textContent = message; setTimeout(() => node.remove(), 5000)
+    clearTimeout(noticeTimer)
+    node.classList.toggle('workspace-result--success', success)
+    node.textContent = message; noticeTimer = setTimeout(() => node.remove(), 5000)
   }
   function updateShell () {
     const login = document.querySelector('.topbar [data-route="signin"]')
@@ -145,7 +148,12 @@
       return route === 'overview' ? values.filter((_value, index) => index !== 4) : values
     }
     if (route === 'proxies') return [escape(item.name), escape(`${item.protocol.toUpperCase()} · ${item.host}:${item.port}`), `<span class="${item.status === 'available' ? 'status-valid' : 'status-error'}">${item.status === 'available' ? '已检测可用' : '检测失败'}</span><small>${escape(timestamp(item.checkedAt))}</small>`, escape(item.timezone), String((state.lists.environments || []).filter(environment => environment.proxyId === item.id).length), actions([{ action: 'check-proxy', id: item.id, label: '重新检测', disabled: !canWrite() }, { action: 'remove-proxy', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
-    if (route === 'accounts') return [`${escape(item.name)}<small>${escape(item.platformName)} · ${escape(item.platformUserId)}</small>`, item.status === 'valid' ? '授权有效' : '<span class="status-error">待重新授权</span>', escape(item.environmentName), escape(timestamp(item.checkedAt)), actions([{ action: 'reauthorize-account', id: item.id, label: '重新授权', disabled: !canWrite() }])]
+    if (route === 'accounts') {
+      const platform = window.QijieProductDesign.pages.find(page => page.id === 'account-platforms').platforms.find(platform => platform.key === item.platform)
+      const avatar = typeof item.avatar === 'string' && /^https:\/\//i.test(item.avatar) ? item.avatar : ''
+      const identity = `<div class="account-identity"><span class="account-avatar"><span aria-hidden="true">${escape((item.name || '账').slice(0, 1))}</span>${avatar ? `<img src="${escape(avatar)}" alt="${escape(item.name)}头像" referrerpolicy="no-referrer" loading="lazy">` : ''}${platform?.icon ? `<img class="account-platform-badge" src="${escape(platform.icon)}" alt="${escape(item.platformName)}">` : ''}</span><div class="account-identity-text"><strong>${escape(item.name)}</strong><small>${escape(item.platformName)} · ${escape(item.platformUserId)}</small></div></div>`
+      return [identity, item.status === 'valid' ? '<span class="status-valid">授权有效</span>' : '<span class="status-error">待重新授权</span>', escape(item.environmentName), escape(timestamp(item.checkedAt)), actions([{ action: 'open-account', id: item.id, label: '打开账号', disabled: !window.workspaceBridge || !canWrite() || item.status !== 'valid' }, { action: 'check-account', id: item.id, label: '检测授权', disabled: !canWrite() }, { action: 'reauthorize-account', id: item.id, label: '重新授权', disabled: !canWrite() || !['invalid', 'expired'].includes(item.status) }])]
+    }
     if (route === 'members') return [escape(item.name), escape(labelRole(item.role)), item.scope.mode === 'all' ? '全部资源' : `${item.scope.ids.length} 项资源`, '已加入', escape(item.email), actions([{ action: 'permissions', id: item.id, label: '权限', disabled: !canAdmin() || item.role === 'owner' }, { action: 'remove-member', id: item.id, label: '移除', danger: true, disabled: !canAdmin() || item.role === 'owner' || item.userId === state.user?.id }])]
     return [escape(item.name), escape(item.status), escape(item.environmentName), escape(timestamp(item.checkedAt)), '']
   }
@@ -337,7 +345,7 @@
       find('.signin-form [data-operation="signin"]').type = 'submit'
       find('.signin-form input[type="email"]').required = true
       find('.signin-form input[type="password"]').required = true
-      find('.signin-form').insertAdjacentHTML('beforeend', '<p class="auth-switch"><button type="button" data-operation="show-register">没有账户？注册并创建团队</button></p>')
+      find('.signin-form').insertAdjacentHTML('beforeend', '<p class="auth-switch"><button type="button" data-operation="show-register">没有账户？注册</button></p>')
     }
     if (pageId === 'proxy-create') assignAction('检测并保存', 'save-proxy', Boolean(state.user && canWrite()))
     if (pageId === 'account-platforms') {
@@ -348,8 +356,18 @@
   function registerForm () {
     const form = find('.signin-form')
     form.classList.add('is-registration')
-    form.innerHTML = `<section class="form-section"><div class="field-grid">${[['姓名', 'name', 'text'], ['团队名称', 'workspaceName', 'text'], ['邮箱', 'email', 'email']].map(([label, name, type]) => `<label class="field${name === 'email' ? ' full' : ''}"><span>${label}</span><input required name="${name}" type="${type}" autocomplete="${name === 'email' ? 'email' : name === 'name' ? 'name' : 'organization'}"></label>`).join('')}<div class="verification-code-row field full"><label class="field"><span>邮箱验证码</span><input required name="verificationCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="六位数字验证码"></label><button class="button" type="button" data-operation="send-registration-code" disabled>获取验证码</button></div><label class="field full"><span>密码（至少十二个字符）</span><input required name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password"></label></div><p class="registration-feedback" role="status" aria-live="polite">正在检查邮件服务…</p></section><footer class="platform-picker-footer"><button class="button" type="button" data-operation="show-signin">返回登录</button><button class="button primary" type="submit" data-operation="register" disabled>验证邮箱并注册</button></footer>`
-    field('signin-title').textContent = '注册工作空间'
+    form.innerHTML = `<section class="form-section"><div class="field-grid"><label class="field"><span>昵称</span><input required name="nickname" maxlength="60" autocomplete="nickname" placeholder="请输入昵称"></label><label class="field"><span>邮箱</span><input required name="email" type="email" autocomplete="email" placeholder="请输入邮箱地址"></label><div class="verification-code-row field"><label class="field"><span>邮箱验证码</span><input required name="verificationCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="六位数字验证码"></label><button class="button" type="button" data-operation="send-registration-code" disabled>获取验证码</button></div><label class="field"><span>密码</span><input required name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="至少 8 个字符"></label></div><p class="registration-feedback" role="status" aria-live="polite">正在检查邮件服务…</p></section><footer class="platform-picker-footer"><button class="button primary" type="submit" data-operation="register" disabled>注册</button><button class="registration-signin" type="button" data-operation="show-signin">已有账户？返回登录</button></footer>`
+    field('signin-title').textContent = '注册'
+    field('signin-description').hidden = true
+    form.closest('.signin-picker').classList.add('registration-picker')
+    form.closest('.signin-picker').removeAttribute('aria-describedby')
+    find('[data-close-platforms]').setAttribute('aria-label', '关闭注册框')
+    const passwordInput = form.querySelector('[name="password"]')
+    const passwordHint = passwordInput.placeholder
+    passwordInput.addEventListener('focus', () => { passwordInput.placeholder = '' })
+    passwordInput.addEventListener('input', () => { passwordInput.placeholder = passwordInput.value ? '' : passwordHint })
+    passwordInput.addEventListener('blur', () => { passwordInput.placeholder = passwordHint })
+    form.querySelector('[name="nickname"]').focus()
     const describeAvailability = () => {
       if (!form.isConnected) return
       const feedback = form.querySelector('.registration-feedback')
@@ -474,7 +492,28 @@
       if (!resource || !confirm('确认移除此记录？正在使用的指纹或代理不会被移除。')) return
       await request(`${base()}/${resource}/${id}`, 'DELETE'); await reload(); window.WorkspaceUI.render(); noticeResult('记录已移除。'); return
     }
-    if (operation === 'reauthorize-account') { document.dispatchEvent(new CustomEvent('media:reauthorize', { detail: state.lists.accounts.find(item => item.id === id) })); return }
+    if (operation === 'reauthorize-account') {
+      const account = state.lists.accounts.find(item => item.id === id)
+      if (!account || !['invalid', 'expired'].includes(account.status)) throw new Error('账号授权仍然有效，无需重新授权。')
+      document.dispatchEvent(new CustomEvent('media:reauthorize', { detail: account })); return
+    }
+    if (operation === 'check-account') {
+      const { item } = await request(`${base()}/accounts/${id}/check`, 'POST', {})
+      await reload(); populateTable('accounts')
+      if (item.status !== 'valid') throw new Error('账号授权已失效，请点击“重新授权”。')
+      noticeResult('账号授权有效。', true); return
+    }
+    if (operation === 'open-account') {
+      const account = state.lists.accounts.find(item => item.id === id)
+      if (!account || account.status !== 'valid') throw new Error('账号授权已失效，请先重新授权。')
+      if (!window.workspaceBridge) throw new Error('请在桌面客户端中打开账号。')
+      const snapshot = await window.workspaceBridge.tabs()
+      if (!snapshot.ok) throw new Error('无法读取客户端环境，请稍后重试。')
+      const tab = snapshot.tabs.find(tab => tab.profileId === account.id && tab.externalReference?.scope === state.workspaceId)
+      const result = tab ? await window.workspaceBridge.selectTab(tab.id) : await window.workspaceBridge.launch({ workspaceId: state.workspaceId, environmentId: account.environmentId, accountId: account.id, capabilities: [], allowedOrigins: [] })
+      if (!result.ok) throw new Error(result.error || '账号页面打开失败，请稍后重试。')
+      return
+    }
     if (operation === 'launch-environment') {
       if (!window.workspaceBridge) throw new Error('请在栖界客户端中启动浏览器环境。')
       const result = await window.workspaceBridge.launch({ workspaceId: state.workspaceId, environmentId: id })
@@ -580,6 +619,9 @@
       await acceptPendingInvitation()
     } catch (error) { showError(error.message) }
   }
+  document.addEventListener('error', event => {
+    if (event.target.matches?.('.account-avatar>img:not(.account-platform-badge)')) event.target.hidden = true
+  }, true)
   document.addEventListener('DOMContentLoaded', () => { void init() })
   window.addEventListener('hashchange', () => { renderNativeAddress(); void acceptPendingInvitation() })
 })()

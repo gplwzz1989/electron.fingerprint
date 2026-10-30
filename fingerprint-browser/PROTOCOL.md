@@ -44,3 +44,13 @@
 ## 会话采集信封
 
 0.2.2 新增。业务服务为每个任务生成 RSA 公钥，将公钥及任务标识交给固定首页。客户端返回 Base64 字段 `wrappedKey`、`iv`、`tag`、`ciphertext`，AES-GCM 附加认证数据为任务标识的 UTF-8 字节。解密 JSON 为 `{operationId,cookies,storage}`，`storage` 按完整来源地址分组。服务端必须重新核验任务归属、平台身份和权限后才能保存账号，不能将成功采集等同于授权成功。客户端不解析平台身份，不知道团队或业务接口地址。
+
+## 加密启动中的可选会话恢复
+
+支持此功能的基座在 `desktopBridge.capabilities` 返回 `session-restore-v1`。业务网页应先检查该能力，再调用已有 `prepareLaunch` / `launchEncrypted`；不提供明文凭据导入桥接。
+
+服务端密文明文可增加 `session:{format:"desktop-session-v1",origins,cookies,storage,version?}`。`origins` 是完整 HTTPS 来源数组；Cookie 使用 Electron 字段，必须属于来源范围；`storage` 按来源映射字符串键值，禁止跨来源混写。当前不支持带 `partitionKey` 的分区 Cookie，遇到时拒绝恢复，不降级为普通 Cookie。
+
+恢复仅发生在目标环境首次访问之前；Cookie 属性保留 `hostOnly/path/httpOnly/secure/sameSite/expirationDate`。页面存储使用隔离世界的预导航脚本，每个来源只恢复一次，随后清理脚本及本次建立的调试连接；网站后续更新的令牌不会被导航覆盖。
+
+`version` 可为正整数或不超过160字符的非空字符串。资源独立数据目录保存不含凭据的成功导入版本标记；同版本已完整导入则沿用磁盘会话，不再覆盖。数字旧版本被拒绝，不同字符串版本按不透明版本标识处理。无版本时按显式恢复请求执行。已有运行中标签禁止带会话重新导入，业务网页可直接选择已有标签；普通无会话启动行为不变。成功启动返回 `tabId`。

@@ -28,7 +28,7 @@ const payload = email => ({ email, name: '邮箱注册验收', workspaceName: '�
 
 test('注册必须验证邮箱；真实 SMTP 收件、错误码、绑定邮箱与一次性消费', async () => {
   await withRegistration(async ({ api, mailbox, database }) => {
-    const body = payload('verified@example.test')
+    const body = { email: 'verified@example.test', nickname: '邮箱注册验收', password: 'aB3!xY7?' }
     await api('/api/auth/registration-code', { email: '<verified@example.test>' }, 400)
     await api('/api/auth/registration-code', { email: 'a..b@example.test' }, 400)
     await api('/api/auth/registration-code', { email: 'verified@example.test\r\nBcc: other@example.test' }, 400)
@@ -44,8 +44,12 @@ test('注册必须验证邮箱；真实 SMTP 收件、错误码、绑定邮箱�
     await api('/api/auth/register', { ...body, verificationCode: incorrect }, 400)
     assert.equal((await database().execute('SELECT attempts FROM registration_codes WHERE email=?', [body.email]))[0].attempts, 1)
     await api('/api/auth/register', { ...body, email: 'different@example.test', verificationCode: code }, 400)
+    const tooShort = await api('/api/auth/register', { ...body, password: 'aB3!xY7', verificationCode: code }, 400)
+    assert.match(tooShort.message, /8 个字符/)
     const registered = await api('/api/auth/register', { ...body, verificationCode: code }, 201)
     assert.equal(registered.user.email, body.email)
+    assert.equal(registered.user.name, body.nickname)
+    assert.equal(registered.workspaces[0].name, body.nickname)
     assert.equal(registered.workspaces[0].role, 'owner')
     const user = await database().userByEmail(body.email); assert(user.email_verified_at > 0)
     assert((await database().execute('SELECT consumed_at FROM registration_codes WHERE email=?', [body.email]))[0].consumed_at > 0)

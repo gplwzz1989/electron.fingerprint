@@ -7,6 +7,7 @@ const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
 const capabilityRegistry = new TabCapabilities()
 const { SessionObserver } = require('./session-observer')
+const { validateSessionSnapshot } = require('./session-restore')
 let sessionObserver
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
@@ -342,6 +343,7 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
+      const restoredSession = decrypted.session === undefined ? null : validateSessionSnapshot(decrypted.session)
       const profile = createProfileRecord(decrypted)
       const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
       const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
@@ -351,6 +353,7 @@ function registerIpc () {
       assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
       let existing = environmentRepository.list().find(item => item.profileId === profile.id)
       if (existing) {
+        if (restoredSession && tabBrowser.tabIdsForEnvironment(existing.id).length) throw new ProfileValidationError('环境正在运行，请先关闭后恢复云端会话。')
         if (!existing.externalReference) existing = await environmentRepository.update(existing.id, { externalReference: reference })
         const configurationChanged = JSON.stringify(existing.fingerprint) !== JSON.stringify(profile.fingerprint) || JSON.stringify(existing.proxy) !== JSON.stringify(profile.proxy)
         if (configurationChanged && existing.status === 'open') throw new ProfileValidationError('服务端环境配置已变化，请先关闭本机环境后重试。')
@@ -359,13 +362,13 @@ function registerIpc () {
           tabBrowser.updateEnvironmentProfile(existing)
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id } }
+        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy) }
+        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
       }
       const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: reference })
       const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy) }
+      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }

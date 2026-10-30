@@ -14,6 +14,7 @@ const { BillingService } = require('./billing-service')
 const { sealLaunch, validateLaunchRequest } = require('./desktop-protocol')
 const { MediaAuthorizations } = require('./media-authorizations')
 const { ClientUpdateService } = require('./client-update-service')
+const { SystemSettings } = require('./system-settings')
 
 const platforms = [{ key: 'wechat', name: '微信公众号', icon: 'assets/platforms/wechat.png' }, { key: 'douyin', name: '抖音', icon: 'assets/platforms/douyin.png' }, { key: 'weibo', name: '新浪微博', icon: 'assets/platforms/weibo.png' }]
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
@@ -23,6 +24,7 @@ const text = (value, label, limit = 160) => {
 }
 const safeUser = user => ({ id: user.id, name: user.name, email: user.email })
 const safeProxy = proxy => { const { credential, ...safe } = proxy; return { ...safe, hasAuthentication: Boolean(credential) } }
+const platformIcons = { shipinhao: 'shipinhao.png', kuaishou: 'kuaishou.png', xiaohongshu: 'xiaohongshu.png', douyin: 'douyin.png' }
 function validateProfile (input) {
   let profile
   try { profile = createFingerprintProfile(input) } catch { throw new UserError('指纹参数格式无效，请检查必填项、屏幕和内存设置。') }
@@ -52,7 +54,8 @@ function loadEnvironment (directory, environment) {
   if (!fs.existsSync(file)) return
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
     const match = line.match(/^([A-Z][A-Z0-9_]*)=(.*)$/)
-    if (match && process.env[match[1]] === undefined) process.env[match[1]] = match[2].trim().replace(/^(["'])(.*)\1$/, '$2')
+    // 端口优先使用配置文件，避免 PM2 或宿主机的 PORT 覆盖实际监听端口。
+    if (match && (match[1] === 'PORT' || process.env[match[1]] === undefined)) process.env[match[1]] = match[2].trim().replace(/^(["'])(.*)\1$/, '$2')
   }
 }
 
@@ -64,8 +67,24 @@ class WorkspaceServer {
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
     this.clientUpdates = new ClientUpdateService(updateConfigFile)
+    this.serviceConfigFiles = { mailConfigFile, billingConfigFile, updateConfigFile }
+    this.systemSettings = new SystemSettings(this.database, undefined, { SAAS_PUBLIC_URL: publicUrl, SAAS_ALLOW_PRIVATE_PROXY: String(allowPrivateProxy) })
     this.publicDirectory = path.join(__dirname, '../public'); this.rateLimits = new Map()
     this.server = http.createServer((req, res) => { this.handle(req, res).catch(() => { if (!res.headersSent) this.json(res, 500, { ok: false, message: '服务暂时不可用，请稍后重试。' }); else res.destroy() }) })
+    this.configurationReady = this.systemSettings.initialize().then(() => this.refreshSystemSettings())
+  }
+  async refreshSystemSettings () {
+    const state = await this.systemSettings.read()
+    if (this.configRevision === state.revision) return
+    const { mailConfigFile, billingConfigFile, updateConfigFile } = this.serviceConfigFiles
+    const mailer = new RegistrationMailer(this.database, mailConfigFile, mailConfigFile ? undefined : state.values)
+    const billing = new BillingService(this.database, billingConfigFile, billingConfigFile ? undefined : state.values)
+    const updates = new ClientUpdateService(updateConfigFile, updateConfigFile ? undefined : state.values)
+    this.registrationMailer.close()
+    this.registrationMailer = mailer; this.billing = billing; this.clientUpdates = updates
+    this.publicUrl = state.values.SAAS_PUBLIC_URL
+    this.allowPrivateProxy = state.values.SAAS_ALLOW_PRIVATE_PROXY === 'true'
+    this.configRevision = state.revision
   }
   json (res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)) }
   async body (req) {
@@ -76,8 +95,10 @@ class WorkspaceServer {
   }
   cookie (req) { const value = req.headers.cookie?.split(';').map(item => item.trim()).find(item => item.startsWith('qijie_session=')); return value ? value.slice(14) : '' }
   async handle (req, res) {
+    await this.configurationReady
+    await this.refreshSystemSettings()
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     const address = this.server.address(); const origin = this.publicUrl ? new URL(this.publicUrl).origin : `http://${this.host}:${address?.port || this.port}`
     const url = new URL(req.url, origin); const pathname = url.pathname; const method = req.method
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })
@@ -109,7 +130,7 @@ class WorkspaceServer {
         const result = await this.registrationMailer.sendCode(email, req.socket.remoteAddress)
         return send({ ...result, message: '验证码邮件已发送，请检查收件箱。' })
       }
-      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || platforms).map(item => ({ key: item.key, name: item.name, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
+      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || platforms).map(item => ({ key: item.key, name: item.name, icon: platformIcons[item.key] ? `assets/platforms/${platformIcons[item.key]}` : item.icon, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
       if (method === 'GET' && pathname === '/api/platform-runtime') {
         if (!this.mediaAuthorizations.available()) throw new UserError('平台授权服务尚未配置。', 503)
         const { manifest } = this.platformService.runtime(); return send({ ...manifest, url: '/platform-runtime/' + manifest.file })
@@ -126,9 +147,10 @@ class WorkspaceServer {
         const password = body.password
         let user
         if (pathname.endsWith('/register')) {
-          if (password.length < 12 || !password.trim()) throw new UserError('密码至少需要十二个字符，且不能全部为空格。')
+          if (password.length < 8 || !password.trim()) throw new UserError('密码至少需要 8 个字符，且不能全部为空格。')
           if (typeof body.verificationCode !== 'string' || !/^\d{6}$/.test(body.verificationCode)) throw new UserError('请输入邮箱收到的六位验证码。')
-          user = await this.database.register({ email, password, verificationCode: body.verificationCode, name: text(body.name, '姓名', 60), workspaceName: text(body.workspaceName, '团队名称', 80) })
+          const nickname = text(body.nickname ?? body.name, '昵称', 60)
+          user = await this.database.register({ email, password, verificationCode: body.verificationCode, name: nickname, workspaceName: body.nickname === undefined ? text(body.workspaceName ?? nickname, '团队名称', 80) : nickname })
         } else {
           const found = await this.database.userByEmail(email)
           if (!found || !verifyPassword(password, found.password_hash)) throw new UserError('邮箱或密码错误。', 401)
@@ -142,7 +164,20 @@ class WorkspaceServer {
       if (!session) throw new UserError('请先登录工作空间。', 401)
       if (!['GET', 'HEAD'].includes(method) && req.headers['x-csrf-token'] !== session.csrf) throw new UserError('页面会话已变化，请刷新后重试。', 403)
       const user = await this.database.user(session.user_id)
-      if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf })
+      if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf, isSystemAdmin: await this.systemSettings.isAdmin(user.id) })
+      if (pathname === '/api/system/settings') {
+        await this.systemSettings.assertAdmin(user.id)
+        if (method === 'GET') return send({ settings: await this.systemSettings.publicSettings(user.id), paymentMethods: this.billing.methods(), emailDeliveryAvailable: this.registrationMailer.available })
+        if (method === 'PUT') {
+          const settings = await this.systemSettings.save(user.id, await this.body(req))
+          await this.refreshSystemSettings()
+          return send({ settings, paymentMethods: this.billing.methods(), emailDeliveryAvailable: this.registrationMailer.available, message: '系统配置已保存并生效。' })
+        }
+      }
+      if (pathname === '/api/system/audit' && method === 'GET') {
+        await this.systemSettings.assertAdmin(user.id)
+        return send({ items: await this.database.execute('SELECT a.revision,a.changed_fields,a.created_at,u.email FROM system_settings_audit a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 20') })
+      }
       if (method === 'POST' && pathname === '/api/auth/logout') { await this.database.logout(this.cookie(req)); res.setHeader('Set-Cookie', 'qijie_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return send({}) }
       if (method === 'GET' && pathname === '/api/fingerprint-defaults') { const profile = getDefaultProfile(); profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID(); return send({ profile }) }
       if (method === 'POST' && pathname === '/api/fingerprint-draft') {
@@ -231,20 +266,9 @@ class WorkspaceServer {
           return send({ item }, 201)
         }
         if (method === 'POST' && id && action === 'launch') {
-          db.assertWrite(member); const environment = await getRecord('environments'); let proxy = { mode: 'direct', server: '', username: '', password: '' }
+          db.assertWrite(member); const environment = await getRecord('environments')
           const encryption = await this.body(req)
-          try { validateLaunchRequest(encryption) } catch (error) { throw new UserError(error.message) }
-          const fingerprint = db.decodeFingerprint(environment.fingerprint)
-          await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
-          if (environment.proxyId) {
-            const item = await db.get('proxies', workspaceId, environment.proxyId)
-            if (!item || !db.canAccess(member, item.id)) throw new UserError('环境代理已失效，启动已阻止。', 409)
-            const credentials = JSON.parse(db.decrypt(item.credential)); const result = await checkProxy({ ...item, ...credentials }, { allowPrivate: this.allowPrivateProxy })
-            if (result.timezone !== fingerprint.locale.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
-            const host = item.host.includes(':') ? `[${item.host}]` : item.host
-            proxy = { mode: item.protocol, server: `${item.protocol}://${host}:${item.port}`, ...credentials }
-          }
-          return send({ envelope: sealLaunch({ id: environment.id, name: environment.name, url: environment.startUrl, fingerprint, proxy }, encryption, { workspaceId, environmentId: id }) })
+          return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption) })
         }
         if (method === 'DELETE' && id) { db.assertWrite(member); await getRecord('environments'); await db.remove('environments', workspaceId, id); return send({}) }
       }
@@ -287,6 +311,48 @@ class WorkspaceServer {
         }
       }
       if (resource === 'accounts' && method === 'GET' && !id) return send({ items: (await db.list('accounts', workspaceId)).filter(accessible) })
+      if (resource === 'accounts' && method === 'POST' && id && ['launch', 'check'].includes(action)) {
+        db.assertWrite(member)
+        const account = await getRecord('accounts')
+        const platform = this.platformService?.catalog.find(item => item.key === account.platform)
+        if (!platform) throw new UserError('此账号的平台服务尚未配置。', 503)
+        const environment = await db.get('environments', workspaceId, account.environmentId)
+        if (!environment || !db.canAccess(member, environment.id)) throw new UserError('账号绑定的浏览器环境不存在或无法访问。', 403)
+        const body = await this.body(req)
+        if (action === 'launch') {
+          if (account.status !== 'valid') throw new UserError('账号授权已失效，请先重新授权。', 409)
+          if (body.protocol !== 'desktop-launch-v1') throw new UserError('请升级客户端后打开账号。')
+          try { validateLaunchRequest(body) } catch (error) { throw new UserError(error.message) }
+        }
+        if (action === 'check') {
+          await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
+          const snapshot = await db.readAccountSession(workspaceId, user.id, account.id)
+          const saveStatus = async status => await db.transaction(async () => {
+            // 公网核验完成后重新锁定权限与账号，撤权或并发重授权不能被旧结果覆盖。
+            await db.readAccountSession(workspaceId, user.id, account.id)
+            return await db.put('accounts', workspaceId, account.id, { ...account, status, checkedAt: Date.now() }, account.revision)
+          })
+          let verified
+          try { verified = await this.platformService.verifyAuthorization(account.platform, snapshot) } catch (error) {
+            if (error.code !== 'AUTH_EXPIRED') throw new UserError('暂时无法核验账号状态，请稍后重试。', 503)
+            const item = await saveStatus('invalid')
+            return send({ item })
+          }
+          if (verified.platformUserId !== account.platformUserId) throw new UserError('账号会话身份不匹配，请联系管理员。', 409)
+          const item = await saveStatus('valid')
+          return send({ item })
+        }
+        const envelope = await db.transaction(async () => {
+          const snapshot = await db.readAccountSession(workspaceId, user.id, account.id)
+          const currentAccount = await db.get('accounts', workspaceId, account.id)
+          if (currentAccount.status !== 'valid') throw new UserError('账号授权已失效，请先重新授权。', 409)
+          const currentMember = await db.membership(workspaceId, user.id)
+          const currentEnvironment = await db.get('environments', workspaceId, currentAccount.environmentId)
+          const session = { format: 'desktop-session-v1', origins: platform.origins, cookies: snapshot.cookies, storage: snapshot.storage, version: snapshot.sessionVersion }
+          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url, session })
+        })
+        return send({ envelope })
+      }
       if (resource === 'authorizations') {
         // 平台接入仅通过系统接口，禁止提交任意登录地址、Cookie 或自定义身份。
         db.assertWrite(member)
@@ -336,15 +402,50 @@ class WorkspaceServer {
     if (!mime) throw new UserError('页面不存在。', 404)
     res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' }); if (req.method === 'HEAD') return res.end(); fs.createReadStream(file).pipe(res)
   }
-  async start () { await this.database.ready; return await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(this.port, this.host, () => resolve(this.server.address())) }) }
+  async launchEnvelope (workspaceId, member, environment, encryption, extra = {}) {
+    const db = this.database
+    try { validateLaunchRequest(encryption) } catch (error) { throw new UserError(error.message) }
+    if (encryption.protocol === 'desktop-launch-v1' && (encryption.scope !== workspaceId || encryption.resourceId !== (extra.id || environment.id))) throw new UserError('启动请求与当前团队或账号环境不一致。')
+    const fingerprint = db.decodeFingerprint(environment.fingerprint)
+    await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
+    let proxy = { mode: 'direct', server: '', username: '', password: '' }
+    if (environment.proxyId) {
+      const item = await db.get('proxies', workspaceId, environment.proxyId)
+      if (!item || !db.canAccess(member, item.id)) throw new UserError('环境代理已失效，启动已阻止。', 409)
+      const credentials = JSON.parse(db.decrypt(item.credential)); const result = await checkProxy({ ...item, ...credentials }, { allowPrivate: this.allowPrivateProxy })
+      if (result.timezone !== fingerprint.locale.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
+      const host = item.host.includes(':') ? `[${item.host}]` : item.host
+      proxy = { mode: item.protocol, server: `${item.protocol}://${host}:${item.port}`, ...credentials }
+    }
+    return sealLaunch({ id: environment.id, name: environment.name, url: environment.startUrl, fingerprint, proxy, ...extra }, encryption, { workspaceId, environmentId: extra.id || environment.id })
+  }
+  async start () { await this.database.ready; await this.configurationReady; return await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(this.port, this.host, () => resolve(this.server.address())) }) }
   async stop () { await new Promise(resolve => this.server.close(resolve)); this.registrationMailer.close(); await this.database.close() }
 }
 
 if (require.main === module) {
+  if (!process.env.SAAS_ENV && process.argv[2] === '--init-system-admin') process.env.SAAS_ENV = 'prod'
   loadEnvironment(path.join(__dirname, '..'), process.env.SAAS_ENV || 'dev')
   const server = new WorkspaceServer({ port: Number(process.env.PORT || 8088), host: process.env.HOST || '127.0.0.1', dataDir: process.env.SAAS_DATA_DIR || path.join(__dirname, '../data/workspace'), publicUrl: process.env.SAAS_PUBLIC_URL || '', allowPrivateProxy: process.env.SAAS_ALLOW_PRIVATE_PROXY === 'true', platformService: loadExternalService() })
+  if (process.argv[2] === '--init-system-admin') {
+    void server.configurationReady.then(async () => {
+      const result = await server.systemSettings.provisionAdmin(process.argv[3])
+      console.log(`系统管理员已配置：${result.email}`)
+      if (result.password) console.log(`初始密码（请妥善保存）：${result.password}`)
+      else console.log('现有账号密码保持不变。')
+    }).catch(() => { console.error('管理员初始化失败，请检查邮箱、数据库和配置文件。'); process.exitCode = 1 }).finally(async () => { server.registrationMailer.close(); await server.database.close() })
+  } else {
   server.start().then(address => console.log(`工作空间服务已启动：http://${address.address}:${address.port}`)).catch(() => { console.error('工作空间服务启动失败，请检查端口、数据库和环境配置。'); process.exitCode = 1 })
-  process.on('SIGTERM', () => { void server.stop().then(() => process.exit()) })
+  let stopping = false
+  const shutdown = () => {
+    if (stopping) return
+    stopping = true
+    void server.stop().then(() => process.exit(0)).catch(() => { console.error('服务停止未完成，请检查数据库连接和运行日志。'); process.exit(1) })
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
+  process.on('message', message => { if (message === 'shutdown') shutdown() })
+  }
 }
 
 module.exports = { WorkspaceServer, validateProfile, loadEnvironment }

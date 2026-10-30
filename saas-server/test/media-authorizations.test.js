@@ -25,7 +25,7 @@ test('隔离 MySQL：授权核验、加密持久化、身份匹配、重复确�
     // 仅此隔离测试以确定性校验器代替平台公网响应；生产模块没有该实现。
     const fixture = { catalog: ['douyin', 'shipinhao', 'kuaishou', 'xiaohongshu'].map(key => ({ key, name: key })), runtime: () => ({ manifest: { version: 'test-only' } }), verifyAuthorization: async (_, snapshot) => {
       if (snapshot.cookies?.[0]?.value !== 'test-session-secret') throw new Error('测试会话无效')
-      return { platformUserId: snapshot.testIdentity || 'test-platform-id', name: '隔离测试身份', session: snapshot }
+      return { platformUserId: snapshot.testIdentity || 'test-platform-id', name: '隔离测试身份', session: { ...snapshot, cookies: snapshot.cookies.map(cookie => ({ name: 'test-cookie', ...cookie })) } }
     } }
     const service = new MediaAuthorizations(db, fixture)
     const begin = () => service.begin(workspaceId, userId, { platform: 'douyin', environmentId })
@@ -39,9 +39,9 @@ test('隔离 MySQL：授权核验、加密持久化、身份匹配、重复确�
     assert.equal(saved.status, 'saved')
     assert.equal((await service.handle(workspaceId, userId, task.id, 'confirm', {})).accountId, saved.accountId)
     assert.equal((await db.list('accounts', workspaceId)).length, 1)
-    const credentials = await db.get('account-sessions', workspaceId, saved.accountId)
+    const credentials = await db.execute('SELECT value_ciphertext FROM media_session_cookies WHERE workspace_id=? AND session_id=?', [workspaceId, saved.accountId])
     assert(!JSON.stringify(credentials).includes('test-session-secret'))
-    assert(JSON.parse(db.decrypt(credentials.credential)).cookies.length)
+    assert.equal((await db.readAccountSession(workspaceId, userId, saved.accountId)).cookies[0].value, 'test-session-secret')
     for (const platform of ['shipinhao', 'kuaishou', 'xiaohongshu']) {
       const another = await service.begin(workspaceId, userId, { platform, environmentId })
       await service.handle(workspaceId, userId, another.id, 'complete', seal(another, { cookies: [{ value: 'test-session-secret' }] }))
@@ -49,6 +49,9 @@ test('隔离 MySQL：授权核验、加密持久化、身份匹配、重复确�
       assert(concurrent.every(item => item.accountId === concurrent[0].accountId))
     }
     assert.equal((await db.list('accounts', workspaceId)).length, 4)
+    await assert.rejects(service.begin(workspaceId, userId, { platform: 'douyin', environmentId, accountId: saved.accountId }), /仍有效/)
+    const expiredAccount = await db.get('accounts', workspaceId, saved.accountId)
+    await db.put('accounts', workspaceId, saved.accountId, { ...expiredAccount, status: 'expired' }, expiredAccount.revision)
     const reauth = await service.begin(workspaceId, userId, { platform: 'douyin', environmentId, accountId: saved.accountId })
     await assert.rejects(service.handle(workspaceId, userId, reauth.id, 'complete', seal(reauth, { cookies: [{ value: 'test-session-secret' }], testIdentity: 'another-test-id' })), /身份与原账号不一致/)
     const cancelled = await begin(); await service.handle(workspaceId, userId, cancelled.id, 'cancel', {})
@@ -111,6 +114,7 @@ test('隔离 MySQL：授权核验、加密持久化、身份匹配、重复确�
     try { await assert.rejects(service.handle(workspaceId, userId, rollback.id, 'confirm', {}), /入库失败/) } finally { db.put = originalPut }
     const rollbackId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, 'douyin', 'rollback-test-id'])).digest('hex').slice(0, 48)
     assert.equal(await db.get('account-sessions', workspaceId, rollbackId), null)
+    assert.equal(await db.mediaSessions.read(workspaceId, rollbackId, 'account'), null)
     assert.equal(await db.get('accounts', workspaceId, rollbackId), null)
     assert.equal((await db.get('authorizations', workspaceId, rollback.id)).status, 'review')
     assert.equal((await service.handle(workspaceId, userId, rollback.id, 'confirm', {})).status, 'saved')
