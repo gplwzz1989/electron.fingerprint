@@ -70,26 +70,6 @@ class WorkspaceDatabase {
     await this.mediaSessions.initialize()
     await this.authAccounts.initialize()
   }
-  async dropForeignKeyConstraints () {
-    // 仅移除 SaaS 自有表的遗留外键，避免影响同库中的其他应用。
-    const tables = ['workspaces', 'members', 'sessions', 'fingerprints', 'fingerprint_versions', 'records', 'billing_orders', 'billing_subscriptions', 'media_sessions', 'media_session_cookies', 'media_session_storage', 'auth_accounts', 'system_administrators']
-    const placeholders = tables.map(() => '?').join(',')
-    const [constraints] = await this.pool.query(`SELECT TABLE_NAME,CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=? AND CONSTRAINT_TYPE='FOREIGN KEY' AND TABLE_NAME IN (${placeholders})`, [this.configuration.database, ...tables])
-    const quoteIdentifier = value => '`' + String(value).replace(/`/g, '``') + '`'
-    for (const item of constraints) {
-      try { await this.pool.query(`ALTER TABLE ${quoteIdentifier(item.TABLE_NAME)} DROP FOREIGN KEY ${quoteIdentifier(item.CONSTRAINT_NAME)}`) } catch (error) { if (error.code !== 'ER_CANT_DROP_FIELD_OR_KEY') throw error }
-    }
-    const relationshipIndexes = [
-      ['workspaces', 'owner_id', 'workspaces_owner'], ['members', 'user_id', 'members_user'],
-      ['sessions', 'user_id', 'sessions_user'], ['fingerprints', 'created_by', 'fingerprints_creator'],
-      ['fingerprint_versions', 'created_by', 'fingerprint_versions_creator'], ['billing_orders', 'created_by', 'billing_orders_creator'],
-      ['billing_subscriptions', 'last_order_id', 'billing_subscriptions_last_order']
-    ]
-    for (const [table, column, index] of relationshipIndexes) {
-      const [matches] = await this.pool.query('SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=? AND SEQ_IN_INDEX=1 LIMIT 1', [this.configuration.database, table, column])
-      if (!matches.length) await this.pool.query(`ALTER TABLE ${quoteIdentifier(table)} ADD INDEX ${quoteIdentifier(index)} (${quoteIdentifier(column)})`)
-    }
-  }
   encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
   decodeFingerprint (value) {
     const envelope = parse(value)
