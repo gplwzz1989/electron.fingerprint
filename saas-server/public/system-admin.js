@@ -39,6 +39,30 @@
     if (!response.ok || !data.ok) { const error = new Error(data.message || '操作未完成，请重试。'); error.status = response.status; throw error }
     return data
   }
+  const passwordChangeMarkup = `<section class="platform-picker password-change-dialog"><header class="platform-picker-header password-change-header"><div><h2>修改登录密码</h2><p>验证当前密码后设置新密码。</p></div><button class="platform-picker-close" type="button" data-password-close aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><form id="password-change-form" class="password-change-form"><div class="password-change-fields"><label class="field" for="password-current"><span>当前密码</span><input id="password-current" name="currentPassword" type="password" autocomplete="current-password" placeholder="请输入当前密码" required></label><label class="field" for="password-new"><span>新密码</span><input id="password-new" name="newPassword" type="password" autocomplete="new-password" placeholder="至少 8 个字符" minlength="8" maxlength="256" required></label><label class="field" for="password-confirm"><span>确认新密码</span><input id="password-confirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" maxlength="256" required></label></div><p class="password-change-message" id="password-change-message" role="alert" aria-live="assertive"></p><footer class="password-change-footer"><button class="button" type="button" data-password-cancel>取消</button><button class="button primary" type="submit">保存新密码</button></footer></form></section>`
+  function openPasswordChangeDialog (trigger) {
+    const close = () => { window.ShadcnUI.closeDialog(); if (trigger?.isConnected) trigger.focus() }
+    const dialog = window.ShadcnUI.openDialog(passwordChangeMarkup, trigger, close)
+    const form = dialog.querySelector('#password-change-form')
+    const message = dialog.querySelector('#password-change-message')
+    dialog.addEventListener('click', event => { if (event.target.closest?.('[data-password-close], [data-password-cancel]')) close() })
+    form.addEventListener('input', () => { message.textContent = '' })
+    form.addEventListener('submit', async event => {
+      event.preventDefault()
+      message.textContent = ''
+      const currentPassword = form.elements.currentPassword
+      const newPassword = form.elements.newPassword
+      const confirmPassword = form.elements.confirmPassword
+      const submit = event.submitter
+      if (newPassword.value !== confirmPassword.value) { message.textContent = '两次输入的新密码不一致。'; confirmPassword.focus(); return }
+      if (submit) submit.disabled = true
+      try {
+        const result = await api('/api/auth/password', 'POST', { currentPassword: currentPassword.value, newPassword: newPassword.value, confirmPassword: confirmPassword.value })
+        notify(result.message)
+        close()
+      } catch (error) { message.textContent = error.message; notify(error.message, true) } finally { if (submit) submit.disabled = false }
+    })
+  }
   function changed (event) { if (event?.target?.dataset.releaseFile) return; dirty = true; $('#save-state').textContent = '有尚未保存的修改' }
   function showGroup (group) {
     activeGroup = group
@@ -187,6 +211,7 @@
     } catch (error) { notify(error.message, true) } finally { busy = false; if (save) save.disabled = false }
   })
   $('#reload').addEventListener('click', async () => { if (!dirty || await window.WorkspaceDialogs.confirm({ title: '放弃未保存的修改？', description: '重新加载会丢弃尚未保存的设置。已保存的配置不受影响。', actionLabel: '重新加载', destructive: true, trigger: $('#reload') })) void load().catch(error => notify(error.message, true)) })
+  $('#change-password').addEventListener('click', event => openPasswordChangeDialog(event.currentTarget))
   $('#login-form').addEventListener('input', event => {
     if (event.target.name !== 'email') return
     event.target.removeAttribute('aria-invalid')

@@ -3,7 +3,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { AsyncLocalStorage } = require('node:async_hooks')
-const { hashPassword } = require('./auth')
+const { hashPassword, verifyPassword } = require('./auth')
 const { readServerConfig } = require('./server-config')
 const { MediaSessionStore } = require('./media-session-store')
 const { AuthAccountStore } = require('./auth-account-store')
@@ -170,6 +170,16 @@ class WorkspaceDatabase {
     return { token, csrf }
   }
   async logout (token) { await this.execute('DELETE FROM sessions WHERE hash=?', [crypto.createHash('sha256').update(token).digest('hex')]) }
+  async changePassword (userId, currentPassword, newPassword, currentSessionHash) {
+    return await this.transaction(async () => {
+      const user = (await this.execute('SELECT password_hash FROM users WHERE id=? FOR UPDATE', [userId]))[0]
+      if (!user) throw new UserError('账号不存在。', 404)
+      if (!verifyPassword(currentPassword, user.password_hash)) throw new UserError('当前密码不正确。', 401)
+      if (verifyPassword(newPassword, user.password_hash)) throw new UserError('新密码不能与当前密码相同。')
+      await this.execute('UPDATE users SET password_hash=? WHERE id=?', [hashPassword(newPassword), userId])
+      await this.execute('DELETE FROM sessions WHERE user_id=? AND hash<>?', [userId, currentSessionHash])
+    })
+  }
   async list (kind, workspaceId) { return (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND deleted_at IS NULL', [kind, workspaceId])).map(row => ({ ...parse(row.data), id: row.id, revision: row.revision })) }
   async get (kind, workspaceId, id) { const row = (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND id=? AND deleted_at IS NULL', [kind, workspaceId, id]))[0]; return row ? { ...parse(row.data), id: row.id, revision: row.revision } : null }
   async put (kind, workspaceId, id, value, expectedRevision) {

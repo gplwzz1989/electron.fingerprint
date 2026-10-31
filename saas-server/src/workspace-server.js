@@ -168,6 +168,14 @@ class WorkspaceServer {
       const session = await this.database.session(this.cookie(req))
       if (!session) throw new UserError('请先登录工作空间。', 401)
       if (!['GET', 'HEAD'].includes(method) && req.headers['x-csrf-token'] !== session.csrf) throw new UserError('页面会话已变化，请刷新后重试。', 403)
+      if (method === 'POST' && pathname === '/api/auth/password') {
+        const body = await this.body(req)
+        if (typeof body.currentPassword !== 'string' || !body.currentPassword || body.currentPassword.length > 256) throw new UserError('请填写有效的当前密码。')
+        if (typeof body.newPassword !== 'string' || body.newPassword.length < 8 || body.newPassword.length > 256 || !body.newPassword.trim()) throw new UserError('新密码至少需要 8 个字符，且不能全部为空格。')
+        if (body.newPassword !== body.confirmPassword) throw new UserError('两次输入的新密码不一致。')
+        await this.database.changePassword(session.user_id, body.currentPassword, body.newPassword, session.hash)
+        return send({ message: '密码已更新，其他登录会话已退出。' })
+      }
       const user = await this.database.user(session.user_id)
       if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf, isSystemAdmin: await this.systemSettings.isAdmin(user.id) })
       if (pathname === '/api/system/platform-releases' || pathname.startsWith('/api/system/platform-releases/')) {
