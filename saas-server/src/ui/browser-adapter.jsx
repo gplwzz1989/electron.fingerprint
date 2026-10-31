@@ -246,7 +246,7 @@ function installButton (node) {
   if (node.closest('[data-slot="alert-dialog-content"], [data-slot="dialog-content"]') && node.matches('.shadcn-dialog-button')) return
   const props = controlProps(node, ['class'])
   const legacyClass = controlClasses(node)
-  const variant = /\b(danger|destructive)\b/.test(legacyClass) ? 'destructive' : /\b(primary)\b/.test(legacyClass) ? 'default' : /\b(row-action|quiet|secondary)\b/.test(legacyClass) ? 'ghost' : 'outline'
+  const variant = /\brow-action\b/.test(legacyClass) ? 'ghost' : /\b(danger|destructive)\b/.test(legacyClass) ? 'destructive' : /\b(primary)\b/.test(legacyClass) ? 'default' : /\b(quiet|secondary)\b/.test(legacyClass) ? 'ghost' : 'outline'
   const innerHTML = node.innerHTML
   const host = hostFor(node, 'button')
   renderInto(host, <Button {...props} variant={variant} className={legacyClass} data-shadcn-native="true" dangerouslySetInnerHTML={{ __html: innerHTML }} />)
@@ -256,7 +256,7 @@ function installButtonLink (node) {
   if (node.dataset.shadcnOwned) return
   const props = controlProps(node, ['class'])
   const legacyClass = controlClasses(node)
-  const variant = /\b(danger|destructive)\b/.test(legacyClass) ? 'destructive' : /\b(primary)\b/.test(legacyClass) ? 'default' : /\b(row-action|quiet|secondary)\b/.test(legacyClass) ? 'ghost' : 'outline'
+  const variant = /\brow-action\b/.test(legacyClass) ? 'ghost' : /\b(danger|destructive)\b/.test(legacyClass) ? 'destructive' : /\b(primary)\b/.test(legacyClass) ? 'default' : /\b(quiet|secondary)\b/.test(legacyClass) ? 'ghost' : 'outline'
   const innerHTML = node.innerHTML
   const host = hostFor(node, 'button-link')
   renderInto(host, <Button asChild {...props} variant={variant} className={legacyClass}>

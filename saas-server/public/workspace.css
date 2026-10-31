@@ -161,8 +161,8 @@ body.navigation-closed{--navigation-offset:0px}.navigation-closed .sidebar{trans
 #page .table-panel td small{color:#7b8799;font-size:11px}
 #page .row-action{min-height:32px;padding:0 10px;border:1px solid transparent;border-radius:8px;font-size:12px;transition:background .16s,border-color .16s}
 #page .row-action:hover:not(:disabled){background:#edf2ff;color:#3655d5}
-#page .row-action.danger{color:#c13e51}
-#page .row-action.danger:hover:not(:disabled){border-color:#f1d3d8;background:#fff2f4;color:#b53043}
+#page .row-action.danger{color:#c13e51;background:transparent;border-color:transparent}
+#page .row-action.danger:hover:not(:disabled){border-color:#e2e8f0;background:#f7f8fa;color:#b53043}
 #page .pagination{min-height:52px;padding:10px 16px;border-top-color:#e9edf3;color:#66748a}
 #page .pagination .button{min-height:34px;border-radius:8px}
 #page .page-actions .button.primary{box-shadow:0 3px 8px #3f5de829}
