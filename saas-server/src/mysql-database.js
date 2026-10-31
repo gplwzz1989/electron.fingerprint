@@ -49,16 +49,16 @@ class WorkspaceDatabase {
       'CREATE TABLE IF NOT EXISTS platform_release_state(id INT PRIMARY KEY,release_version VARCHAR(32) NOT NULL,manifest JSON)',
       'CREATE TABLE IF NOT EXISTS platform_releases(id BIGINT AUTO_INCREMENT PRIMARY KEY,component VARCHAR(16) NOT NULL,version VARCHAR(32) NOT NULL,sha256 CHAR(64) NOT NULL,file_name VARCHAR(160) NOT NULL UNIQUE,size_bytes INT NOT NULL,published_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,INDEX platform_release_component(component,id))',
       'CREATE TABLE IF NOT EXISTS users(id VARCHAR(36) PRIMARY KEY,email VARCHAR(254) NOT NULL UNIQUE,name VARCHAR(160) NOT NULL,password_hash VARCHAR(256) NOT NULL,created_at BIGINT NOT NULL,email_verified_at BIGINT)',
-      'CREATE TABLE IF NOT EXISTS workspaces(id VARCHAR(36) PRIMARY KEY,name VARCHAR(160) NOT NULL,owner_id VARCHAR(36) NOT NULL,FOREIGN KEY(owner_id) REFERENCES users(id))',
-      'CREATE TABLE IF NOT EXISTS members(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,user_id VARCHAR(36) NOT NULL,role VARCHAR(16) NOT NULL,scope JSON NOT NULL,UNIQUE(workspace_id,user_id),FOREIGN KEY(workspace_id) REFERENCES workspaces(id),FOREIGN KEY(user_id) REFERENCES users(id))',
-      'CREATE TABLE IF NOT EXISTS sessions(hash VARCHAR(64) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,csrf VARCHAR(48) NOT NULL,expires_at BIGINT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id))',
-      'CREATE TABLE IF NOT EXISTS fingerprints(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,name VARCHAR(160) NOT NULL,version INT NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,deleted_at BIGINT,INDEX fingerprints_workspace(workspace_id,deleted_at),FOREIGN KEY(workspace_id) REFERENCES workspaces(id),FOREIGN KEY(created_by) REFERENCES users(id))',
-      'CREATE TABLE IF NOT EXISTS fingerprint_versions(fingerprint_id VARCHAR(36) NOT NULL,version INT NOT NULL,profile JSON NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(fingerprint_id,version),FOREIGN KEY(fingerprint_id) REFERENCES fingerprints(id),FOREIGN KEY(created_by) REFERENCES users(id))',
-      'CREATE TABLE IF NOT EXISTS records(kind VARCHAR(32) NOT NULL,id VARCHAR(64) NOT NULL,workspace_id VARCHAR(36) NOT NULL,data JSON NOT NULL,revision INT NOT NULL,deleted_at BIGINT,PRIMARY KEY(kind,id),INDEX records_workspace(workspace_id,kind,deleted_at),FOREIGN KEY(workspace_id) REFERENCES workspaces(id))',
+      'CREATE TABLE IF NOT EXISTS workspaces(id VARCHAR(36) PRIMARY KEY,name VARCHAR(160) NOT NULL,owner_id VARCHAR(36) NOT NULL,INDEX workspaces_owner(owner_id))',
+      'CREATE TABLE IF NOT EXISTS members(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,user_id VARCHAR(36) NOT NULL,role VARCHAR(16) NOT NULL,scope JSON NOT NULL,UNIQUE(workspace_id,user_id),INDEX members_user(user_id))',
+      'CREATE TABLE IF NOT EXISTS sessions(hash VARCHAR(64) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,csrf VARCHAR(48) NOT NULL,expires_at BIGINT NOT NULL,INDEX sessions_user(user_id))',
+      'CREATE TABLE IF NOT EXISTS fingerprints(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,name VARCHAR(160) NOT NULL,version INT NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,deleted_at BIGINT,INDEX fingerprints_workspace(workspace_id,deleted_at),INDEX fingerprints_creator(created_by))',
+      'CREATE TABLE IF NOT EXISTS fingerprint_versions(fingerprint_id VARCHAR(36) NOT NULL,version INT NOT NULL,profile JSON NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(fingerprint_id,version),INDEX fingerprint_versions_creator(created_by))',
+      'CREATE TABLE IF NOT EXISTS records(kind VARCHAR(32) NOT NULL,id VARCHAR(64) NOT NULL,workspace_id VARCHAR(36) NOT NULL,data JSON NOT NULL,revision INT NOT NULL,deleted_at BIGINT,PRIMARY KEY(kind,id),INDEX records_workspace(workspace_id,kind,deleted_at))',
       'CREATE TABLE IF NOT EXISTS registration_codes(email VARCHAR(254) PRIMARY KEY,generation VARCHAR(36) NOT NULL,code_hash VARCHAR(64) NOT NULL,expires_at BIGINT NOT NULL,resend_after BIGINT NOT NULL,attempts INT NOT NULL,delivered TINYINT NOT NULL,consumed_at BIGINT)',
       'CREATE TABLE IF NOT EXISTS registration_limits(scope_key VARCHAR(80) PRIMARY KEY,window_start BIGINT NOT NULL,requests INT NOT NULL)',
-      'CREATE TABLE IF NOT EXISTS billing_orders(id VARCHAR(32) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,created_by VARCHAR(36) NOT NULL,request_id VARCHAR(36) NOT NULL,provider VARCHAR(24) NOT NULL,plan JSON NOT NULL,amount INT NOT NULL,currency VARCHAR(3) NOT NULL,status VARCHAR(16) NOT NULL,code_url TEXT,transaction_id VARCHAR(100),created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,paid_at BIGINT,checked_at BIGINT,UNIQUE(workspace_id,request_id),UNIQUE(provider,transaction_id),INDEX billing_workspace(workspace_id,created_at),FOREIGN KEY(workspace_id) REFERENCES workspaces(id))',
-      'CREATE TABLE IF NOT EXISTS billing_subscriptions(workspace_id VARCHAR(36) PRIMARY KEY,plan JSON NOT NULL,starts_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,last_order_id VARCHAR(32) NOT NULL,FOREIGN KEY(workspace_id) REFERENCES workspaces(id),FOREIGN KEY(last_order_id) REFERENCES billing_orders(id))'
+      'CREATE TABLE IF NOT EXISTS billing_orders(id VARCHAR(32) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,created_by VARCHAR(36) NOT NULL,request_id VARCHAR(36) NOT NULL,provider VARCHAR(24) NOT NULL,plan JSON NOT NULL,amount INT NOT NULL,currency VARCHAR(3) NOT NULL,status VARCHAR(16) NOT NULL,code_url TEXT,transaction_id VARCHAR(100),created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,paid_at BIGINT,checked_at BIGINT,UNIQUE(workspace_id,request_id),UNIQUE(provider,transaction_id),INDEX billing_workspace(workspace_id,created_at),INDEX billing_orders_creator(created_by))',
+      'CREATE TABLE IF NOT EXISTS billing_subscriptions(workspace_id VARCHAR(36) PRIMARY KEY,plan JSON NOT NULL,starts_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,last_order_id VARCHAR(32) NOT NULL,INDEX billing_subscriptions_last_order(last_order_id))'
     ]
     for (const statement of tables) await this.pool.query(statement + ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
     await this.pool.query("INSERT IGNORE INTO platform_release_state VALUES(1,'0.2.0',NULL)")
@@ -69,6 +69,26 @@ class WorkspaceDatabase {
     await this.migrateFingerprintEncryption()
     await this.mediaSessions.initialize()
     await this.authAccounts.initialize()
+  }
+  async dropForeignKeyConstraints () {
+    // 仅移除 SaaS 自有表的遗留外键，避免影响同库中的其他应用。
+    const tables = ['workspaces', 'members', 'sessions', 'fingerprints', 'fingerprint_versions', 'records', 'billing_orders', 'billing_subscriptions', 'media_sessions', 'media_session_cookies', 'media_session_storage', 'auth_accounts', 'system_administrators']
+    const placeholders = tables.map(() => '?').join(',')
+    const [constraints] = await this.pool.query(`SELECT TABLE_NAME,CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=? AND CONSTRAINT_TYPE='FOREIGN KEY' AND TABLE_NAME IN (${placeholders})`, [this.configuration.database, ...tables])
+    const quoteIdentifier = value => '`' + String(value).replace(/`/g, '``') + '`'
+    for (const item of constraints) {
+      try { await this.pool.query(`ALTER TABLE ${quoteIdentifier(item.TABLE_NAME)} DROP FOREIGN KEY ${quoteIdentifier(item.CONSTRAINT_NAME)}`) } catch (error) { if (error.code !== 'ER_CANT_DROP_FIELD_OR_KEY') throw error }
+    }
+    const relationshipIndexes = [
+      ['workspaces', 'owner_id', 'workspaces_owner'], ['members', 'user_id', 'members_user'],
+      ['sessions', 'user_id', 'sessions_user'], ['fingerprints', 'created_by', 'fingerprints_creator'],
+      ['fingerprint_versions', 'created_by', 'fingerprint_versions_creator'], ['billing_orders', 'created_by', 'billing_orders_creator'],
+      ['billing_subscriptions', 'last_order_id', 'billing_subscriptions_last_order']
+    ]
+    for (const [table, column, index] of relationshipIndexes) {
+      const [matches] = await this.pool.query('SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=? AND SEQ_IN_INDEX=1 LIMIT 1', [this.configuration.database, table, column])
+      if (!matches.length) await this.pool.query(`ALTER TABLE ${quoteIdentifier(table)} ADD INDEX ${quoteIdentifier(index)} (${quoteIdentifier(column)})`)
+    }
   }
   encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
   decodeFingerprint (value) {

@@ -72,7 +72,10 @@ class WorkspaceServer {
     this.systemSettings = new SystemSettings(this.database, undefined, { SAAS_PUBLIC_URL: publicUrl, SAAS_ALLOW_PRIVATE_PROXY: String(allowPrivateProxy) })
     this.publicDirectory = path.join(__dirname, '../public'); this.rateLimits = new Map()
     this.app = null; this.server = null
-    this.configurationReady = this.systemSettings.initialize().then(() => this.refreshSystemSettings())
+    this.configurationReady = this.systemSettings.initialize().then(async () => {
+      await this.database.dropForeignKeyConstraints()
+      return await this.refreshSystemSettings()
+    })
   }
   async refreshSystemSettings () {
     const state = await this.systemSettings.read()

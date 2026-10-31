@@ -39,7 +39,7 @@ class SystemSettings {
   constructor (database, configFile, defaults = {}) { this.db = database; this.configFile = configFile; this.defaults = defaults }
   async initialize () {
     await this.db.execute('CREATE TABLE IF NOT EXISTS system_settings(id TINYINT PRIMARY KEY,value_ciphertext LONGTEXT NOT NULL,revision INT NOT NULL,updated_at BIGINT NOT NULL,updated_by VARCHAR(36)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
-    await this.db.execute('CREATE TABLE IF NOT EXISTS system_administrators(user_id VARCHAR(36) PRIMARY KEY,created_at BIGINT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
+    await this.db.execute('CREATE TABLE IF NOT EXISTS system_administrators(user_id VARCHAR(36) PRIMARY KEY,created_at BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
     await this.db.execute('CREATE TABLE IF NOT EXISTS system_settings_audit(id VARCHAR(36) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,revision INT NOT NULL,changed_fields JSON NOT NULL,created_at BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
     if ((await this.db.execute('SELECT id FROM system_settings WHERE id=1')).length) return
     const config = { ...readServerConfig(this.configFile), ...this.defaults }

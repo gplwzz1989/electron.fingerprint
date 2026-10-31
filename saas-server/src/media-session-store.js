@@ -9,9 +9,9 @@ class MediaSessionStore {
   constructor (database, UserError) { this.db = database; this.UserError = UserError }
   async initialize () {
     const statements = [
-      'CREATE TABLE IF NOT EXISTS media_sessions(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,version BIGINT NOT NULL,updated_at BIGINT NOT NULL,PRIMARY KEY(workspace_id,session_id,session_kind),FOREIGN KEY(workspace_id) REFERENCES workspaces(id))',
-      'CREATE TABLE IF NOT EXISTS media_session_cookies(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,cookie_ordinal INT NOT NULL,cookie_name TEXT NOT NULL,value_ciphertext LONGTEXT NOT NULL,cookie_domain TEXT,cookie_path TEXT,is_secure TINYINT,is_http_only TINYINT,is_session TINYINT,is_host_only TINYINT,same_site VARCHAR(32),expires_at DOUBLE,priority VARCHAR(32),same_party TINYINT,source_scheme VARCHAR(32),source_port INT,partition_kind VARCHAR(16),partition_site TEXT,partition_cross_site TINYINT,PRIMARY KEY(workspace_id,session_id,session_kind,cookie_ordinal),FOREIGN KEY(workspace_id,session_id,session_kind) REFERENCES media_sessions(workspace_id,session_id,session_kind) ON DELETE CASCADE)',
-      'CREATE TABLE IF NOT EXISTS media_session_storage(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,entry_hash CHAR(64) NOT NULL,storage_origin TEXT NOT NULL,storage_key TEXT NOT NULL,value_ciphertext LONGTEXT NOT NULL,PRIMARY KEY(workspace_id,session_id,session_kind,entry_hash),FOREIGN KEY(workspace_id,session_id,session_kind) REFERENCES media_sessions(workspace_id,session_id,session_kind) ON DELETE CASCADE)'
+      'CREATE TABLE IF NOT EXISTS media_sessions(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,version BIGINT NOT NULL,updated_at BIGINT NOT NULL,PRIMARY KEY(workspace_id,session_id,session_kind))',
+      'CREATE TABLE IF NOT EXISTS media_session_cookies(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,cookie_ordinal INT NOT NULL,cookie_name TEXT NOT NULL,value_ciphertext LONGTEXT NOT NULL,cookie_domain TEXT,cookie_path TEXT,is_secure TINYINT,is_http_only TINYINT,is_session TINYINT,is_host_only TINYINT,same_site VARCHAR(32),expires_at DOUBLE,priority VARCHAR(32),same_party TINYINT,source_scheme VARCHAR(32),source_port INT,partition_kind VARCHAR(16),partition_site TEXT,partition_cross_site TINYINT,PRIMARY KEY(workspace_id,session_id,session_kind,cookie_ordinal))',
+      'CREATE TABLE IF NOT EXISTS media_session_storage(workspace_id VARCHAR(36) NOT NULL,session_id VARCHAR(64) NOT NULL,session_kind VARCHAR(16) NOT NULL,entry_hash CHAR(64) NOT NULL,storage_origin TEXT NOT NULL,storage_key TEXT NOT NULL,value_ciphertext LONGTEXT NOT NULL,PRIMARY KEY(workspace_id,session_id,session_kind,entry_hash))'
     ]
     for (const statement of statements) await this.db.pool.query(statement + ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
     await this.migrate()
@@ -65,7 +65,13 @@ class MediaSessionStore {
     for (const row of await execute('SELECT storage_origin,storage_key,value_ciphertext FROM media_session_storage WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])) { storage[row.storage_origin] ||= Object.create(null); storage[row.storage_origin][row.storage_key] = this.db.decrypt(row.value_ciphertext) }
     return { cookies, storage, sessionVersion: Number(header.version) }
   }
-  async remove (workspaceId, sessionId, kind) { await this.db.execute('DELETE FROM media_sessions WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind]) }
+  async remove (workspaceId, sessionId, kind) {
+    await this.db.transaction(async () => {
+      await this.db.execute('DELETE FROM media_session_cookies WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])
+      await this.db.execute('DELETE FROM media_session_storage WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])
+      await this.db.execute('DELETE FROM media_sessions WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])
+    })
+  }
   async migrate () {
     // 独立连接避免初始化 ready 循环等待；逐条事务迁移，失败时保留原始密文，禁止生成空会话替代。
     const connection = await this.db.pool.getConnection()
