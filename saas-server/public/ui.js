@@ -122,7 +122,7 @@
       ? `<a class="${cls}" href="#${escapeHTML(item.target)}" data-route="${escapeHTML(item.target)}">${escapeHTML(item.label)}</a>`
       : `<button class="${cls}" type="button" ${item.action ? `data-action="${escapeHTML(item.action)}"` : ''} ${item.closeDialog ? 'data-close-platforms' : ''} ${item.disabled ? 'disabled' : ''}>${escapeHTML(item.label)}</button>`
   }
-  const notice = item => item ? `<div class="notice ${escapeHTML(item.tone || 'info')}" ${item.tone === 'error' ? 'role="alert"' : ''}>${icon(item.tone === 'error' || item.tone === 'warning' ? 'warning' : 'shield')}<div><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.text)}</p></div></div>` : ''
+  const notice = item => item ? `<div data-slot="alert" class="shadcn-alert notice ${escapeHTML(item.tone || 'info')}" ${item.tone === 'error' ? 'role="alert"' : ''}>${icon(item.tone === 'error' || item.tone === 'warning' ? 'warning' : 'shield')}<div><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.text)}</p></div></div>` : ''
   const tabs = items => items?.length ? `<nav class="tabs" aria-label="页面分类">${items.map(([label,id]) => `<a class="tab ${id === currentRoute ? 'active' : ''}" href="#${id}" data-route="${id}" ${id === currentRoute ? 'aria-current="page"' : ''}>${escapeHTML(label)}</a>`).join('')}</nav>` : ''
   const summary = item => item ? `<aside class="summary surface" aria-label="${escapeHTML(item.title)}"><h2>${escapeHTML(item.title)}</h2><dl>${(item.rows || []).map(([key,value])=>`<div><dt>${escapeHTML(key)}</dt><dd data-summary-label="${escapeHTML(key)}">${escapeHTML(value)}</dd></div>`).join('')}</dl><p>${escapeHTML(item.text)}</p></aside>` : ''
   function field(item, index, display, scope = currentRoute) {
@@ -153,7 +153,7 @@
   }
   function table(item, filters) {
     if (!item) return ''
-    return `<section class="surface table-panel">${filters?.length ? `<div class="table-tools"><label class="search-field">${icon('search')}<input id="search-${currentRoute}" aria-label="搜索列表" placeholder="搜索名称或编号"></label>${filters.map((value,index)=>`<select id="filter-${currentRoute}-${index}" aria-label="${escapeHTML(value)}">${(currentRoute==='accounts' && value==='全部平台' ? ['全部平台',...data.pages.find(item=>item.id==='account-platforms').platforms.map(item=>item.name)] : currentRoute==='accounts' && value==='授权状态' ? ['全部授权状态','授权有效','待重新授权','授权异常'] : [value]).map(option=>`<option>${escapeHTML(option)}</option>`).join('')}</select>`).join('')}</div>` : ''}<div class="table-scroll"><table><thead><tr>${item.columns.map(label=>`<th scope="col">${escapeHTML(label)}</th>`).join('')}</tr></thead><tbody><tr><td colspan="${item.columns.length}"><div class="empty-state"><span class="empty-icon">${icon('folder')}</span><h2>${escapeHTML(item.emptyTitle)}</h2><p>${escapeHTML(item.emptyText)}</p>${button(item.action)}</div></td></tr></tbody></table></div></section>`
+    return `<section class="surface table-panel">${filters?.length ? `<div class="table-tools"><label class="search-field">${icon('search')}<input id="search-${currentRoute}" aria-label="搜索列表" placeholder="搜索名称或编号"></label>${filters.map((value,index)=>`<select id="filter-${currentRoute}-${index}" aria-label="${escapeHTML(value)}">${(currentRoute==='accounts' && value==='全部平台' ? ['全部平台',...data.pages.find(item=>item.id==='account-platforms').platforms.map(item=>item.name)] : currentRoute==='accounts' && value==='授权状态' ? ['全部授权状态','授权有效','待重新授权','授权异常'] : [value]).map(option=>`<option>${escapeHTML(option)}</option>`).join('')}</select>`).join('')}</div>` : ''}<div class="table-scroll" data-slot="table-container"><table data-slot="table"><thead data-slot="table-header"><tr>${item.columns.map(label=>`<th data-slot="table-head" scope="col">${escapeHTML(label)}</th>`).join('')}</tr></thead><tbody data-slot="table-body"><tr><td data-slot="table-cell" colspan="${item.columns.length}"><div class="empty-state"><span class="empty-icon">${icon('folder')}</span><h2>${escapeHTML(item.emptyTitle)}</h2><p>${escapeHTML(item.emptyText)}</p>${button(item.action)}</div></td></tr></tbody></table></div></section>`
   }
   function renderPage(page) {
     const environmentManagement = isEnvironmentManagement(page.id)
@@ -165,7 +165,7 @@
     else if (['form','details','settings','authorize','signin'].includes(page.kind)) {
       content = `${Number.isInteger(page.authorizationStage) ? authorizationFlow(page.authorizationStage) : ''}<div class="form-layout ${page.summary ? '' : 'single'}"><div class="form-main">${notice(page.notice)}${rows(page.rows)}${groups(page.groups,page.kind==='details')}${['fingerprint-create','fingerprint-protection'].includes(page.id) ? '<div class="fingerprint-validation" id="fingerprint-validation" role="status" aria-live="polite"></div>' : ''}${page.inlineActions ? `<div class="inline-actions">${page.inlineActions.map(button).join('')}</div>` : ''}${steps(page.steps)}${page.footer ? `<footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${environmentReturn && page.id.startsWith('fingerprint-') ? button({label:'返回环境草稿',target:'environment-create'}) : ''}${page.footer.map(item=>button(authorizationReturn && page.id==='environment-create' && item.target==='environments' ? {label:'返回授权流程',target:'account-authorize'} : item)).join('')}</div></footer>` : ''}</div>${summary(page.summary)}</div>`
     } else if (page.kind === 'state') content = `<div class="state-content">${notice(page.notice)}${rows(page.rows)}${steps(page.steps)}${page.acknowledge ? `<label class="acknowledge"><input type="checkbox">${escapeHTML(page.acknowledge)}</label>` : ''}</div>`
-    else if (page.kind === 'permissions') content = `${notice(page.notice)}<section class="surface permission-panel"><table><thead><tr>${page.permissionColumns.map(item=>`<th>${escapeHTML(item)}</th>`).join('')}</tr></thead><tbody>${page.permissionRows.map(row=>`<tr>${row.map((cell,index)=>`<${index?'td':'th'}>${escapeHTML(cell)}</${index?'td':'th'}>`).join('')}</tr>`).join('')}</tbody></table></section>`
+    else if (page.kind === 'permissions') content = `${notice(page.notice)}<section class="surface permission-panel"><table data-slot="table"><thead data-slot="table-header"><tr>${page.permissionColumns.map(item=>`<th data-slot="table-head">${escapeHTML(item)}</th>`).join('')}</tr></thead><tbody data-slot="table-body">${page.permissionRows.map(row=>`<tr>${row.map((cell,index)=>`<${index?'td':'th'} data-slot="table-cell">${escapeHTML(cell)}</${index?'td':'th'}>`).join('')}</tr>`).join('')}</tbody></table></section>`
     else if (page.kind === 'billing') content = `${notice(page.notice)}<div class="usage-grid">${page.rows.map(([label,value])=>`<div class="surface usage-card"><span>${escapeHTML(label)}</span><b>${escapeHTML(value)}</b></div>`).join('')}</div><div class="section-heading"><h2>订阅订单</h2></div>${table(page.table)}`
     else if (page.kind === 'payment') content = `<div class="form-layout"><section class="surface payment-panel"><h2>确认订单</h2>${rows(page.rows)}<h2>选择付款方式</h2><div class="payment-methods">${page.methods.map(item=>`<label><input type="radio" name="payment-method">${icon('card')}<b>${escapeHTML(item)}</b></label>`).join('')}</div><div class="payment-code">${icon('card')}<h3>选择套餐后生成支付码</h3><p>订单与支付码生成后，使用对应应用扫码付款。</p></div><footer class="form-footer"><span>${escapeHTML(page.footerHint)}</span><div>${(page.footer||[]).map(button).join('')}</div></footer></section>${summary(page.summary)}</div>`
     const managementTabs = environmentManagement ? `<nav class="environment-management-tabs" aria-label="浏览器环境管理分类">${environmentManagementTabs.map(([label,id]) => `<a class="environment-management-tab${id === page.id ? ' active' : ''}" href="#${id}" data-route="${id}" ${id === page.id ? 'aria-current="page"' : ''}>${escapeHTML(label)}</a>`).join('')}</nav>` : ''
@@ -173,13 +173,13 @@
   }
   function clearDialog(restoreFocus = true, normalizeRoute = true) {
     const root = document.getElementById('modal-root')
-    if (!root.firstElementChild) return
+    if (!window.ShadcnUI.isDialogOpen()) return
     if (['proxy-create','signin'].includes(modalPageId)) {
       const values = {}
       root.querySelectorAll('input[id],select[id]').forEach(input=>{if(modalPageId!=='signin'||input.type!=='password') values[input.id]={value:input.value,checked:input.checked}})
       drafts.set(modalPageId,values)
     }
-    root.replaceChildren()
+    window.ShadcnUI.closeDialog()
     platformPickerInert.forEach(({ node, inert }) => { node.inert = inert })
     platformPickerInert = []
     document.body.classList.remove('platform-modal-open')
@@ -195,15 +195,14 @@
     if (!platformPickerInert.length) platformPickerInert = Array.from(document.querySelectorAll('.sidebar, .shell'), node => ({ node, inert: node.inert }))
     platformPickerInert.forEach(({ node }) => { node.inert = true })
     document.body.classList.add('platform-modal-open')
-    document.querySelector('#modal-root .platform-picker-close')?.focus()
     document.dispatchEvent(new CustomEvent('workspace:dialog',{detail:{pageId}}))
   }
   function openProxyDialog(trigger) {
     if (!renderingModal) return openPage('proxy-create', { trigger })
     const root = document.getElementById('modal-root')
-    if (root.firstElementChild) return
+    if (window.ShadcnUI.isDialogOpen()) return
     const page = data.pages.find(item=>item.id==='proxy-create')
-    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker proxy-picker" role="dialog" aria-modal="true" aria-labelledby="proxy-picker-title" aria-describedby="proxy-picker-description"><header class="platform-picker-header"><div><h2 id="proxy-picker-title">${escapeHTML(page.title)}</h2><p id="proxy-picker-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭添加代理弹框">${icon('close')}</button></header><div class="proxy-picker-body">${groups(page.groups,false,page.id)}<div class="proxy-checks"><b>连接检测</b><span>可用性：未检测</span><span>连通性：未检测</span><span>出口时区：尚未获取</span></div></div><footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${page.footer.map(button).join('')}</div></footer></section></div>`
+    window.ShadcnUI.openDialog(`<div class="platform-backdrop"><section class="platform-picker proxy-picker" role="dialog" aria-modal="true" aria-labelledby="proxy-picker-title" aria-describedby="proxy-picker-description"><header class="platform-picker-header"><div><h2 id="proxy-picker-title">${escapeHTML(page.title)}</h2><p id="proxy-picker-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭添加代理弹框">${icon('close')}</button></header><div class="proxy-picker-body">${groups(page.groups,false,page.id)}<div class="proxy-checks"><b>连接检测</b><span>可用性：未检测</span><span>连通性：未检测</span><span>出口时区：尚未获取</span></div></div><footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${page.footer.map(button).join('')}</div></footer></section></div>`, trigger, closePage)
     const saved = drafts.get(page.id)
     if (saved) root.querySelectorAll('input[id],select[id]').forEach(input=>{if(saved[input.id]) input.value=saved[input.id].value})
     activateDialog(trigger,page.id,currentRoute)
@@ -211,9 +210,9 @@
   function openSigninDialog(trigger) {
     if (!renderingModal) return openPage('signin', { trigger })
     const root = document.getElementById('modal-root')
-    if (root.firstElementChild) return
+    if (window.ShadcnUI.isDialogOpen()) return
     const page = data.pages.find(item=>item.id==='signin')
-    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker signin-picker" role="dialog" aria-modal="true" aria-labelledby="signin-title" aria-describedby="signin-description"><header class="platform-picker-header"><div><h2 id="signin-title">${escapeHTML(page.title)}</h2><p id="signin-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭登录框">${icon('close')}</button></header><form class="signin-form">${groups(page.groups,false,page.id)}<footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${button({label:'取消',closeDialog:true})}${page.footer.map(button).join('')}</div></footer></form></section></div>`
+    window.ShadcnUI.openDialog(`<div class="platform-backdrop"><section class="platform-picker signin-picker" role="dialog" aria-modal="true" aria-labelledby="signin-title" aria-describedby="signin-description"><header class="platform-picker-header"><div><h2 id="signin-title">${escapeHTML(page.title)}</h2><p id="signin-description">${escapeHTML(page.description)}</p></div><button type="button" class="platform-picker-close" data-close-platforms aria-label="关闭登录框">${icon('close')}</button></header><form class="signin-form">${groups(page.groups,false,page.id)}<footer class="platform-picker-footer"><p>${escapeHTML(page.footerHint)}</p><div>${button({label:'取消',closeDialog:true})}${page.footer.map(button).join('')}</div></footer></form></section></div>`, trigger, closePage)
     const saved = drafts.get(page.id)
     if(saved) root.querySelectorAll('input[id]').forEach(input=>{if(saved[input.id]) input.value=saved[input.id].value})
     activateDialog(trigger,page.id,currentRoute)
@@ -294,9 +293,9 @@
   function openPlatformPicker(trigger) {
     if (!renderingModal) return openPage('account-platforms', { trigger })
     const root = document.getElementById('modal-root')
-    if (root.firstElementChild) return
+    if (window.ShadcnUI.isDialogOpen()) return
     const page = data.pages.find(item => item.id === 'account-platforms')
-    root.innerHTML = `<div class="platform-backdrop"><section class="platform-picker" role="dialog" aria-modal="true" aria-labelledby="platform-picker-title" aria-describedby="platform-picker-description"><header class="platform-picker-header"><div><h2 id="platform-picker-title">${escapeHTML(page.title)}</h2><p id="platform-picker-description">${escapeHTML(page.description)}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭添加账号弹框">${icon('close')}</button></header><div class="platform-picker-grid">${page.platforms.map(item => `<button class="platform-choice" type="button" data-platform-key="${escapeHTML(item.key)}" ${item.disabled ? 'disabled' : ''}><span class="platform-logo">${item.icon ? `<img src="${escapeHTML(item.icon)}" width="32" height="32" alt="">` : `<span aria-hidden="true">${escapeHTML(item.name.slice(0, 1))}</span>`}</span><strong>${escapeHTML(item.name)}</strong>${item.disabled ? `<small>${escapeHTML(item.status)}</small>` : ''}</button>`).join('')}</div><footer class="platform-picker-footer"><p>${escapeHTML(page.footnote)}</p><button class="button" type="button" data-close-platforms>取消</button></footer></section></div>`
+    window.ShadcnUI.openDialog(`<div class="platform-backdrop"><section class="platform-picker" role="dialog" aria-modal="true" aria-labelledby="platform-picker-title" aria-describedby="platform-picker-description"><header class="platform-picker-header"><div><h2 id="platform-picker-title">${escapeHTML(page.title)}</h2><p id="platform-picker-description">${escapeHTML(page.description)}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭添加账号弹框">${icon('close')}</button></header><div class="platform-picker-grid">${page.platforms.map(item => `<button class="platform-choice" type="button" data-platform-key="${escapeHTML(item.key)}" ${item.disabled ? 'disabled' : ''}><span class="platform-logo">${item.icon ? `<img src="${escapeHTML(item.icon)}" width="32" height="32" alt="">` : `<span aria-hidden="true">${escapeHTML(item.name.slice(0, 1))}</span>`}</span><strong>${escapeHTML(item.name)}</strong>${item.disabled ? `<small>${escapeHTML(item.status)}</small>` : ''}</button>`).join('')}</div><footer class="platform-picker-footer"><p>${escapeHTML(page.footnote)}</p><button class="button" type="button" data-close-platforms>取消</button></footer></section></div>`, trigger, closePage)
     activateDialog(trigger,page.id,currentRoute)
   }
   function updateSummary() {
@@ -364,24 +363,26 @@
     environmentReturn=modalStack.some(entry=>entry.pageId==='environment-create')
     authorizationReturn=modalStack.some(entry=>entry.pageId==='account-authorize')
     const root=document.getElementById('modal-root')
-    root.replaceChildren()
+    window.ShadcnUI.closeDialog()
     renderingModal=true
     try {
       if(page.id==='signin') openSigninDialog(entry.trigger)
       else if(page.id==='proxy-create') openProxyDialog(entry.trigger)
       else if(page.id==='account-platforms') openPlatformPicker(entry.trigger)
       else if(page.id==='account-authorize') {
-        root.innerHTML=`<div class="platform-backdrop"><section class="platform-picker authorization-environment-picker" role="dialog" aria-modal="true" aria-labelledby="authorization-environment-title"><header class="platform-picker-header"><div><h2 id="authorization-environment-title">选择授权环境</h2><p>${escapeHTML(selectedPlatform?.name || '')} · 选择后直接打开登录页</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭环境选择">${icon('close')}</button></header><div class="authorization-environments" data-media-environments role="listbox" aria-label="授权浏览器环境"><p class="authorization-environment-empty">正在读取环境…</p></div></section></div>`
+        window.ShadcnUI.openDialog(`<div class="platform-backdrop"><section class="platform-picker authorization-environment-picker" role="dialog" aria-modal="true" aria-labelledby="authorization-environment-title"><header class="platform-picker-header"><div><h2 id="authorization-environment-title">选择授权环境</h2><p>${escapeHTML(selectedPlatform?.name || '')} · 选择后直接打开登录页</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭环境选择">${icon('close')}</button></header><div class="authorization-environments" data-media-environments role="listbox" aria-label="授权浏览器环境"><p class="authorization-environment-empty">正在读取环境…</p></div></section></div>`, entry.trigger, closePage)
         activateDialog(entry.trigger,page.id,baseRoute)
       }
       else {
-        root.innerHTML=`<div class="platform-backdrop"><section class="platform-picker workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title" aria-describedby="workspace-modal-description"><header class="platform-picker-header"><div><h2 id="workspace-modal-title">${escapeHTML(page.title)}</h2><p id="workspace-modal-description">${escapeHTML(page.description || '')}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭${escapeHTML(page.title)}">${icon('close')}</button></header><div class="workspace-modal-body page-${page.kind} page-${page.id}">${renderPage(page)}</div></section></div>`
-        const heading=root.querySelector('.page-heading')
+        const markup=document.createElement('div')
+        markup.innerHTML=`<div class="platform-backdrop"><section class="platform-picker workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title" aria-describedby="workspace-modal-description"><header class="platform-picker-header"><div><h2 id="workspace-modal-title">${escapeHTML(page.title)}</h2><p id="workspace-modal-description">${escapeHTML(page.description || '')}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭${escapeHTML(page.title)}">${icon('close')}</button></header><div class="workspace-modal-body page-${page.kind} page-${page.id}">${renderPage(page)}</div></section></div>`
+        const heading=markup.querySelector('.page-heading')
         const actions=heading?.querySelector('.page-actions')
-        if(actions) root.querySelector('.platform-picker-header>div').append(actions)
+        if(actions) markup.querySelector('.platform-picker-header>div').append(actions)
         heading?.remove()
-        const footer=root.querySelector('.form-main>.form-footer')
-        if(footer){footer.classList.add('workspace-modal-footer');root.querySelector('.workspace-modal').append(footer)}
+        const footer=markup.querySelector('.form-main>.form-footer')
+        if(footer){footer.classList.add('workspace-modal-footer');markup.querySelector('.workspace-modal').append(footer)}
+        window.ShadcnUI.openDialog(markup.innerHTML, entry.trigger, closePage)
         activateDialog(entry.trigger,page.id,baseRoute)
       }
     } finally { renderingModal=false }
@@ -393,9 +394,7 @@
     document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:page.id,modal:true}}))
   }
   function restoreModal(entry) {
-    const root=document.getElementById('modal-root'); root.replaceChildren(...entry.nodes); entry.nodes=null
-    currentRoute=entry.pageId;modalPageId=entry.pageId
-    activateDialog(entry.trigger,entry.pageId,baseRoute)
+    renderModal(entry)
     document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:entry.pageId,modal:true,restored:true}}))
   }
   function closePage(restoreFocus = true) {
@@ -445,7 +444,7 @@
     else {
       const top=modalStack.at(-1)
       if(top && (options.replace || modalFamily(top.pageId)===modalFamily(page.id))) {modalStack.pop();modalClosed(top.pageId)}
-      else if(top) {top.nodes=Array.from(document.getElementById('modal-root').childNodes);top.nodes.forEach(node=>node.remove())}
+      else if(top) { top.suspended = true }
       const entry={pageId:page.id,trigger:options.trigger || document.activeElement,nodes:null}
       modalStack.push(entry);renderModal(entry)
     }
@@ -472,7 +471,7 @@
       return
     }
     const closeButton = event.target.closest('[data-close-platforms]')
-    if (closeButton || event.target.classList.contains('platform-backdrop')) {
+    if (closeButton) {
       closePlatformPicker()
       return
     }
@@ -501,26 +500,9 @@
     const key=event.target.dataset?.groupKey
     if(key) {if(event.target.open) expandedGroups.add(key);else expandedGroups.delete(key)}
   },true)
-  document.addEventListener('keydown', event => {
-    if (document.querySelector('[data-slot="alert-dialog-content"]')) return
-    const picker = document.querySelector('.platform-picker')
-    if (!picker) return
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      closePlatformPicker()
-      return
-    }
-    if (event.key !== 'Tab') return
-    const focusable = Array.from(picker.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')).filter(node=>node.getClientRects().length && !node.closest('[hidden]'))
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && (document.activeElement === first || !picker.contains(document.activeElement))) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
+  document.addEventListener('workspace:accordion-toggle', event => {
+    if (event.detail?.open) expandedGroups.add(event.detail.key)
+    else expandedGroups.delete(event.detail?.key)
   })
   document.addEventListener('submit',event=>event.preventDefault())
   window.addEventListener('hashchange',render)

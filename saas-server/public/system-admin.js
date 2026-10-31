@@ -20,12 +20,16 @@
     CLIENT_UPDATES_DIR: '目录内放置 prod-win32-x64.json 和清单引用的安装包；签名私钥不要放在此目录。'
   }
   function element (tag, text, className) {
+    if (tag === 'button' && window.ShadcnUI) return window.ShadcnUI.createControl('button', { text, props: { className } })
     const node = document.createElement(tag)
     if (text !== undefined) node.textContent = text
     if (className) node.className = className
     return node
   }
-  function notify (message, error = false) { $('#message').textContent = message; $('#message').classList.toggle('error', error) }
+  function notify (message, error = false) {
+    const status = $('#message'); status.textContent = message; status.dataset.tone = error ? 'error' : 'success'
+    window.ShadcnUI?.notify(message, error ? 'error' : 'success')
+  }
   async function api (url, method = 'GET', body) {
     let response; let data
     try {
@@ -52,13 +56,13 @@
       ['amount', '价格（元）', 'number', plan.amount === undefined ? '' : plan.amount / 100], ['periodDays', '有效天数', 'number', plan.periodDays],
       ['fingerprints', '指纹数量', 'number', plan.quotas?.fingerprints], ['environments', '环境数量', 'number', plan.quotas?.environments], ['members', '成员数量', 'number', plan.quotas?.members]
     ]) {
-      const label = element('label', title); const input = document.createElement('input')
-      input.type = type; input.value = value ?? ''; input.dataset.planKey = key
+      const label = element('label', title); const input = window.ShadcnUI.createControl('input', { type, value: value ?? '' })
+      input.dataset.planKey = key
       if (type === 'number') { input.min = key === 'amount' ? '0.01' : '1'; input.step = key === 'amount' ? '0.01' : '1' }
       label.append(input); row.append(label)
     }
     const controls = element('div', undefined, 'plan-controls'); const label = element('label', '上架')
-    const enabled = document.createElement('input'); enabled.type = 'checkbox'; enabled.checked = plan.enabled === true; enabled.dataset.planKey = 'enabled'; label.prepend(enabled)
+    const enabled = window.ShadcnUI.createControl('checkbox', { checked: plan.enabled === true, label: '上架' }); enabled.dataset.planKey = 'enabled'; label.prepend(enabled)
     const remove = element('button', '移除'); remove.type = 'button'; remove.addEventListener('click', () => { row.remove(); changed(); updateEmptyPlans() })
     controls.append(label, remove); row.append(controls); return row
   }
@@ -82,7 +86,11 @@
     body.append(current)
     for (const [component, title] of [['platform', '平台能力'], ['rpa', 'RPA']]) {
       const row = element('div', undefined, 'field'); const label = element('label', title + ' 单文件 JS', 'field-label')
-      const input = document.createElement('input'); input.type = 'file'; input.accept = '.js,application/javascript'; input.dataset.releaseFile = component
+      const input = window.ShadcnUI.createControl('input', { type: 'file', props: { accept: '.js,application/javascript' } }); input.dataset.releaseFile = component; input.setAttribute('hidden', '')
+      const choose = element('button', '选择 JS 文件'); choose.type = 'button'
+      const fileName = element('span', '尚未选择文件', 'file-selection-name')
+      choose.addEventListener('click', () => input.click())
+      input.addEventListener('change', () => { fileName.textContent = input.files?.[0]?.name || '尚未选择文件' })
       const button = element('button', '上传并发布' + title); button.type = 'button'
       button.addEventListener('click', async () => {
         const file = input.files?.[0]
@@ -92,10 +100,10 @@
           const response = await fetch('/api/system/platform-releases/' + component, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/javascript', 'X-CSRF-Token': csrf }, body: file, signal: AbortSignal.timeout(60000) })
           const result = await response.json()
           if (!response.ok || !result.ok) throw new Error(result.message || '组件发布失败，请重试。')
-          input.value = ''; notify(result.message + ' 发布编号：' + result.version); await refresh()
+          input.value = ''; fileName.textContent = '尚未选择文件'; notify(result.message + ' 发布编号：' + result.version); await refresh()
         } catch (error) { notify(error.message || '组件发布失败，请检查网络。', true) } finally { button.disabled = false }
       })
-      row.append(label, input, button); body.append(row)
+      row.append(label, input, choose, fileName, button); body.append(row)
     }
     body.append(element('p', '只上传实现客户端宿主接口的自包含文件；服务端只校验语法与摘要，不执行上传代码。客户端校验失败时保留原版本。', 'muted field wide'), history)
     void refresh().catch(error => { current.textContent = error.message })
@@ -103,11 +111,10 @@
   function render (data) {
     settings = data.settings
     const groups = [...new Set(settings.fields.map(field => field.group)), '能力版本']
+    window.ShadcnUI.clearAdminTabs()
     $('#admin-nav').replaceChildren(); $('#settings-panels').replaceChildren()
+    const tabItems = []
     for (const [index, group] of groups.entries()) {
-      const button = element('button'); button.type = 'button'; button.dataset.group = group
-      button.append(element('span', String(index + 1).padStart(2, '0'), 'nav-number'), document.createTextNode(group))
-      button.addEventListener('click', () => showGroup(group)); $('#admin-nav').append(button)
       const panel = element('section', undefined, 'settings-card'); panel.dataset.panel = group
       const head = element('header', undefined, 'section-head'); head.append(element('h2', group), element('p', descriptions[group], 'muted')); panel.append(head)
       if (group === '能力版本') renderCapabilities(panel)
@@ -116,11 +123,10 @@
         if (field.type === 'plans') { renderPlans(panel, settings.values[field.key] || []); continue }
         const box = element('div', undefined, 'field' + (field.type === 'secretMultiline' ? ' wide' : ''))
         const label = element('label', field.label, 'field-label'); label.htmlFor = field.key
-        const input = document.createElement(field.type === 'boolean' ? 'select' : field.type === 'secretMultiline' ? 'textarea' : 'input')
+        const input = field.type === 'boolean'
+          ? window.ShadcnUI.createControl('select', { value: String(settings.values[field.key] ?? 'false'), label: field.label, items: [{ value: 'false', label: '关闭' }, { value: 'true', label: '开启' }] })
+          : window.ShadcnUI.createControl(field.type === 'secretMultiline' ? 'textarea' : 'input', { type: field.secret ? 'password' : field.type === 'email' ? 'email' : field.type === 'port' ? 'number' : 'text', value: field.secret ? '' : settings.values[field.key] ?? '' })
         input.id = field.key; input.dataset.key = field.key
-        if (field.type === 'boolean') {
-          for (const [value, title] of [['false', '关闭'], ['true', '开启']]) { const option = element('option', title); option.value = value; input.append(option) }
-        } else if (input.tagName === 'INPUT') input.type = field.secret ? 'password' : field.type === 'email' ? 'email' : field.type === 'port' ? 'number' : 'text'
         input.value = field.secret ? '' : settings.values[field.key] ?? ''
         if (field.secret) { input.autocomplete = 'new-password'; input.placeholder = '留空保持原值'; input.spellcheck = false }
         if (field.type === 'port') { input.min = '1'; input.max = '65535' }
@@ -130,18 +136,19 @@
           const configured = settings.configuredSecrets.includes(field.key)
           box.append(element('span', configured ? '已配置 · 原值不回显' : '尚未配置', configured ? 'secret-state' : 'muted'))
           if (configured) {
-            const clear = element('label', undefined, 'clear-secret'); const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset.clear = field.key
+            const clear = element('label', undefined, 'clear-secret'); const checkbox = window.ShadcnUI.createControl('checkbox', { label: '清除已保存的值' }); checkbox.dataset.clear = field.key
             clear.append(checkbox, document.createTextNode('清除已保存的值')); box.append(clear)
           }
         }
         grid.append(box)
       }
       if (grid.children.length) panel.append(grid)
-      $('#settings-panels').append(panel)
+      tabItems.push({ value: group, label: group, number: String(index + 1).padStart(2, '0'), panel })
     }
+    $('#admin-nav').append(window.ShadcnUI.createAdminTabs(tabItems, groups.includes(activeGroup) ? activeGroup : groups[0], showGroup))
     const status = $('#service-status'); status.replaceChildren()
-    status.append(element('span', data.emailDeliveryAvailable ? '邮件参数已配置' : '邮件待配置', data.emailDeliveryAvailable ? 'ready' : ''))
-    for (const method of data.paymentMethods) status.append(element('span', `${method.name}：${method.enabled ? '已配置' : '未开放'}`, method.enabled ? 'ready' : ''))
+    status.append(window.ShadcnUI.createBadge(data.emailDeliveryAvailable ? '邮件参数已配置' : '邮件待配置', data.emailDeliveryAvailable ? 'success' : 'secondary', data.emailDeliveryAvailable ? 'ready' : ''))
+    for (const method of data.paymentMethods) status.append(window.ShadcnUI.createBadge(`${method.name}：${method.enabled ? '已配置' : '未开放'}`, method.enabled ? 'success' : 'secondary', method.enabled ? 'ready' : ''))
     $('#revision').textContent = `配置版本 ${settings.revision} · 更新于 ${new Date(settings.updatedAt).toLocaleString('zh-CN')}`
     $('#save-state').textContent = '当前修改已保存'; dirty = false
     showGroup(groups.includes(activeGroup) ? activeGroup : groups[0]); updateEmptyPlans()
@@ -182,12 +189,20 @@
   $('#reload').addEventListener('click', async () => { if (!dirty || await window.WorkspaceDialogs.confirm({ title: '放弃未保存的修改？', description: '重新加载会丢弃尚未保存的设置。已保存的配置不受影响。', actionLabel: '重新加载', destructive: true, trigger: $('#reload') })) void load().catch(error => notify(error.message, true)) })
   $('#login-form').addEventListener('submit', async event => {
     event.preventDefault(); const button = event.submitter || event.target.querySelector('button[type="submit"]'); button.disabled = true
-    try { await api('/api/auth/login', 'POST', Object.fromEntries(new FormData(event.target))); event.target.elements.password.value = ''; await load() } catch (error) { $('#login-message').textContent = error.message } finally { button.disabled = false }
+    try { await api('/api/auth/login', 'POST', Object.fromEntries(new FormData(event.target))); event.target.elements.password.value = ''; await load() } catch (error) { $('#login-message').textContent = error.message; notify(error.message, true) } finally { button.disabled = false }
   })
-  $('#logout').addEventListener('click', async () => { try { await api('/api/auth/logout', 'POST', {}); dirty = false; location.reload() } catch (error) { notify(error.message, true) } })
-  window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = '' } })
+  $('#logout').addEventListener('click', async () => {
+    if (dirty && !await window.ShadcnUI.confirm({ title: '退出系统管理？', description: '当前修改尚未保存，退出后将丢失这些修改。', actionLabel: '退出', destructive: true, trigger: $('#logout') })) return
+    try { await api('/api/auth/logout', 'POST', {}); dirty = false; location.reload() } catch (error) { notify(error.message, true) }
+  })
+  document.addEventListener('click', async event => {
+    const link = event.target.closest?.('a[href]')
+    if (!dirty || !link || link.origin !== location.origin || (link.pathname === location.pathname && link.hash === location.hash)) return
+    event.preventDefault()
+    if (await window.ShadcnUI.confirm({ title: '离开系统管理？', description: '当前修改尚未保存，离开后将丢失这些修改。', actionLabel: '离开', destructive: true, trigger: link })) { dirty = false; location.assign(link.href) }
+  }, true)
   void load().catch(error => {
     $('#initial-message').hidden = true; $('#login').hidden = false
-    if (error.status !== 401) $('#login-message').textContent = error.message
+    if (error.status !== 401) { $('#login-message').textContent = error.message; notify(error.message, true) }
   })
 })()

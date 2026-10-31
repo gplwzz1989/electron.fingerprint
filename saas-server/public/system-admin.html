@@ -17,7 +17,7 @@
       <label>邮箱<input name="email" type="email" autocomplete="username" required></label>
       <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">登录控制台</button>
-      <p id="login-message" role="alert"></p><a href="/">返回工作空间</a>
+      <p id="login-message" role="status" aria-live="polite"></p><a href="/">返回工作空间</a>
     </form>
   </section>
   <div id="console" class="admin-shell" hidden>
@@ -36,7 +36,7 @@
           <div id="settings-panels"></div>
           <footer class="save-bar"><div><strong id="save-state">配置加载中</strong><p id="revision" class="muted"></p></div><div class="save-actions"><button id="reload" type="button">重新加载</button><button class="primary" type="submit">保存配置</button></div></footer>
         </form>
-        <p id="message" role="status" aria-live="polite"></p>
+        <p id="message" class="shadcn-visually-hidden" aria-hidden="true"></p>
         <details class="audit"><summary>最近配置变更</summary><div id="audit-list"></div></details>
       </div>
     </main>

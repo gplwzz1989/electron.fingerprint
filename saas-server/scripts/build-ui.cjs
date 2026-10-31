@@ -3,7 +3,7 @@ const { buildSync } = require('esbuild')
 
 // 界面依赖预构建为自包含脚本；生产服务与网页均不依赖开发机或第三方 CDN。
 buildSync({
-  entryPoints: [path.join(__dirname, '../src/ui/dialogs.jsx')],
+  entryPoints: [path.join(__dirname, '../src/ui/index.jsx')],
   outfile: path.join(__dirname, '../public/ui-components.js'),
   bundle: true,
   minify: true,
@@ -15,4 +15,4 @@ buildSync({
   legalComments: 'inline',
   charset: 'utf8'
 })
-console.log('shadcn/ui 弹层组件构建完成。')
+console.log('shadcn/ui 页面组件构建完成。')

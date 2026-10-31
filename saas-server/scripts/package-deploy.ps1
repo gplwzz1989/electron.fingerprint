@@ -37,10 +37,15 @@ if (Test-Path -LiteralPath $distRoot) {
     $running = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine.Replace('/','\').Contains($distRoot) }
     if ($running) { throw '旧部署产物正在运行，请先停止服务再打包。' }
     Add-Type -AssemblyName Microsoft.VisualBasic
-    foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Force)) {
-      if ($item.PSIsContainer) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }
-      else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }
+    foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Recurse -Force -File)) {
+      if (!$item.FullName.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '产物文件路径超出固定目录。' }
+      [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
     }
+    foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Recurse -Force -Directory | Sort-Object { $_.FullName.Length } -Descending)) {
+      if (!$item.FullName.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '产物目录路径超出固定目录。' }
+      [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
+    }
+    foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Force -File)) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }
   } else { throw '当前清理流程需要 Windows 回收站，已保留旧产物。' }
 }
 $payload = Join-Path $outputDirectory 'qijie-saas-server'

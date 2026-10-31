@@ -28,11 +28,7 @@
   })
   document.addEventListener('media:notice', event => {
     const detail = event.detail || {}
-    noticeResult(detail.message || '授权未完成，请重试。', !detail.error, detail.pending ? 'pending' : detail.error ? 'error' : '')
-    if (detail.retry) {
-      clearTimeout(noticeTimer)
-      for (const [operation, label] of [['retry', '重试'], ['cancel', '结束']]) { const button = document.createElement('button'); button.type = 'button'; button.className = 'row-action'; button.dataset.mediaOperation = operation; button.textContent = label; document.getElementById('workspace-result').append(button) }
-    }
+    noticeResult(detail.message || '授权未完成，请重试。', !detail.error, detail.pending ? 'pending' : detail.error ? 'error' : '', Boolean(detail.retry))
   })
   let viewRevision = 0
   let nativeTabs = { tabs: [], activeId: null }
@@ -97,11 +93,7 @@
     return data
   }
   function showError (message, modal = false) {
-    const container = surface() || (modal ? document.querySelector('#modal-root .platform-picker') : document.getElementById('page'))
-    if (!container) return
-    let panel = container.querySelector('.operation-error')
-    if (!panel) { panel = document.createElement('div'); panel.className = 'notice error operation-error'; panel.setAttribute('role', 'alert'); container.prepend(panel) }
-    panel.textContent = message
+    window.ShadcnUI?.notify(message, 'error')
   }
   function clearError () { findAll('.operation-error').forEach(node => node.remove()) }
   function validateFormInputs (container) {
@@ -121,15 +113,21 @@
     return true
   }
   let noticeTimer
-  function noticeResult (message, success = false, tone = '') {
+  function noticeResult (message, success = false, tone = '', retryable = false) {
     let node = document.getElementById('workspace-result')
-    if (!node) { node = document.createElement('div'); node.id = 'workspace-result'; node.className = 'workspace-result'; node.setAttribute('role', 'status'); document.querySelector('.shell').append(node) }
+    if (!node) { node = document.createElement('div'); node.id = 'workspace-result'; node.className = 'shadcn-visually-hidden'; node.setAttribute('role', 'status'); document.querySelector('.shell').append(node) }
     clearTimeout(noticeTimer)
-    node.classList.toggle('workspace-result--success', success || tone === 'error')
-    node.classList.toggle('workspace-result--error', tone === 'error')
-    node.classList.toggle('workspace-result--pending', tone === 'pending')
-    node.setAttribute('role', tone === 'error' ? 'alert' : 'status')
-    node.textContent = message; if (tone !== 'pending') noticeTimer = setTimeout(() => node.remove(), success ? 3000 : 5000)
+    node.setAttribute('aria-hidden', 'true')
+    node.textContent = message
+    const options = { id: 'workspace-operation' }
+    if (tone === 'error' && retryable) {
+      const retry = window.ShadcnUI.createControl('button', { text: '重试保存', props: { type: 'button', 'data-media-operation': 'retry' } })
+      const cancel = window.ShadcnUI.createControl('button', { text: '结束', props: { type: 'button', 'data-media-operation': 'cancel' } })
+      node.replaceChildren(retry, cancel)
+      options.action = { label: '重试保存', onClick: () => retry.click() }
+      options.cancel = { label: '结束', onClick: () => cancel.click() }
+    } else node.replaceChildren()
+    window.ShadcnUI?.notify(message, tone === 'pending' ? 'pending' : tone === 'error' ? 'error' : success ? 'success' : 'info', options)
   }
   function updateShell () {
     const login = document.querySelector('.topbar [data-route="signin"]')
