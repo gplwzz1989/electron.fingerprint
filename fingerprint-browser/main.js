@@ -386,11 +386,11 @@ function registerIpc () {
         const configurationChanged = JSON.stringify(existing.fingerprint) !== JSON.stringify(profile.fingerprint) || JSON.stringify(existing.proxy) !== JSON.stringify(profile.proxy)
         if (configurationChanged && existing.status === 'open') throw new ProfileValidationError('服务端环境配置已变化，请先关闭本机环境后重试。')
         if (configurationChanged || existing.profileName !== profile.name || existing.creationUrl !== profile.url) {
-          existing = await environmentRepository.updateProfile(existing.id, { name: profile.name, url: profile.url, ...(configurationChanged ? { fingerprint: profile.fingerprint, proxy: profile.proxy } : {}), expectedMetadataRevision: existing.metadataRevision, expectedProfileRevision: existing.profileRevision }, { preserveFingerprint: true })
+          existing = await environmentRepository.updateProfile(existing.id, { name: profile.name, creationUrl: profile.url, ...(configurationChanged ? { fingerprint: profile.fingerprint, proxy: profile.proxy } : {}), expectedMetadataRevision: existing.metadataRevision, expectedProfileRevision: existing.profileRevision }, { preserveFingerprint: true })
           tabBrowser.updateEnvironmentProfile(existing)
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
+        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
         return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
       }

@@ -60,6 +60,10 @@ if ($LASTEXITCODE -ne 0) { throw '平台授权脚本生成失败。' }
 $platformDirectory = Join-Path $server 'platform-service'
 & node $NccCli build (Join-Path $PlatformRoot 'src/server.cjs') -o (Join-Path $platformDirectory 'server') --no-cache
 if ($LASTEXITCODE -ne 0) { throw '平台身份核验模块打包失败。' }
+foreach ($entry in @((Join-Path $server 'server/index.js'), (Join-Path $platformDirectory 'server/index.cjs'))) {
+  & node --check $entry
+  if ($LASTEXITCODE -ne 0) { throw '生成的服务模块语法校验失败，已停止交付。' }
+}
 $platformManifest = Get-Content -LiteralPath (Join-Path $PlatformRoot 'dist/manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
 if ($platformManifest.file -notmatch '^authorization-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{12}\.js$') { throw '平台授权脚本清单无效。' }
 $platformAssets = Join-Path $platformDirectory 'dist'
@@ -67,6 +71,8 @@ New-Item -ItemType Directory -Path $platformAssets -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PlatformRoot 'dist/manifest.json') -Destination (Join-Path $platformAssets 'manifest.json')
 Copy-Item -LiteralPath (Join-Path $PlatformRoot ('dist/' + $platformManifest.file)) -Destination (Join-Path $platformAssets $platformManifest.file)
 if ((Get-FileHash -LiteralPath (Join-Path $platformAssets $platformManifest.file)).Hash.ToLower() -ne $platformManifest.sha256) { throw '平台授权脚本校验失败。' }
+& node -e "try{const s=require(process.argv[1]);const r=s.runtime();if(!s.catalog.length||!r.bytes.length||typeof s.verifyAuthorization!=='function')throw Error();process.exit(0)}catch{console.error('平台模块实际加载失败，已停止交付。');process.exit(1)}" (Join-Path $platformDirectory 'server/index.cjs')
+if ($LASTEXITCODE -ne 0) { throw '平台模块运行校验失败。' }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'src/fingerprint/profiles') -Destination (Join-Path $server 'server/profiles') -Recurse
 # 只复制网页运行资源，排除项目说明和素材来源记录。
 $publicRoot = Join-Path $serverRoot 'public'
@@ -93,5 +99,21 @@ if (Get-Command git -ErrorAction SilentlyContinue) { $revision = & git -C $serve
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = Join-Path $outputDirectory '栖界-SaaS服务端部署包.zip'
 [IO.Compression.ZipFile]::CreateFromDirectory($payload,$archive,[IO.Compression.CompressionLevel]::Optimal,$false)
+# 对压缩包内的实际字节逐项核验，另附清单供服务器解压后使用 sha256sum -c 校验。
+$checksums = [Collections.Generic.List[string]]::new()
+$zip = [IO.Compression.ZipFile]::OpenRead($archive)
+try {
+  foreach ($file in (Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object FullName)) {
+    $relative = [IO.Path]::GetRelativePath($payload, $file.FullName).Replace('\','/')
+    $expectedHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $entry = $zip.GetEntry($relative)
+    if (!$entry -or $entry.Length -ne $file.Length) { throw ('压缩包文件缺失或长度不一致：' + $relative) }
+    $stream = $entry.Open(); $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $actualHash = [Convert]::ToHexString($hasher.ComputeHash($stream)).ToLowerInvariant() } finally { $stream.Dispose(); $hasher.Dispose() }
+    if ($actualHash -ne $expectedHash) { throw ('压缩包内容校验失败：' + $relative) }
+    $checksums.Add($expectedHash + '  ' + $relative)
+  }
+} finally { $zip.Dispose() }
+[IO.File]::WriteAllText((Join-Path $outputDirectory 'SHA256SUMS'), ($checksums -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
 ((Get-FileHash -LiteralPath $archive).Hash.ToLower() + '  ' + [IO.Path]::GetFileName($archive)) | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8NoBOM
 Write-Output "已生成服务端部署包：$archive"

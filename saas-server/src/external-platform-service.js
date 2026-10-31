@@ -12,7 +12,10 @@ function loadExternalService (entry = process.env.FP_EXTERNAL_SERVICE_ENTRY) {
   if (!['.js', '.cjs'].includes(path.extname(entry)) || !fs.existsSync(entry) || !fs.statSync(entry).isFile()) {
     throw new Error('平台服务配置无效，请检查部署包或已配置的本地模块路径。')
   }
-  const service = require(entry)
+  let service
+  try { service = require(entry) } catch {
+    throw new Error('平台模块加载失败，请核对部署文件的 SHA-256；停止服务后重新解压完整部署包，不要在线覆盖或编辑打包后的 JS 文件。')
+  }
   if (!service || typeof service !== 'object') throw new Error('外部平台服务未提供有效接口。')
   return service
 }

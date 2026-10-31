@@ -14,8 +14,8 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
   const repository = new EnvironmentRepository(directory); await repository.load()
   const reference = { origin: 'https://example.com', scope: crypto.randomUUID(), resourceId: crypto.randomUUID() }
   const fingerprint = getDefaultProfile(); fingerprint.noise.seed = crypto.randomUUID()
-  const decrypted = { id: reference.resourceId, name: '隔离启动身份验收', url: 'https://example.com/platform', fingerprint }
-  const tabs = new Map(); let launch; let importedSession
+  const decrypted = { id: reference.resourceId, name: '隔离启动身份验收', url: 'about:blank', fingerprint }
+  const tabs = new Map(); const navigations = []; let launch; let importedSession
   const source = await fs.readFile(path.join(__dirname, '../main.js'), 'utf8')
   const start = source.indexOf("  handle('application:launch-encrypted',")
   const end = source.indexOf("  handle('window:action',", start)
@@ -31,6 +31,7 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
       async openEnvironment (environment, _policy, session) { importedSession = session; tabs.set(environment.id, ['test-tab']); await repository.update(environment.id, { status: 'open' }); return { tabId: 'test-tab' } },
       async reopen (id, _policy, session) { importedSession = session; tabs.set(id, ['test-tab']); return { tabId: 'test-tab' } },
       tabIdsForEnvironment: id => tabs.get(id) || [],
+      async navigate (payload) { navigations.push(payload) },
       select () {}, setCapabilities () {}, updateEnvironmentProfile () {}
     }
   })
@@ -54,6 +55,7 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
   assert.deepEqual(repository.get(first.environmentId).fingerprint, saved.fingerprint)
   // 同设备授权后按账号打开，必须复用采集目录，不能重新写云端 Cookie。
   decrypted.fingerprint = structuredClone(saved.fingerprint)
+  decrypted.url = 'https://creator.douyin.com/'
   decrypted.localSessionSource = { resourceId: reference.resourceId, operationId: 'isolated-authorization' }
   await fs.writeFile(path.join(saved.dataDir, 'local-session-capture.json'), JSON.stringify({ operationId: 'isolated-authorization' }))
   reference.resourceId = crypto.randomUUID(); decrypted.id = reference.resourceId
@@ -61,10 +63,13 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
   const localOpen = await launch({ sender: {} }, {})
   assert.equal(localOpen.ok, true, localOpen.error); assert.equal(localOpen.environmentId, first.environmentId)
   assert.equal(repository.list().length, 1)
+  assert.equal(repository.get(first.environmentId).creationUrl, decrypted.url)
+  assert.equal(navigations.at(-1).url, decrypted.url)
   tabs.clear(); await repository.update(first.environmentId, { status: 'closed' })
   const localReopen = await launch({ sender: {} }, {})
   assert.equal(localReopen.ok, true, localReopen.error); assert.equal(localReopen.environmentId, first.environmentId)
   assert.equal(importedSession, null)
+  assert.equal(repository.get(first.environmentId).creationUrl, decrypted.url)
   // 其他设备或新的授权任务没有匹配采集凭据，仍必须恢复云端会话。
   decrypted.localSessionSource.operationId = 'different-authorization'
   const remoteOpen = await launch({ sender: {} }, {})
