@@ -3,7 +3,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { ProfileValidationError } = require('./profile-store')
 
-// 仅提供通用观察与加密采集能力，平台规则由业务控制页提供。
+// 仅提供通用观察与加密采集能力，平台规则由客户端加载的独立能力包提供。
 class SessionObserver {
   constructor (browser, { logger = null } = {}) { this.browser = browser; this.jobs = new Map(); this.logger = logger }
   log (level, message, details) {
@@ -81,7 +81,7 @@ class SessionObserver {
     job.storage = storage
     return { responses: job.responses.filter(item => item.cursor > (input.cursor || 0)), cursor: job.cursor, diagnostics: { ...job.diagnostics }, storageKeys: Object.fromEntries(Object.entries(storage).map(([origin, values]) => [origin, Object.keys(values)])) }
   }
-  async capture (owner, input) {
+  async capture (owner, input, authorization = null) {
     const job = this.get(owner, input.id)
     // 等待授权页面及其资源结束加载，超时或取消时不上传未完成的会话。
     const deadline = Date.now() + 30000
@@ -96,7 +96,14 @@ class SessionObserver {
     const domains = job.origins.map(origin => new URL(origin).hostname)
     const cookies = (await job.contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, ''))))
     this.get(owner, input.id)
-    const payload = Buffer.from(JSON.stringify({ operationId: job.operationId, cookies, storage: job.storage }))
+    const snapshot = { operationId: job.operationId, cookies, storage: job.storage }
+    if (authorization) {
+      const invalid = input.outcome === 'invalid' && authorization.mode === 'check' && authorization.expectedUserId
+      if (!invalid && !input.identity?.platformUserId) throw new ProfileValidationError('尚未取得平台真实身份，请等待登录完成。')
+      Object.assign(snapshot, { identity: invalid ? { platformUserId: authorization.expectedUserId } : input.identity, outcome: invalid ? 'invalid' : 'valid', platform: authorization.platform, packageVersion: authorization.packageVersion })
+      snapshot.proof = crypto.createHmac('sha256', authorization.proofKey).update(JSON.stringify(snapshot)).digest('hex')
+    }
+    const payload = Buffer.from(JSON.stringify(snapshot))
     if (payload.length > 160000) throw new ProfileValidationError('授权数据过大，请使用独立环境重新登录。')
     // 保存本机采集凭据，服务端确认相同授权任务后可复用原会话，不再次灌入云端 Cookie。
     if (job.dataDir) await fs.writeFile(path.join(job.dataDir, 'local-session-capture.json'), JSON.stringify({ operationId: job.operationId }), { encoding: 'utf8', mode: 0o600 })

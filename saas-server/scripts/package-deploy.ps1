@@ -1,4 +1,4 @@
-param([string]$OutputRoot, [string]$NccCli = $env:SAAS_NCC_CLI, [string]$PlatformRoot = $env:FP_PLATFORM_ROOT)
+param([string]$OutputRoot, [string]$NccCli = $env:SAAS_NCC_CLI)
 $ErrorActionPreference = 'Stop'
 $serverRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $distRoot = Join-Path $serverRoot 'dist'
@@ -16,14 +16,6 @@ foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','p
 if ($LASTEXITCODE -ne 0) { throw '服务端入口语法检查失败。' }
 & node $NccCli version
 if ($LASTEXITCODE -ne 0) { throw '单文件打包工具不可用。' }
-if (!$PlatformRoot) { $PlatformRoot = Join-Path $serverRoot '../../media-platform' }
-$PlatformRoot = [IO.Path]::GetFullPath($PlatformRoot)
-if ($PlatformRoot.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw '平台项目位于待清理目录，请使用目录外的实际平台项目。' }
-foreach ($file in @('src/server.cjs','scripts/release.cjs','package.json')) {
-  if (!(Test-Path -LiteralPath (Join-Path $PlatformRoot $file) -PathType Leaf)) { throw ('平台授权项目缺少文件：' + $file) }
-}
-& node -e "require.resolve('@yixiaoer/platform-service', {paths:[process.argv[1]]})" $PlatformRoot
-if ($LASTEXITCODE -ne 0) { throw '平台身份核验依赖未安装，已保留旧产物。' }
 if (Test-Path -LiteralPath $distRoot) {
   $pending = [Collections.Generic.Queue[string]]::new()
   $pending.Enqueue($distRoot)
@@ -54,25 +46,9 @@ New-Item -ItemType Directory -Path $server -Force | Out-Null
 # 业务代码和运行依赖合并为单文件，不分发源码目录或 node_modules。
 & node $NccCli build (Join-Path $serverRoot 'src/workspace-server.js') -o (Join-Path $server 'server') --no-cache
 if ($LASTEXITCODE -ne 0) { throw '服务端单文件打包失败。' }
-# 授权脚本与身份核验模块一并生成，只分发当前清单引用的脚本。
-& node (Join-Path $PlatformRoot 'scripts/release.cjs')
-if ($LASTEXITCODE -ne 0) { throw '平台授权脚本生成失败。' }
-$platformDirectory = Join-Path $server 'platform-service'
-& node $NccCli build (Join-Path $PlatformRoot 'src/server.cjs') -o (Join-Path $platformDirectory 'server') --no-cache
-if ($LASTEXITCODE -ne 0) { throw '平台身份核验模块打包失败。' }
-foreach ($entry in @((Join-Path $server 'server/index.js'), (Join-Path $platformDirectory 'server/index.cjs'))) {
-  & node --check $entry
-  if ($LASTEXITCODE -ne 0) { throw '生成的服务模块语法校验失败，已停止交付。' }
-}
-$platformManifest = Get-Content -LiteralPath (Join-Path $PlatformRoot 'dist/manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
-if ($platformManifest.file -notmatch '^authorization-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{12}\.js$') { throw '平台授权脚本清单无效。' }
-$platformAssets = Join-Path $platformDirectory 'dist'
-New-Item -ItemType Directory -Path $platformAssets -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $PlatformRoot 'dist/manifest.json') -Destination (Join-Path $platformAssets 'manifest.json')
-Copy-Item -LiteralPath (Join-Path $PlatformRoot ('dist/' + $platformManifest.file)) -Destination (Join-Path $platformAssets $platformManifest.file)
-if ((Get-FileHash -LiteralPath (Join-Path $platformAssets $platformManifest.file)).Hash.ToLower() -ne $platformManifest.sha256) { throw '平台授权脚本校验失败。' }
-& node -e "try{const s=require(process.argv[1]);const r=s.runtime();if(!s.catalog.length||!r.bytes.length||typeof s.verifyAuthorization!=='function')throw Error();process.exit(0)}catch{console.error('平台模块实际加载失败，已停止交付。');process.exit(1)}" (Join-Path $platformDirectory 'server/index.cjs')
-if ($LASTEXITCODE -ne 0) { throw '平台模块运行校验失败。' }
+# 授权脚本与身份核验模块由独立客户端加载；SaaS 部署包只包含业务服务与任务结果校验。
+& node --check (Join-Path $server 'server/index.js')
+if ($LASTEXITCODE -ne 0) { throw '服务端生成文件语法校验失败。' }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'src/fingerprint/profiles') -Destination (Join-Path $server 'server/profiles') -Recurse
 # 只复制网页运行资源，排除项目说明和素材来源记录。
 $publicRoot = Join-Path $serverRoot 'public'

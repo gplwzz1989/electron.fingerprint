@@ -3,6 +3,7 @@
   const $ = selector => document.querySelector(selector)
   let csrf = ''; let settings = null; let dirty = false; let busy = false; let activeGroup = ''
   const descriptions = {
+    能力版本: '分别上传 NCC 打包后的平台能力与 RPA 单文件 JS。版本号自动递增；客户端启动时自行检测、校验并缓存更新。',
     基础: '公开地址与代理访问策略对整个平台生效。监听端口和数据库连接仍在服务器配置文件中维护。',
     邮件: '配置注册验证码邮件。SMTP 授权码加密保存在数据库中，填写后不会回显。',
     支付: '完成真实商户配置与验收后，再开启支付。未配置完整的渠道不会开放。',
@@ -34,9 +35,10 @@
     if (!response.ok || !data.ok) { const error = new Error(data.message || '操作未完成，请重试。'); error.status = response.status; throw error }
     return data
   }
-  function changed () { dirty = true; $('#save-state').textContent = '有尚未保存的修改' }
+  function changed (event) { if (event?.target?.dataset.releaseFile) return; dirty = true; $('#save-state').textContent = '有尚未保存的修改' }
   function showGroup (group) {
     activeGroup = group
+    const saveBar = document.querySelector('.save-bar'); if (saveBar) saveBar.hidden = group === '能力版本'
     for (const panel of document.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== group
     for (const button of document.querySelectorAll('[data-group]')) {
       if (button.dataset.group === group) button.setAttribute('aria-current', 'page')
@@ -69,9 +71,38 @@
     add.addEventListener('click', () => { rows.append(planRow()); changed(); updateEmptyPlans() })
     tools.append(element('span', '币种：人民币', 'muted'), add); box.append(rows, empty, tools); panel.append(box)
   }
+  function renderCapabilities (panel) {
+    const body = element('div', undefined, 'field-grid'); panel.append(body)
+    const current = element('p', '正在读取已发布版本…', 'muted field wide')
+    const history = element('div', undefined, 'audit field wide'); const refresh = async () => {
+      const result = await api('/api/system/platform-releases')
+      current.textContent = result.manifest ? '当前发布版本：' + result.manifest.version + '；检测清单：' + location.origin + '/api/platform-releases/manifest.json' : '尚未生成完整清单，请分别上传平台能力与 RPA。'
+      history.replaceChildren(...result.items.map(item => element('p', (item.component === 'platform' ? '平台能力' : 'RPA') + ' · ' + item.version + ' · ' + Math.ceil(item.size / 1024) + ' KB · ' + new Date(item.createdAt).toLocaleString('zh-CN'))))
+    }
+    body.append(current)
+    for (const [component, title] of [['platform', '平台能力'], ['rpa', 'RPA']]) {
+      const row = element('div', undefined, 'field'); const label = element('label', title + ' 单文件 JS', 'field-label')
+      const input = document.createElement('input'); input.type = 'file'; input.accept = '.js,application/javascript'; input.dataset.releaseFile = component
+      const button = element('button', '上传并发布' + title); button.type = 'button'
+      button.addEventListener('click', async () => {
+        const file = input.files?.[0]
+        if (!file || !file.name.endsWith('.js') || !file.size || file.size > 4 * 1024 * 1024) { notify('请选择不超过 4 MB 的 NCC 单文件 JS。', true); return }
+        button.disabled = true
+        try {
+          const response = await fetch('/api/system/platform-releases/' + component, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/javascript', 'X-CSRF-Token': csrf }, body: file, signal: AbortSignal.timeout(60000) })
+          const result = await response.json()
+          if (!response.ok || !result.ok) throw new Error(result.message || '组件发布失败，请重试。')
+          input.value = ''; notify(result.message + ' 发布编号：' + result.version); await refresh()
+        } catch (error) { notify(error.message || '组件发布失败，请检查网络。', true) } finally { button.disabled = false }
+      })
+      row.append(label, input, button); body.append(row)
+    }
+    body.append(element('p', '只上传实现客户端宿主接口的自包含文件；服务端只校验语法与摘要，不执行上传代码。客户端校验失败时保留原版本。', 'muted field wide'), history)
+    void refresh().catch(error => { current.textContent = error.message })
+  }
   function render (data) {
     settings = data.settings
-    const groups = [...new Set(settings.fields.map(field => field.group))]
+    const groups = [...new Set(settings.fields.map(field => field.group)), '能力版本']
     $('#admin-nav').replaceChildren(); $('#settings-panels').replaceChildren()
     for (const [index, group] of groups.entries()) {
       const button = element('button'); button.type = 'button'; button.dataset.group = group
@@ -79,6 +110,7 @@
       button.addEventListener('click', () => showGroup(group)); $('#admin-nav').append(button)
       const panel = element('section', undefined, 'settings-card'); panel.dataset.panel = group
       const head = element('header', undefined, 'section-head'); head.append(element('h2', group), element('p', descriptions[group], 'muted')); panel.append(head)
+      if (group === '能力版本') renderCapabilities(panel)
       const grid = element('div', undefined, 'field-grid')
       for (const field of settings.fields.filter(item => item.group === group)) {
         if (field.type === 'plans') { renderPlans(panel, settings.values[field.key] || []); continue }

@@ -6,6 +6,7 @@ const { AsyncLocalStorage } = require('node:async_hooks')
 const { hashPassword } = require('./auth')
 const { readServerConfig } = require('./server-config')
 const { MediaSessionStore } = require('./media-session-store')
+const { AuthAccountStore } = require('./auth-account-store')
 
 class UserError extends Error {
   constructor (message, status = 400) { super(message); this.status = status }
@@ -36,6 +37,7 @@ class WorkspaceDatabase {
     }
     if (this.key.length !== 32) throw new Error('服务端数据加密密钥无效，请恢复原密钥。')
     this.mediaSessions = new MediaSessionStore(this, UserError)
+    this.authAccounts = new AuthAccountStore(this, UserError)
     this.ready = this.initialize()
   }
   async initialize () {
@@ -44,6 +46,8 @@ class WorkspaceDatabase {
     try { await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`) } finally { await connection.end() }
     this.pool = mysql.createPool({ ...this.configuration, connectionLimit: 8, waitForConnections: true, queueLimit: 100 })
     const tables = [
+      'CREATE TABLE IF NOT EXISTS platform_release_state(id INT PRIMARY KEY,release_version VARCHAR(32) NOT NULL,manifest JSON)',
+      'CREATE TABLE IF NOT EXISTS platform_releases(id BIGINT AUTO_INCREMENT PRIMARY KEY,component VARCHAR(16) NOT NULL,version VARCHAR(32) NOT NULL,sha256 CHAR(64) NOT NULL,file_name VARCHAR(160) NOT NULL UNIQUE,size_bytes INT NOT NULL,published_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,INDEX platform_release_component(component,id))',
       'CREATE TABLE IF NOT EXISTS users(id VARCHAR(36) PRIMARY KEY,email VARCHAR(254) NOT NULL UNIQUE,name VARCHAR(160) NOT NULL,password_hash VARCHAR(256) NOT NULL,created_at BIGINT NOT NULL,email_verified_at BIGINT)',
       'CREATE TABLE IF NOT EXISTS workspaces(id VARCHAR(36) PRIMARY KEY,name VARCHAR(160) NOT NULL,owner_id VARCHAR(36) NOT NULL,FOREIGN KEY(owner_id) REFERENCES users(id))',
       'CREATE TABLE IF NOT EXISTS members(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,user_id VARCHAR(36) NOT NULL,role VARCHAR(16) NOT NULL,scope JSON NOT NULL,UNIQUE(workspace_id,user_id),FOREIGN KEY(workspace_id) REFERENCES workspaces(id),FOREIGN KEY(user_id) REFERENCES users(id))',
@@ -57,12 +61,14 @@ class WorkspaceDatabase {
       'CREATE TABLE IF NOT EXISTS billing_subscriptions(workspace_id VARCHAR(36) PRIMARY KEY,plan JSON NOT NULL,starts_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,last_order_id VARCHAR(32) NOT NULL,FOREIGN KEY(workspace_id) REFERENCES workspaces(id),FOREIGN KEY(last_order_id) REFERENCES billing_orders(id))'
     ]
     for (const statement of tables) await this.pool.query(statement + ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
+    await this.pool.query("INSERT IGNORE INTO platform_release_state VALUES(1,'0.2.0',NULL)")
     const [verifiedColumn] = await this.pool.query("SHOW COLUMNS FROM users LIKE 'email_verified_at'")
     if (!verifiedColumn.length) {
       try { await this.pool.query('ALTER TABLE users ADD COLUMN email_verified_at BIGINT NULL') } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
     }
     await this.migrateFingerprintEncryption()
     await this.mediaSessions.initialize()
+    await this.authAccounts.initialize()
   }
   encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
   decodeFingerprint (value) {
@@ -175,6 +181,7 @@ class WorkspaceDatabase {
         const revision = (current?.revision || 0) + 1
         if (current) await this.execute('UPDATE records SET data=?,revision=? WHERE kind=? AND id=? AND workspace_id=?', [JSON.stringify(value), revision, kind, id, workspaceId])
         else await this.execute('INSERT INTO records(kind,id,workspace_id,data,revision) VALUES(?,?,?,?,?)', [kind, id, workspaceId, JSON.stringify(value), revision])
+        if (kind === 'accounts') await this.execute('UPDATE auth_accounts SET auth_status=?,platform_user_name=?,platform_avatar=?,last_checked_at=?,updated_at=? WHERE workspace_id=? AND id=?', [value.status || 'valid', value.name || '', value.avatar || '', value.checkedAt || Date.now(), Date.now(), workspaceId, id])
         return { ...value, id, revision }
       })
     } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('记录被其他操作更新，请刷新后重试。', 409); throw error }
@@ -209,7 +216,12 @@ class WorkspaceDatabase {
       if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
       const environment = (await this.execute("SELECT id FROM records WHERE kind='environments' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, account.environmentId]))[0]
       if (!environment || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
-      const snapshot = await this.mediaSessions.read(workspaceId, accountId, 'account')
+      let snapshot = await this.authAccounts.read(workspaceId, accountId)
+      if (!snapshot) {
+        // 兼容运行期间尚未迁移的历史账号，只在新存储缺失时迁移，不用旧快照覆盖新版本。
+        const legacy = await this.mediaSessions.read(workspaceId, accountId, 'account')
+        if (legacy) { await this.authAccounts.write(workspaceId, accountId, account, legacy); snapshot = await this.authAccounts.read(workspaceId, accountId) }
+      }
       if (!snapshot) throw new UserError('账号会话尚未保存，请重新授权。', 409)
       return snapshot
     })

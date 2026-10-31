@@ -1,11 +1,11 @@
 {
   "name": "@qijie/saas-server",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
   "main": "src/workspace-server.js",
   "scripts": {
     "start": "node src/workspace-server.js",
-    "test": "node --test test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/media-session-store.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
+    "test": "node --test test/client-authorization.test.js test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/media-session-store.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
     "package:source": "pwsh -NoProfile -File scripts/package-source.ps1"
   },
   "engines": {

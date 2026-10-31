@@ -37,7 +37,9 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   const applicationId = config.applicationId || 'com.qijie.fingerprintbrowser'
   const appName = config.appName || '浏览器基座'
   if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*){2,}$/.test(applicationId) || !/^[\p{L}\p{N} _.-]{1,60}$/u.test(appName)) throw new Error('应用标识或名称无效，请检查打包配置。')
-  return { appUrl, environment, updates, applicationId, appName }
+  let platformManifestUrl = (!packaged && env.FP_PLATFORM_MANIFEST_URL) || config.platformManifestUrl || new URL('/api/platform-releases/manifest.json', appUrl).href
+  if (platformManifestUrl) { try { platformManifestUrl = updateUrl(platformManifestUrl, environment) } catch { throw new Error('平台能力发布源地址无效，请使用独立 HTTPS 清单地址。') } }
+  return { appUrl, environment, updates, applicationId, appName, platformManifestUrl }
 }
 
 module.exports = { getClientConfig, validateAppUrl }

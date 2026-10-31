@@ -50,10 +50,11 @@ class MediaSessionStore {
     return { sessionVersion: version, updatedAt }
   }
   async write (workspaceId, sessionId, kind, snapshot) { return await this.db.transaction(() => this.writeRows(this.db.execute.bind(this.db), workspaceId, sessionId, kind, snapshot)) }
-  async read (workspaceId, sessionId, kind) {
-    const header = (await this.db.execute('SELECT version FROM media_sessions WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind]))[0]
+  async read (workspaceId, sessionId, kind) { return await this.readRows(this.db.execute.bind(this.db), workspaceId, sessionId, kind) }
+  async readRows (execute, workspaceId, sessionId, kind) {
+    const header = (await execute('SELECT version FROM media_sessions WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind]))[0]
     if (!header) return null
-    const rows = await this.db.execute('SELECT * FROM media_session_cookies WHERE workspace_id=? AND session_id=? AND session_kind=? ORDER BY cookie_ordinal', [workspaceId, sessionId, kind])
+    const rows = await execute('SELECT * FROM media_session_cookies WHERE workspace_id=? AND session_id=? AND session_kind=? ORDER BY cookie_ordinal', [workspaceId, sessionId, kind])
     const cookies = rows.map(row => {
       const cookie = { name: row.cookie_name, value: this.db.decrypt(row.value_ciphertext) }
       for (const [key, column] of Object.entries(cookieFields)) if (row[column] !== null) cookie[key] = boolFields.has(key) ? Boolean(row[column]) : row[column]
@@ -61,7 +62,7 @@ class MediaSessionStore {
       return cookie
     })
     const storage = Object.create(null)
-    for (const row of await this.db.execute('SELECT storage_origin,storage_key,value_ciphertext FROM media_session_storage WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])) { storage[row.storage_origin] ||= Object.create(null); storage[row.storage_origin][row.storage_key] = this.db.decrypt(row.value_ciphertext) }
+    for (const row of await execute('SELECT storage_origin,storage_key,value_ciphertext FROM media_session_storage WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind])) { storage[row.storage_origin] ||= Object.create(null); storage[row.storage_origin][row.storage_key] = this.db.decrypt(row.value_ciphertext) }
     return { cookies, storage, sessionVersion: Number(header.version) }
   }
   async remove (workspaceId, sessionId, kind) { await this.db.execute('DELETE FROM media_sessions WHERE workspace_id=? AND session_id=? AND session_kind=?', [workspaceId, sessionId, kind]) }

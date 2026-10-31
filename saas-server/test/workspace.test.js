@@ -91,10 +91,10 @@ test('真实数据库、会话、权限和资源完整链路', async t => {
       invalid.screen.availWidth = invalid.screen.width; invalid.locale.languages = ['en-US']
       await api(`${base}/fingerprints`, { account: 'owner', method: 'POST', expected: 400, body: { name: '语言冲突不得入库', profile: invalid } })
     })
-    await t.test('未通过检测的代理不入库，外部服务未配置时不造成功结果', async () => {
+    await t.test('未通过检测的代理不入库，授权缺少环境时拒绝执行', async () => {
       await api(`${base}/proxies`, { account: 'owner', method: 'POST', expected: 422, body: { name: '本机受限地址', host: '127.0.0.1', port: 1, protocol: 'http' } })
       assert.equal((await api(`${base}/proxies`, { account: 'owner' })).data.items.length, 0)
-      await api(`${base}/authorizations`, { account: 'owner', method: 'POST', expected: 503, body: { platform: 'douyin' } })
+      await api(`${base}/authorizations`, { account: 'owner', method: 'POST', expected: 400, body: { platform: 'douyin' } })
       await api(`${base}/orders`, { account: 'owner', method: 'POST', expected: 503, body: { method: 'wechat' } })
       const billing = (await api(`${base}/billing`, { account: 'owner' })).data
       assert.equal(billing.subscription, null); assert.equal(billing.usage.environments, 1)

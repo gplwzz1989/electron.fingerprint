@@ -10,6 +10,8 @@ const { SessionObserver } = require('./session-observer')
 const { validateSessionSnapshot } = require('./session-restore')
 let sessionObserver
 const { PlatformRuntime } = require('./platform-runtime')
+const { PlatformPackageManager } = require('./platform-package-manager')
+let platformPackages
 let platformRuntime
 const { TabBrowser } = require('./browser-tabs')
 const { EnvironmentRepository } = require('./environment-repository')
@@ -323,11 +325,17 @@ function registerIpc () {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
     platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
     try {
-      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version } }
+      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version, protocol: 'platform-runtime-v2', update: platformPackages?.state } }
       if (action === 'poll' || action === 'cancel') return { ok: true, ...await platformRuntime.poll(event.sender, input?.id, action === 'cancel') }
       sessionObserver ||= new SessionObserver(tabBrowser)
       const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload) })
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) })
+      desktop.refreshIdentity = async () => {
+        const policy = desktop.authorizeCapture
+        const contents = tabBrowser.getTab(policy.tabId)?.view?.webContents
+        if (!contents || !policy.platform.identityRequest || new URL(contents.getURL()).origin !== new URL(policy.platform.url).origin) return
+        await contents.executeJavaScript('fetch(' + JSON.stringify(policy.platform.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }).then(() => true).catch(() => false)')
+      }
       desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
       return { ok: true, ...await platformRuntime.start(event.sender, input, desktop) }
     } catch (error) { if (error instanceof ProfileValidationError) throw error; throw new ProfileValidationError('平台能力不可用，请检查客户端能力包配置。') }
@@ -358,6 +366,16 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
+      let bindAuthorization = result => result
+      if (decrypted.platformKey || decrypted.authorization) {
+        platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+        const { runtime } = await platformRuntime.load()
+        const platform = runtime.catalog.find(item => item.key === (decrypted.platformKey || decrypted.authorization.platformKey))
+        if (!platform) throw new ProfileValidationError('客户端能力包尚未支持此平台，请更新平台能力。')
+        decrypted.url = platform.url
+        if (decrypted.session) decrypted.session.origins = [...platform.origins]
+        if (decrypted.authorization) bindAuthorization = result => { platformRuntime.bind(event.sender, result.tabId, decrypted.authorization); return result }
+      }
       const profile = createProfileRecord(decrypted)
       const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
       const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
@@ -390,13 +408,13 @@ function registerIpc () {
           tabBrowser.updateEnvironmentProfile(existing)
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
+        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return bindAuthorization({ ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true }) }
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
+        return bindAuthorization({ ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) })
       }
       const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: reference })
       const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) }
+      return bindAuthorization({ ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) })
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
@@ -946,6 +964,10 @@ async function start () {
     app.userAgentFallback = defaultUserAgent()
     await ensureUserDataPath()
     clientConfig = getClientConfig({ packaged: app.isPackaged })
+    platformPackages = new PlatformPackageManager({ directory: path.join(app.getPath('userData'), 'platform-runtime'), bundledDirectory: process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'), url: clientConfig.platformManifestUrl, channel: clientConfig.environment })
+    await platformPackages.initialize()
+    platformRuntime = platformPackages.runtime
+    void platformPackages.check().then(() => { if (platformPackages.runtime) platformRuntime = platformPackages.runtime })
     const { recovered } = await loadProfiles()
     environmentRepository = new EnvironmentRepository(app.getPath('userData'), undefined, createLocalProfileProtection(safeStorage))
     await environmentRepository.load()

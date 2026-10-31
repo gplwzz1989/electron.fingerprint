@@ -22,7 +22,7 @@
         const me = await meResponse.json()
         if (!meResponse.ok || !me.ok) throw new Error('登录已失效，请重新登录。')
         const route = payload.accountId ? `accounts/${payload.accountId}` : `environments/${payload.environmentId}`
-        const response = await fetch(`/api/workspaces/${payload.workspaceId}/${route}/launch`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrf }, body: JSON.stringify(request), signal: AbortSignal.timeout(60000) })
+        const response = await fetch(`/api/workspaces/${payload.workspaceId}/${route}/launch`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrf }, body: JSON.stringify({ ...request, ...(payload.authorizationId ? { authorizationId: payload.authorizationId } : {}) }), signal: AbortSignal.timeout(60000) })
         const data = await response.json()
         if (!response.ok || !data.ok) throw new Error(data.message || '无法取得环境启动配置。')
         if (data.envelope?.format !== 'desktop-launch-v1') throw new Error('SaaS 返回的启动协议不兼容，请更新并重启服务后重试。')

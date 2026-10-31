@@ -518,10 +518,9 @@
       document.dispatchEvent(new CustomEvent('media:reauthorize', { detail: account })); return
     }
     if (operation === 'check-account') {
-      const { item } = await request(`${base()}/accounts/${id}/check`, 'POST', {})
-      await reload(); populateTable('accounts')
-      if (item.status !== 'valid') throw new Error('账号授权已失效，请点击“重新授权”。')
-      noticeResult('账号授权有效。', true); return
+      const account = state.lists.accounts.find(item => item.id === id)
+      if (!account || !window.workspaceBridge) throw new Error('请在桌面客户端中检测账号授权。')
+      document.dispatchEvent(new CustomEvent('media:reauthorize', { detail: { ...account, checkOnly: true } })); return
     }
     if (operation === 'open-account') {
       const account = state.lists.accounts.find(item => item.id === id)

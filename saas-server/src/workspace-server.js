@@ -7,7 +7,7 @@ const { verifyPassword } = require('./auth')
 const { checkProxy } = require('./proxy-check')
 const { createFingerprintProfile, getDefaultProfile, getPresetTemplateById } = require('./fingerprint/profile-store')
 const { auditGPUProfileConsistency, generateRandomHardwareProfile } = require('./fingerprint/webgl-topology')
-const { loadExternalService } = require('./external-platform-service')
+const { catalog: clientPlatforms } = require('./client-platform-service')
 const { RegistrationMailer } = require('./registration-mailer')
 const { normalizeEmail } = require('./email-address')
 const { BillingService } = require('./billing-service')
@@ -15,6 +15,7 @@ const { sealLaunch, validateLaunchRequest } = require('./desktop-protocol')
 const { MediaAuthorizations } = require('./media-authorizations')
 const { ClientUpdateService } = require('./client-update-service')
 const { SystemSettings } = require('./system-settings')
+const { PlatformReleaseService } = require('./platform-release-service')
 
 const platforms = [{ key: 'wechat', name: '微信公众号', icon: 'assets/platforms/wechat.png' }, { key: 'douyin', name: '抖音', icon: 'assets/platforms/douyin.png' }, { key: 'weibo', name: '新浪微博', icon: 'assets/platforms/weibo.png' }]
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
@@ -63,6 +64,7 @@ class WorkspaceServer {
   constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile } = {}) {
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
     this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
+    this.platformReleases = new PlatformReleaseService(this.database, path.join(dataDir, 'platform-releases'))
     this.mediaAuthorizations = new MediaAuthorizations(this.database, platformService)
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
@@ -104,10 +106,15 @@ class WorkspaceServer {
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })
     try {
       if (req.headers.origin && req.headers.origin !== origin) throw new UserError('请求来源不受信任，请从工作空间页面重试。', 403)
-      if (method === 'GET' && pathname.startsWith('/platform-runtime/')) {
-        if (!this.mediaAuthorizations.available()) throw new UserError('平台授权脚本尚未配置。', 503)
-        const runtime = this.platformService.runtime(pathname.slice('/platform-runtime/'.length))
-        res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' }); return res.end(runtime.bytes)
+      if (method === 'GET' && pathname.startsWith('/platform-runtime/')) throw new UserError('平台能力已迁移至独立客户端，请更新客户端能力包。', 410)
+      if (method === 'GET' && pathname === '/api/platform-releases/manifest.json') {
+        const manifest = await this.platformReleases.current()
+        if (!manifest) throw new UserError('尚未发布完整的平台与 RPA 能力，请在管理后台上传两个组件。', 404)
+        return this.json(res, 200, manifest)
+      }
+      if (method === 'GET' && pathname.startsWith('/api/platform-releases/')) {
+        const bytes = await this.platformReleases.download(pathname.slice('/api/platform-releases/'.length))
+        res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' }); return res.end(bytes)
       }
       if (!pathname.startsWith('/api/')) return this.static(req, res, pathname)
       if (method === 'GET' && pathname === '/api/health') return send({ status: 'available', version: require('../package.json').version, launchProtocols: ['desktop-launch-v1', 'qijie-launch-v1'] })
@@ -130,10 +137,9 @@ class WorkspaceServer {
         const result = await this.registrationMailer.sendCode(email, req.socket.remoteAddress)
         return send({ ...result, message: '验证码邮件已发送，请检查收件箱。' })
       }
-      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || platforms).map(item => ({ key: item.key, name: item.name, icon: platformIcons[item.key] ? `assets/platforms/${platformIcons[item.key]}` : item.icon, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
+      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || clientPlatforms).map(item => ({ key: item.key, name: item.name, icon: platformIcons[item.key] ? `assets/platforms/${platformIcons[item.key]}` : item.icon, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
       if (method === 'GET' && pathname === '/api/platform-runtime') {
-        if (!this.mediaAuthorizations.available()) throw new UserError('平台授权服务尚未配置。', 503)
-        const { manifest } = this.platformService.runtime(); return send({ ...manifest, url: '/platform-runtime/' + manifest.file })
+        return send({ protocol: 'platform-runtime-v2', location: 'client', message: '请通过客户端 JSAPI 查询平台能力。' })
       }
       if (method === 'POST' && ['/api/auth/login', '/api/auth/register'].includes(pathname)) {
         const key = req.socket.remoteAddress; const now = Date.now(); const attempts = this.rateLimits.get(key) || { count: 0, until: now + 60000 }
@@ -165,6 +171,17 @@ class WorkspaceServer {
       if (!['GET', 'HEAD'].includes(method) && req.headers['x-csrf-token'] !== session.csrf) throw new UserError('页面会话已变化，请刷新后重试。', 403)
       const user = await this.database.user(session.user_id)
       if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf, isSystemAdmin: await this.systemSettings.isAdmin(user.id) })
+      if (pathname === '/api/system/platform-releases' || pathname.startsWith('/api/system/platform-releases/')) {
+        await this.systemSettings.assertAdmin(user.id)
+        if (method === 'GET' && pathname === '/api/system/platform-releases') return send(await this.platformReleases.list())
+        if (method === 'POST') {
+          if (!req.headers['content-type']?.startsWith('application/javascript')) throw new UserError('请上传单文件 JavaScript 产物。', 415)
+          const chunks = []; let size = 0
+          for await (const chunk of req) { size += chunk.length; if (size > 4 * 1024 * 1024) throw new UserError('能力文件不能超过 4 MB。', 413); chunks.push(chunk) }
+          return send(await this.platformReleases.publish(pathname.slice('/api/system/platform-releases/'.length), Buffer.concat(chunks), user.id), 201)
+        }
+        throw new UserError('此发布操作不受支持。', 405)
+      }
       if (pathname === '/api/system/settings') {
         await this.systemSettings.assertAdmin(user.id)
         if (method === 'GET') return send({ settings: await this.systemSettings.publicSettings(user.id), paymentMethods: this.billing.methods(), emailDeliveryAvailable: this.registrationMailer.available })
@@ -268,7 +285,16 @@ class WorkspaceServer {
         if (method === 'POST' && id && action === 'launch') {
           db.assertWrite(member); const environment = await getRecord('environments')
           const encryption = await this.body(req)
-          return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption) })
+          let extra = {}
+          if (encryption.authorizationId) {
+            const task = await db.get('authorizations', workspaceId, encryption.authorizationId)
+            if (!task || task.environmentId !== environment.id) throw new UserError('授权任务与环境不匹配。', 409)
+            await this.mediaAuthorizations.access(workspaceId, user.id, task)
+            this.mediaAuthorizations.assertActive(task)
+            if (task.status !== 'waiting' || !task.proofKey) throw new UserError('授权任务已结束，请重新开始。', 409)
+            extra = { authorization: { operationId: task.id, platformKey: task.platform.key, publicKey: task.publicKey, proofKey: db.decrypt(task.proofKey), expiresAt: task.expiresAt, mode: task.mode, expectedUserId: task.targetAccountId ? (await db.get('accounts', workspaceId, task.targetAccountId))?.platformUserId : null } }
+          }
+          return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption, extra) })
         }
         if (method === 'DELETE' && id) { db.assertWrite(member); await getRecord('environments'); await db.remove('environments', workspaceId, id); return send({}) }
       }
@@ -314,7 +340,7 @@ class WorkspaceServer {
       if (resource === 'accounts' && method === 'POST' && id && ['launch', 'check'].includes(action)) {
         db.assertWrite(member)
         const account = await getRecord('accounts')
-        const platform = this.platformService?.catalog.find(item => item.key === account.platform)
+        const platform = (this.platformService?.catalog || clientPlatforms).find(item => item.key === account.platform)
         if (!platform) throw new UserError('此账号的平台服务尚未配置。', 503)
         const environment = await db.get('environments', workspaceId, account.environmentId)
         if (!environment || !db.canAccess(member, environment.id)) throw new UserError('账号绑定的浏览器环境不存在或无法访问。', 403)
@@ -325,6 +351,7 @@ class WorkspaceServer {
           try { validateLaunchRequest(body) } catch (error) { throw new UserError(error.message) }
         }
         if (action === 'check') {
+          if (!this.platformService) throw new UserError('请通过客户端打开账号并检测授权状态。', 409)
           await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
           const snapshot = await db.readAccountSession(workspaceId, user.id, account.id)
           const saveStatus = async status => await db.transaction(async () => {
@@ -348,8 +375,8 @@ class WorkspaceServer {
           if (currentAccount.status !== 'valid') throw new UserError('账号授权已失效，请先重新授权。', 409)
           const currentMember = await db.membership(workspaceId, user.id)
           const currentEnvironment = await db.get('environments', workspaceId, currentAccount.environmentId)
-          const session = { format: 'desktop-session-v1', origins: platform.origins, cookies: snapshot.cookies, storage: snapshot.storage, version: snapshot.sessionVersion }
-          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url, session, localSessionSource: { resourceId: currentEnvironment.id, operationId: currentAccount.authorizationOperationId } })
+          const session = { format: 'desktop-session-v1', origins: snapshot.origins?.length ? snapshot.origins : platform.origins || currentAccount.origins || [], cookies: snapshot.cookies, storage: snapshot.storage, version: snapshot.sessionVersion }
+          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url || currentAccount.launchUrl || currentEnvironment.startUrl, ...(!this.platformService ? { platformKey: currentAccount.platform } : {}), session, localSessionSource: { resourceId: currentEnvironment.id, operationId: currentAccount.authorizationOperationId } })
         })
         return send({ envelope })
       }
@@ -426,7 +453,7 @@ class WorkspaceServer {
 if (require.main === module) {
   if (!process.env.SAAS_ENV && process.argv[2] === '--init-system-admin') process.env.SAAS_ENV = 'prod'
   loadEnvironment(path.join(__dirname, '..'), process.env.SAAS_ENV || 'dev')
-  const server = new WorkspaceServer({ port: Number(process.env.PORT || 8088), host: process.env.HOST || '127.0.0.1', dataDir: process.env.SAAS_DATA_DIR || path.join(__dirname, '../data/workspace'), publicUrl: process.env.SAAS_PUBLIC_URL || '', allowPrivateProxy: process.env.SAAS_ALLOW_PRIVATE_PROXY === 'true', platformService: loadExternalService() })
+  const server = new WorkspaceServer({ port: Number(process.env.PORT || 8088), host: process.env.HOST || '127.0.0.1', dataDir: process.env.SAAS_DATA_DIR || path.join(__dirname, '../data/workspace'), publicUrl: process.env.SAAS_PUBLIC_URL || '', allowPrivateProxy: process.env.SAAS_ALLOW_PRIVATE_PROXY === 'true', platformService: null })
   if (process.argv[2] === '--init-system-admin') {
     void server.configurationReady.then(async () => {
       const result = await server.systemSettings.provisionAdmin(process.argv[3])

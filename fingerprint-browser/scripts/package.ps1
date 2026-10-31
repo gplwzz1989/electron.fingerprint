@@ -103,7 +103,7 @@ try {
   $application = Join-Path $payload 'resources/app'
   $platformDestination = Join-Path $payload 'resources/platform-runtime'
   New-Item -ItemType Directory -Path $platformDestination -Force | Out-Null
-  foreach ($file in @('manifest.json', $platformManifest.file)) { Copy-Item -LiteralPath (Join-Path $PlatformRuntimeRoot $file) -Destination $platformDestination -Force }
+  foreach ($file in @('manifest.json', $platformManifest.file, $platformManifest.rpa.file)) { Copy-Item -LiteralPath (Join-Path $PlatformRuntimeRoot $file) -Destination $platformDestination -Force }
   New-Item -ItemType Directory -Path $application -Force | Out-Null
   Get-ChildItem -LiteralPath $projectRoot -File -Filter '*.js' | Copy-Item -Destination $application -Force
   foreach ($file in @('browser-shell.html', 'browser-shell.css', 'new-tab.html', 'new-tab.css', 'update-installer.ps1')) {
@@ -117,7 +117,7 @@ try {
   foreach ($file in @('x-grok-panel.html','x-grok-panel.js','x-grok-panel-preload.js','automation-panel.css')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "renderer/$file") -Destination (Join-Path $application 'renderer') -Force
   }
-  $clientSettings = @{ environment = $Environment; appUrl = [string]$validatedUrl; appName = $environmentConfig.$Environment.appName; applicationId = $environmentConfig.$Environment.applicationId; updateUrl = $environmentConfig.$Environment.updateUrl; updatePublicKey = $environmentConfig.$Environment.updatePublicKey; updatesEnabled = $environmentConfig.$Environment.updatesEnabled -eq $true }
+  $clientSettings = @{ platformManifestUrl = $environmentConfig.$Environment.platformManifestUrl; environment = $Environment; appUrl = [string]$validatedUrl; appName = $environmentConfig.$Environment.appName; applicationId = $environmentConfig.$Environment.applicationId; updateUrl = $environmentConfig.$Environment.updateUrl; updatePublicKey = $environmentConfig.$Environment.updatePublicKey; updatesEnabled = $environmentConfig.$Environment.updatesEnabled -eq $true }
   $clientSettings | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'client-config.json') -Encoding utf8NoBOM
   & node -e "require(process.argv[1]).getClientConfig({packaged:true,directory:process.argv[2]})" (Join-Path $application 'client-config.js') $application
   if ($LASTEXITCODE -ne 0) { throw '客户端更新配置校验失败。' }

@@ -31,6 +31,7 @@
     if (!desktop?.platformStatus) throw new Error('请升级客户端以使用独立平台能力。')
     const result = await desktop.platformStatus()
     if (!result?.ok) throw new Error(result?.error || '客户端平台能力不可用。')
+    if (result.protocol !== 'platform-runtime-v2') throw new Error('请更新客户端和平台能力包后再授权账号。')
   }
   async function runPlatform ({ task, tabId, signal, onProgress }) {
     const desktop = window.workspaceBridge
@@ -74,7 +75,7 @@
           }
           location.hash = 'accounts'
         } finally { closingAfterSave = false }
-        document.dispatchEvent(new CustomEvent('media:saved', { detail: { message: '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
+        document.dispatchEvent(new CustomEvent('media:saved', { detail: { message: pending.task?.mode === 'check' ? savedTask.outcome === 'invalid' ? '账号登录已失效，请重新授权。' : '账号授权有效。' : '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
       }
     } catch (error) {
       // 身份核验明确失败后必须重新读取当前登录态，不能反复提交旧的失败快照。
@@ -95,25 +96,25 @@
     if (recovering) throw new Error('正在重新采集授权，请稍候。')
     const pending = recovery; assertContext(pending); recovering = true; pending.recovering = true
     try {
-      // 保留已经扫码登录的标签，只重建观察上下文并重新采集，不重新导航登录页。
+      // 保留已经扫码登录的标签，由客户端重建观察并按平台规则重新采集。
       pending.runnerController.abort(); await pending.runnerPromise.catch(() => {})
       assertContext(pending)
       const desktop = window.workspaceBridge; const checked = result => { if (!result?.ok) throw new Error(result?.error || '会话采集失败，请重试。'); return result }
       let tabs = checked(await desktop.tabs())
       if (!tabs.tabs.some(tab => tab.id === pending.tabId)) {
-        checked(await desktop.launch({ workspaceId: pending.workspaceId, environmentId: pending.task.environmentId, capabilities: [], allowedOrigins: [] }))
+        checked(await desktop.launch({ workspaceId: pending.workspaceId, environmentId: pending.task.environmentId, authorizationId: pending.task.id, capabilities: [], allowedOrigins: [] }))
         tabs = checked(await desktop.tabs())
         const tab = tabs.tabs.find(item => item.externalReference?.resourceId === pending.task.environmentId || item.profileId === pending.task.environmentId)
         if (!tab) throw new Error('授权环境暂时无法恢复，请重新开始授权。')
         pending.tabId = tab.id
-        checked(await desktop.navigate({ id: tab.id, url: pending.task.platform.url }))
+        // 平台入口由客户端能力包决定，网页不提供执行地址。
       }
       assertContext(pending); status('正在从已登录环境重新采集会话并核验身份…')
-      const observer = checked(await desktop.observeSession({ tabId: pending.tabId, origins: pending.task.platform.origins, paths: [pending.task.platform.responsePath], storageKeys: pending.task.platform.storageKeys, publicKey: pending.task.publicKey, operationId: pending.task.id }))
-      try {
-        const { ok, ...envelope } = checked(await desktop.captureSession({ id: observer.id }))
-        assertContext(pending); retrySave = { ...pending, envelope }; recovery = null
-      } finally { await desktop.closeSession({ id: observer.id }) }
+      const runnerController = new AbortController()
+      pending.runnerController = runnerController
+      pending.controller.signal.addEventListener('abort', () => runnerController.abort(), { once: true })
+      const envelope = await runPlatform({ task: pending.task, tabId: pending.tabId, signal: runnerController.signal, onProgress: message => status(message) })
+      assertContext(pending); retrySave = { ...pending, envelope }; recovery = null
       await desktop.dashboard(); await save(retrySave)
     } finally { recovering = false }
   }
@@ -121,7 +122,7 @@
     if (running || saving || recovering) throw new Error('已有授权正在进行，请先取消或完成。')
     if (retrySave || recovery) throw new Error('上次授权尚未保存，请先重试保存或取消。')
     const desktop = window.workspaceBridge
-    if (!desktop?.observeSession) throw new Error('请在支持账号授权的新版客户端中操作。')
+    if (!desktop?.startPlatformTask) throw new Error('请在支持账号授权的新版客户端中操作。')
     const environmentId = account?.environmentId || surface()?.querySelector('#field-account-authorize-0-1')?.value
     if (!environmentId) throw new Error('请先选择独立浏览器环境。')
     const context = currentContext(); const workspaceId = context.workspaceId
@@ -134,10 +135,10 @@
     try {
       await loadRuntime(controller.signal); assertContext(context)
       const runner = { run: runPlatform }
-      const task = (await api(`/api/workspaces/${workspaceId}/authorizations`, 'POST', { platform: account?.platform || selectedPlatform, environmentId, accountId: account?.id })).task
+      const task = (await api(`/api/workspaces/${workspaceId}/authorizations`, 'POST', { platform: account?.platform || selectedPlatform, environmentId, accountId: account?.id, checkOnly: account?.checkOnly === true })).task
       path = `/api/workspaces/${workspaceId}/authorizations/` + task.id
       assertContext(context)
-      const launch = await desktop.launch({ workspaceId, environmentId, capabilities: [], allowedOrigins: [] })
+      const launch = await desktop.launch({ workspaceId, environmentId, authorizationId: task.id, capabilities: [], allowedOrigins: [] })
       if (!launch.ok) throw new Error(launch.error || '独立环境启动失败。')
       assertContext(context)
       const tabs = await desktop.tabs()

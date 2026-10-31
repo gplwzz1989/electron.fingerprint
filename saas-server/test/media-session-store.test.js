@@ -38,7 +38,7 @@ test('关系会话：字段展开、逐值加密、重启迁移及跨成员隔�
     assert(!JSON.stringify(storage).includes('relational-storage-secret'))
     const columns = await db.execute('SHOW COLUMNS FROM media_session_cookies')
     assert(!columns.some(column => column.Type.toLowerCase() === 'json'))
-    await db.mediaSessions.write(workspaceId, accountId, 'account', snapshot)
+    await db.authAccounts.write(workspaceId, accountId, await db.get('accounts', workspaceId, accountId), snapshot)
     assert.equal((await db.readAccountSession(workspaceId, userId, accountId)).sessionVersion, 2)
     await assert.rejects(db.readAccountSession(crypto.randomUUID(), userId, accountId), /访问权限/)
     await db.execute("UPDATE members SET role='viewer' WHERE workspace_id=? AND user_id=?", [workspaceId, userId])

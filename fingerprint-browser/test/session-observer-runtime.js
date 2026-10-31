@@ -40,7 +40,15 @@ app.whenReady().then(async () => {
   const session = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString())
   assert(session.cookies.some(cookie => cookie.httpOnly === true && cookie.secure === true && cookie.value === 'runtime-test-secret'))
   assert.equal(session.storage[origin]['isolated-key'], 'runtime-storage-secret')
+  const authorization = { proofKey: 'f'.repeat(64), platform: { key: 'isolated', url: origin, origins: [origin] }, packageVersion: '0.2.0' }
+  const attested = await observer.capture(contents, { id: job.id, identity: { platformUserId: 'isolated-runtime-test', name: '隔离真实运行时', avatar: '' } }, authorization)
+  const attestedKey = crypto.privateDecrypt({ key: keys.privateKey, oaepHash: 'sha256' }, Buffer.from(attested.wrappedKey, 'base64'))
+  const decoder = crypto.createDecipheriv('aes-256-gcm', attestedKey, Buffer.from(attested.iv, 'base64')); decoder.setAAD(Buffer.from(operationId)); decoder.setAuthTag(Buffer.from(attested.tag, 'base64'))
+  const result = JSON.parse(Buffer.concat([decoder.update(Buffer.from(attested.ciphertext, 'base64')), decoder.final()]).toString('utf8'))
+  const { proof, ...payload } = result
+  assert.equal(proof, crypto.createHmac('sha256', authorization.proofKey).update(JSON.stringify(payload)).digest('hex'))
+  assert.equal(result.identity.platformUserId, 'isolated-runtime-test')
   await observer.close(contents, job.id); assert.equal(observer.jobs.size, 0)
   assert.equal(contents.debugger.isAttached(), false)
-  fs.writeFileSync(report, JSON.stringify({ ok: true, electron: process.versions.electron, checks: ['真实网络响应', '来源隔离', 'HttpOnly Cookie', '本地存储', 'RSA 与 AES-GCM', '任务归属', '监听释放'] }, null, 2))
+  fs.writeFileSync(report, JSON.stringify({ ok: true, electron: process.versions.electron, checks: ['真实网络响应', '来源隔离', 'HttpOnly Cookie', '本地存储', 'RSA 与 AES-GCM', '主进程 HMAC 身份与会话证明', '任务归属', '监听释放'] }, null, 2))
 }).catch(error => { fs.writeFileSync(report, JSON.stringify({ ok: false, message: error.message, stack: error.stack })); process.exitCode = 1 }).finally(() => { clearTimeout(timer); window?.destroy(); server?.close(); app.exit(process.exitCode || 0) })

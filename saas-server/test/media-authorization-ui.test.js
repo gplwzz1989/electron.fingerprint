@@ -19,9 +19,10 @@ function fixture ({ manifestGate, failConfirm = false, failComplete = false, wai
   let tabOpen = true; let launches = 0; let tabEnvironment = 'environment-test'
   const desktop = { observeSession: async () => ({ ok: true, id: 'test-observer' }), captureSession: async () => { calls.push(['native:capture']); return { ok: true, ciphertext: 'recaptured-test-envelope' } }, closeSession: async () => ({ ok: true }), closeTab: async id => { calls.push(['native:close-tab', id]); if (closeFails) return { ok: false }; tabOpen = false; return { ok: true } }, navigate: async () => ({ ok: true }), launch: async payload => { launches++; tabOpen = true; tabEnvironment = payload.environmentId; return { ok: true } }, tabs: async () => ({ ok: true, tabs: tabOpen ? [{ id: 'tab-test', profileId: tabEnvironment }] : [] }), dashboard: async () => ({ ok: true }) }
   let releasePoll
-  desktop.platformStatus = async () => { calls.push(['native:platform-status']); if (manifestGate) await manifestGate; return { ok: true, version: 'test' } }
-  desktop.startPlatformTask = async () => ({ ok: true, id: 'test-runtime-task' })
-  desktop.pollPlatformTask = async () => waitingRunner ? new Promise(resolve => { releasePoll = resolve }) : ({ ok: true, done: true, result: { ciphertext: 'test-only-envelope' } })
+  desktop.platformStatus = async () => { calls.push(['native:platform-status']); if (manifestGate) await manifestGate; return { ok: true, version: 'test', protocol: 'platform-runtime-v2' } }
+  let runtimeStarts = 0
+  desktop.startPlatformTask = async () => { runtimeStarts++; calls.push(['native:runtime-start']); return { ok: true, id: 'test-runtime-task' } }
+  desktop.pollPlatformTask = async () => waitingRunner && runtimeStarts === 1 ? new Promise(resolve => { releasePoll = resolve }) : ({ ok: true, done: true, result: { ciphertext: 'test-only-envelope' } })
   desktop.cancelPlatformTask = async () => { releasePoll?.({ ok: true, done: true, error: '已取消授权。' }); return { ok: true } }
   const window = { workspaceBridge: desktop, getMediaWorkspace: () => ({ ...context }) }
   let modalOpen = modal
@@ -90,7 +91,7 @@ test('等待平台响应时重试可从原登录环境补采集，关闭标签�
   const state = fixture({ waitingRunner: true }); state.click('start'); await drain()
   state.closeTab(); state.click('retry'); await drain()
   assert.equal(state.calls.filter(([url]) => url.endsWith('/authorizations')).length, 1)
-  assert.equal(state.calls.filter(([url]) => url === 'native:capture').length, 1)
+  assert.equal(state.calls.filter(([url]) => url === 'native:runtime-start').length, 2)
   assert.equal(state.launches(), 2)
   assert.match(state.status.textContent, /授权已保存/)
 })
@@ -99,7 +100,7 @@ test('身份核验明确失败后重新采集当前会话，不重复提交旧�
   const state = fixture({ failComplete: true }); state.click('start'); await drain()
   assert.match(state.status.textContent, /未准备完整/)
   state.click('retry'); await drain()
-  assert.equal(state.calls.filter(([url]) => url === 'native:capture').length, 1)
+  assert.equal(state.calls.filter(([url]) => url === 'native:runtime-start').length, 2)
   assert.equal(state.calls.filter(([url]) => url.endsWith('/authorizations')).length, 1)
   assert.equal(state.calls.filter(([url]) => url.endsWith('/complete')).length, 2)
   assert.match(state.status.textContent, /授权已保存/)
