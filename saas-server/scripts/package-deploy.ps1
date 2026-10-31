@@ -93,9 +93,12 @@ Copy-Item -LiteralPath (Join-Path $serverRoot 'src/fingerprint/profiles') -Desti
 $publicRoot = Join-Path $serverRoot 'public'
 foreach ($file in (Get-ChildItem -LiteralPath $publicRoot -Recurse -File)) {
   if ($file.Extension -in @('.md','.markdown') -or $file.Name -eq '来源.json') { continue }
-  $destination = Join-Path (Join-Path $server 'public') ([IO.Path]::GetRelativePath($publicRoot, $file.FullName))
+  $destination = Join-Path (Join-Path $server 'server/public') ([IO.Path]::GetRelativePath($publicRoot, $file.FullName))
   New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($destination)) -Force | Out-Null
   Copy-Item -LiteralPath $file.FullName -Destination $destination
+}
+foreach ($requiredAsset in @('index.html','system-admin.html','workspace.js')) {
+  if (!(Test-Path -LiteralPath (Join-Path $server "server/public/$requiredAsset") -PathType Leaf)) { throw ('服务网页资产打包位置错误：' + $requiredAsset) }
 }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'deploy/production.env.example') -Destination (Join-Path $server '.env.example')
 # 部署模板使用正式域名，不携带任何开发或生产凭据。
