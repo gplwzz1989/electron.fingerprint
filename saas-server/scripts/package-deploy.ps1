@@ -13,7 +13,7 @@ if (!$NccCli) {
 if (!$NccCli -or !(Test-Path -LiteralPath $NccCli -PathType Leaf)) { throw '请通过 NccCli 参数或 SAAS_NCC_CLI 指定已有 ncc 编译工具入口。' }
 $NccCli = (Resolve-Path -LiteralPath $NccCli).Path
 if ($NccCli.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw '打包工具位于待清理目录，请使用目录外的已有工具。' }
-foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','public','deploy/production.env.example','package.json','deploy/start.sh','deploy/ecosystem.config.js','prisma/schema.prisma','scripts/prisma-cli.cjs','scripts/prepare-prisma-engines.cjs','scripts/build-deploy-bundles.cjs','node_modules/prisma/build/index.js','node_modules/@prisma/fetch-engine/dist/index.js','node_modules/@vercel/ncc/dist/ncc/cli.js')) {
+foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','public','deploy/production.env.example','package.json','deploy/start.cjs','deploy/start.sh','deploy/ecosystem.config.js','prisma/schema.prisma','scripts/prisma-cli.cjs','scripts/prepare-prisma-engines.cjs','scripts/build-deploy-bundles.cjs','node_modules/prisma/build/index.js','node_modules/@prisma/fetch-engine/dist/index.js','node_modules/@vercel/ncc/dist/ncc/cli.js')) {
   if (!(Test-Path -LiteralPath (Join-Path $serverRoot $inputPath))) { throw ('打包所需文件缺失：' + $inputPath) }
 }
 & npm run prisma:validate --prefix $serverRoot
@@ -101,7 +101,7 @@ Copy-Item -LiteralPath (Join-Path $serverRoot 'deploy/production.env.example') -
 $templateFile = Join-Path $server '.env.example'
 $template = [IO.File]::ReadAllText($templateFile).Replace('SAAS_PUBLIC_URL=http://127.0.0.1:8088', 'SAAS_PUBLIC_URL=https://qijie.xinmeitool.com').Replace('PORT=8088', 'PORT=8710')
 [IO.File]::WriteAllText($templateFile, $template, [Text.UTF8Encoding]::new($false))
-foreach ($file in @('start.sh','ecosystem.config.js')) { Copy-Item -LiteralPath (Join-Path $serverRoot "deploy/$file") -Destination (Join-Path $payload $file) }
+foreach ($file in @('start.cjs','start.sh','ecosystem.config.js')) { Copy-Item -LiteralPath (Join-Path $serverRoot "deploy/$file") -Destination (Join-Path $payload $file) }
 $metadata = Get-Content -LiteralPath (Join-Path $serverRoot 'package.json') -Raw -Encoding utf8 | ConvertFrom-Json
 # 运行依赖已经并入单文件，部署时不再安装依赖。
 # PM2 和启动脚本直接执行入口，无需分发 package.json。

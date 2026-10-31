@@ -5,9 +5,9 @@ module.exports = {
   apps: [{
     name: 'qijie-saas',
     cwd: path.join(__dirname, 'saas-server'),
-    script: path.join(__dirname, 'start.sh'),
+    script: path.join(__dirname, 'start.cjs'),
     args: 'prod',
-    interpreter: 'bash',
+    interpreter: 'node',
     instances: 1,
     exec_mode: 'fork',
     autorestart: true,
