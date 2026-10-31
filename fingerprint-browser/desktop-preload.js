@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('desktopBridge', {
   shellVersion: 2,
   protocolVersion: 1,
-  capabilities: ['session-restore-v1', 'platform-runtime-v1', 'platform-runtime-v2'],
+  capabilities: ['session-restore-v1', 'platform-runtime-v3'],
   platformStatus: () => ipcRenderer.invoke('platform:status'),
   startPlatformTask: payload => ipcRenderer.invoke('platform:start', payload),
   pollPlatformTask: payload => ipcRenderer.invoke('platform:poll', payload),

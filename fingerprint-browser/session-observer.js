@@ -101,12 +101,11 @@ class SessionObserver {
       const invalid = input.outcome === 'invalid' && authorization.mode === 'check' && authorization.expectedUserId
       if (!invalid && !input.identity?.platformUserId) throw new ProfileValidationError('尚未取得平台真实身份，请等待登录完成。')
       Object.assign(snapshot, { identity: invalid ? { platformUserId: authorization.expectedUserId } : input.identity, outcome: invalid ? 'invalid' : 'valid', platform: authorization.platform, packageVersion: authorization.packageVersion })
-      snapshot.proof = crypto.createHmac('sha256', authorization.proofKey).update(JSON.stringify(snapshot)).digest('hex')
     }
     const payload = Buffer.from(JSON.stringify(snapshot))
     if (payload.length > 160000) throw new ProfileValidationError('授权数据过大，请使用独立环境重新登录。')
-    // 保存本机采集凭据，服务端确认相同授权任务后可复用原会话，不再次灌入云端 Cookie。
-    if (job.dataDir) await fs.writeFile(path.join(job.dataDir, 'local-session-capture.json'), JSON.stringify({ operationId: job.operationId }), { encoding: 'utf8', mode: 0o600 })
+    // 保存本机采集操作标识，后续打开账号时可复用本机登录态，避免重复恢复云端会话。
+    if (job.dataDir && snapshot.outcome === 'valid') await fs.writeFile(path.join(job.dataDir, 'local-session-capture.json'), JSON.stringify({ operationId: job.operationId }), { encoding: 'utf8', mode: 0o600 })
     const key = crypto.randomBytes(32); const iv = crypto.randomBytes(12)
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
     cipher.setAAD(Buffer.from(job.operationId))

@@ -16,7 +16,6 @@ const { ClientUpdateService } = require('./client-update-service')
 const { SystemSettings } = require('./system-settings')
 const { PlatformReleaseService } = require('./platform-release-service')
 
-const platforms = [{ key: 'wechat', name: '微信公众号', icon: 'assets/platforms/wechat.png' }, { key: 'douyin', name: '抖音', icon: 'assets/platforms/douyin.png' }, { key: 'weibo', name: '新浪微博', icon: 'assets/platforms/weibo.png' }]
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
 const text = (value, label, limit = 160) => {
   if (typeof value !== 'string' || !value.trim() || value.length > limit) throw new UserError(`请填写有效的${label}。`)
@@ -64,7 +63,7 @@ class WorkspaceServer {
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
     this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
     this.platformReleases = new PlatformReleaseService(this.database, path.join(dataDir, 'platform-releases'))
-    this.mediaAuthorizations = new MediaAuthorizations(this.database, platformService)
+    this.mediaAuthorizations = new MediaAuthorizations(this.database)
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
     this.clientUpdates = new ClientUpdateService(updateConfigFile)
@@ -136,9 +135,9 @@ class WorkspaceServer {
         const result = await this.registrationMailer.sendCode(email, req.socket.remoteAddress)
         return send({ ...result, message: '验证码邮件已发送，请检查收件箱。' })
       }
-      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: (this.platformService?.catalog || clientPlatforms).map(item => ({ key: item.key, name: item.name, icon: platformIcons[item.key] ? `assets/platforms/${platformIcons[item.key]}` : item.icon, enabled: this.mediaAuthorizations.available(), reason: this.mediaAuthorizations.available() ? '' : '平台授权服务尚未配置' })) })
+      if (method === 'GET' && pathname === '/api/platforms') return send({ platforms: clientPlatforms.map(item => ({ key: item.key, name: item.name, icon: platformIcons[item.key] ? `assets/platforms/${platformIcons[item.key]}` : item.icon, enabled: true, reason: '' })) })
       if (method === 'GET' && pathname === '/api/platform-runtime') {
-        return send({ protocol: 'platform-runtime-v2', location: 'client', message: '请通过客户端 JSAPI 查询平台能力。' })
+        return send({ protocol: 'platform-runtime-v3', location: 'client', message: '请通过客户端 JSAPI 查询平台能力。' })
       }
       if (method === 'POST' && ['/api/auth/login', '/api/auth/register'].includes(pathname)) {
         const key = req.socket.remoteAddress; const now = Date.now(); const attempts = this.rateLimits.get(key) || { count: 0, until: now + 60000 }
@@ -292,16 +291,7 @@ class WorkspaceServer {
         if (method === 'POST' && id && action === 'launch') {
           db.assertWrite(member); const environment = await getRecord('environments')
           const encryption = await this.body(req)
-          let extra = {}
-          if (encryption.authorizationId) {
-            const task = await db.get('authorizations', workspaceId, encryption.authorizationId)
-            if (!task || task.environmentId !== environment.id) throw new UserError('授权任务与环境不匹配。', 409)
-            await this.mediaAuthorizations.access(workspaceId, user.id, task)
-            this.mediaAuthorizations.assertActive(task)
-            if (task.status !== 'waiting' || !task.proofKey) throw new UserError('授权任务已结束，请重新开始。', 409)
-            extra = { authorization: { operationId: task.id, platformKey: task.platform.key, publicKey: task.publicKey, proofKey: db.decrypt(task.proofKey), expiresAt: task.expiresAt, mode: task.mode, expectedUserId: task.targetAccountId ? (await db.get('accounts', workspaceId, task.targetAccountId))?.platformUserId : null } }
-          }
-          return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption, extra) })
+          return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption) })
         }
         if (method === 'DELETE' && id) {
           await db.transaction(async () => {
@@ -361,10 +351,6 @@ class WorkspaceServer {
           await db.put('accounts', workspaceId, id, { ...account, status: 'invalid', checkedAt: Date.now() }, account.revision)
           await db.execute("UPDATE auth_accounts SET auth_status='archived',updated_at=? WHERE workspace_id=? AND id=?", [Date.now(), workspaceId, id])
           await db.remove('accounts', workspaceId, id)
-          for (const task of await db.list('authorizations', workspaceId)) if (['waiting', 'review'].includes(task.status) && (task.targetAccountId === id || task.platform?.key === account.platform && task.identity?.platformUserId === account.platformUserId)) {
-            await db.mediaSessions.remove(workspaceId, task.id, 'authorization')
-            await db.put('authorizations', workspaceId, task.id, { ...task, status: 'cancelled', privateKey: null, proofKey: null, credential: null }, task.revision)
-          }
         }); return send({ message: '账号已删除。' })
       }
       if (resource === 'accounts' && method === 'GET' && !id) return send({ items: (await db.list('accounts', workspaceId)).filter(accessible) })
@@ -382,23 +368,9 @@ class WorkspaceServer {
           try { validateLaunchRequest(body) } catch (error) { throw new UserError(error.message) }
         }
         if (action === 'check') {
-          if (!this.platformService) throw new UserError('请通过客户端打开账号并检测授权状态。', 409)
+          const result = await this.body(req)
           await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
-          const snapshot = await db.readAccountSession(workspaceId, user.id, account.id)
-          const saveStatus = async status => await db.transaction(async () => {
-            // 公网核验完成后重新锁定权限与账号，撤权或并发重授权不能被旧结果覆盖。
-            await db.readAccountSession(workspaceId, user.id, account.id)
-            return await db.put('accounts', workspaceId, account.id, { ...account, status, checkedAt: Date.now() }, account.revision)
-          })
-          let verified
-          try { verified = await this.platformService.verifyAuthorization(account.platform, snapshot) } catch (error) {
-            if (error.code !== 'AUTH_EXPIRED') throw new UserError('暂时无法核验账号状态，请稍后重试。', 503)
-            const item = await saveStatus('invalid')
-            return send({ item })
-          }
-          if (verified.platformUserId !== account.platformUserId) throw new UserError('账号会话身份不匹配，请联系管理员。', 409)
-          const item = await saveStatus('valid')
-          return send({ item })
+          return send(await this.mediaAuthorizations.check(workspaceId, user.id, account.id, result))
         }
         const envelope = await db.transaction(async () => {
           const snapshot = await db.readAccountSession(workspaceId, user.id, account.id)
@@ -412,16 +384,11 @@ class WorkspaceServer {
         return send({ envelope })
       }
       if (resource === 'authorizations') {
-        // 平台接入仅通过系统接口，禁止提交任意登录地址、Cookie 或自定义身份。
+        // 只有客户端返回完整、成功的授权结果后，才保存账号和加密凭据。
         db.assertWrite(member)
         if (method === 'POST' && !id) {
           const body = await this.body(req)
-          return send({ task: await this.billing.withCapacity(workspaceId, 'environments', () => this.mediaAuthorizations.begin(workspaceId, user.id, body), false) }, 201)
-        }
-        if (id && (method === 'GET' && !action || method === 'POST' && ['complete', 'confirm', 'cancel'].includes(action))) {
-          const body = method === 'POST' ? await this.body(req) : {}
-          const operation = () => this.mediaAuthorizations.handle(workspaceId, user.id, id, action, body)
-          return send({ task: action === 'confirm' ? await this.billing.withCapacity(workspaceId, 'environments', operation, false) : await operation() })
+          return send(await this.billing.withCapacity(workspaceId, 'environments', () => this.mediaAuthorizations.save(workspaceId, user.id, body), false), 201)
         }
       }
       if (resource === 'billing' && method === 'GET') return send({ ...await this.billing.summary(workspaceId, ['owner', 'admin'].includes(member.role)), usage: { fingerprints: (await db.fingerprints(workspaceId)).filter(accessible).length, environments: (await db.list('environments', workspaceId)).filter(accessible).length, members: (await db.members(workspaceId)).length } })

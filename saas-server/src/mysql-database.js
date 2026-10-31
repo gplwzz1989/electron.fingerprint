@@ -5,7 +5,6 @@ const path = require('node:path')
 const { AsyncLocalStorage } = require('node:async_hooks')
 const { hashPassword, verifyPassword } = require('./auth')
 const { readServerConfig } = require('./server-config')
-const { MediaSessionStore } = require('./media-session-store')
 const { AuthAccountStore } = require('./auth-account-store')
 
 class UserError extends Error {
@@ -36,7 +35,6 @@ class WorkspaceDatabase {
       this.key = fs.readFileSync(keyFile)
     }
     if (this.key.length !== 32) throw new Error('服务端数据加密密钥无效，请恢复原密钥。')
-    this.mediaSessions = new MediaSessionStore(this, UserError)
     this.authAccounts = new AuthAccountStore(this, UserError)
     this.ready = this.initialize()
   }
@@ -67,7 +65,6 @@ class WorkspaceDatabase {
       try { await this.pool.query('ALTER TABLE users ADD COLUMN email_verified_at BIGINT NULL') } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
     }
     await this.migrateFingerprintEncryption()
-    await this.mediaSessions.initialize()
     await this.authAccounts.initialize()
   }
   encodeFingerprint (profile) { return { format: 'qijie-fingerprint-storage-v1', ciphertext: this.encrypt(JSON.stringify({ purpose: 'fingerprint', profile })) } }
@@ -226,12 +223,7 @@ class WorkspaceDatabase {
       if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
       const environment = (await this.execute("SELECT id FROM records WHERE kind='environments' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, account.environmentId]))[0]
       if (!environment || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
-      let snapshot = await this.authAccounts.read(workspaceId, accountId)
-      if (!snapshot) {
-        // 兼容运行期间尚未迁移的历史账号，只在新存储缺失时迁移，不用旧快照覆盖新版本。
-        const legacy = await this.mediaSessions.read(workspaceId, accountId, 'account')
-        if (legacy) { await this.authAccounts.write(workspaceId, accountId, account, legacy); snapshot = await this.authAccounts.read(workspaceId, accountId) }
-      }
+      const snapshot = await this.authAccounts.read(workspaceId, accountId)
       if (!snapshot) throw new UserError('账号会话尚未保存，请重新授权。', 409)
       return snapshot
     })

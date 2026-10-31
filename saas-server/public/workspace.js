@@ -20,7 +20,7 @@
       if (['overview', 'fingerprints', 'environments', 'proxies', 'accounts', 'members'].includes(route)) populateTable(route)
     } else routeTo(fallback)
   }
-  window.getMediaWorkspace = () => ({ workspaceId: state.workspaceId, userId: state.user?.id, canWrite: canWrite() })
+  window.getMediaWorkspace = () => ({ workspaceId: state.workspaceId, userId: state.user?.id, canWrite: canWrite(), environments: state.lists.environments || [] })
   document.addEventListener('media:saved', event => {
     const message = event.detail?.message || '账号授权成功，已添加到账号列表。'
     const success = event.detail?.success !== false

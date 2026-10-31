@@ -3,154 +3,77 @@ const { UserError } = require('./mysql-database')
 const { catalog, verifyClientResult } = require('./client-platform-service')
 
 class MediaAuthorizations {
-  constructor (database, platformService) { this.db = database; this.service = platformService || { catalog }; this.clientMode = !platformService }
-  available () { return this.clientMode || Boolean(this.service?.verifyAuthorization) }
-  public (task) { return { id: task.id, platform: task.platform, environmentId: task.environmentId, publicKey: task.publicKey, expiresAt: task.expiresAt, status: ['waiting', 'review'].includes(task.status) && task.expiresAt <= Date.now() ? 'expired' : task.status, identity: task.identity, accountId: task.accountId, scriptVersion: task.scriptVersion, mode: task.mode, outcome: task.outcome } }
-  async access (workspaceId, userId, task, current) {
-    const member = current ? current.member : await this.db.membership(workspaceId, userId); this.db.assertWrite(member)
-    const environment = current ? current.environment : await this.db.get('environments', workspaceId, task.environmentId)
-    if (task.userId !== userId || !environment || !this.db.canAccess(member, environment.id)) throw new UserError('无法访问此授权任务。', 403)
-    if (task.targetAccountId && !this.db.canAccess(member, task.targetAccountId)) throw new UserError('无法更新此账号。', 403)
-    return member
-  }
+  constructor (database) { this.db = database }
   assertReauthorizable (account) {
     if (!['invalid', 'expired'].includes(account?.status)) throw new UserError('账号授权仍有效，无需重新授权。', 409)
   }
-  assertActive (task) {
-    if (task.expiresAt <= Date.now() || task.status === 'cancelled') throw new UserError('授权已结束，请重新开始。', 409)
+  async lockContext (workspaceId, userId, environmentId) {
+    await this.db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
+    const row = (await this.db.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
+    if (!row) throw new UserError('你没有该团队的访问权限。', 403)
+    const member = { ...row, scope: typeof row.scope === 'string' ? JSON.parse(row.scope) : row.scope }
+    this.db.assertWrite(member)
+    const environmentRow = (await this.db.execute("SELECT id,data,deleted_at FROM records WHERE kind='environments' AND id=? AND workspace_id=? FOR UPDATE", [environmentId, workspaceId]))[0]
+    const environment = environmentRow && !environmentRow.deleted_at ? { ...(typeof environmentRow.data === 'string' ? JSON.parse(environmentRow.data) : environmentRow.data), id: environmentRow.id } : null
+    if (!environment || !this.db.canAccess(member, environment.id)) throw new UserError('浏览器环境不存在或无法访问。', 403)
+    return { member, environment }
   }
-  async locked (workspaceId, userId, id, operation) {
+  async save (workspaceId, userId, body) {
+    if (!body || typeof body.operationId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.operationId) || typeof body.environmentId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.environmentId) || !['authorize', 'reauthorize'].includes(body.mode) || body.mode === 'reauthorize' && (typeof body.accountId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.accountId))) throw new UserError('授权结果信息无效，请重新授权。')
+    const platform = catalog.find(item => item.key === body.platform)
+    if (!platform) throw new UserError('该平台不在系统支持范围内。')
+    let verified
+    try { verified = verifyClientResult({ id: body.operationId, mode: body.mode, targetAccountId: body.accountId || null, platform: { key: platform.key } }, body.result) } catch { throw new UserError('平台身份或会话校验失败，请重新授权。', 422) }
+    if (verified.outcome !== 'valid' || !verified.session) throw new UserError('平台未确认授权成功，不会保存账号数据。', 422)
     return await this.db.transaction(async () => {
-      // 先取得当前行及权限锁，再建立一致性读快照，避免核验耗时期间的撤权或环境删除被旧快照掩盖。
-      await this.db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
-      const row = (await this.db.execute("SELECT id,data,revision FROM records WHERE kind='authorizations' AND id=? AND workspace_id=? AND deleted_at IS NULL FOR UPDATE", [id, workspaceId]))[0]
-      if (!row) throw new UserError('授权任务不存在。', 404)
-      const task = { ...(typeof row.data === 'string' ? JSON.parse(row.data) : row.data), id: row.id, revision: row.revision }
-      const memberRow = (await this.db.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
-      if (!memberRow) throw new UserError('你没有该团队的访问权限。', 403)
-      const member = { ...memberRow, scope: typeof memberRow.scope === 'string' ? JSON.parse(memberRow.scope) : memberRow.scope }
-      const environmentRow = (await this.db.execute("SELECT id,data,deleted_at FROM records WHERE kind='environments' AND id=? AND workspace_id=? FOR UPDATE", [task.environmentId, workspaceId]))[0]
-      const environment = environmentRow && !environmentRow.deleted_at ? { ...(typeof environmentRow.data === 'string' ? JSON.parse(environmentRow.data) : environmentRow.data), id: environmentRow.id } : null
-      await this.access(workspaceId, userId, task, { member, environment })
-      return await operation(task, member, environment)
+      const { member, environment } = await this.lockContext(workspaceId, userId, body.environmentId)
+      const accountId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, platform.key, verified.platformUserId])).digest('hex').slice(0, 48)
+      if (body.accountId && body.accountId !== accountId) throw new UserError('原账号标识与平台身份不匹配，请重新授权。', 409)
+      let account = await this.db.get('accounts', workspaceId, accountId)
+      if (body.accountId && (!account || account.revision !== body.expectedRevision && account.authorizationOperationId !== body.operationId || account.platform !== platform.key || account.platformUserId !== verified.platformUserId || account.environmentId !== body.environmentId)) throw new UserError('原账号记录已变化，请重新授权。', 409)
+      if (account && !this.db.canAccess(member, accountId)) throw new UserError('此账号已在团队中，请联系管理员分配权限。', 403)
+      if (account?.authorizationOperationId === body.operationId && account.status === 'valid') return { account, outcome: 'valid' }
+      // 相同平台身份重新添加时恢复逻辑删除记录，保留原账号标识及历史凭据，不新建重复身份。
+      if (!account) {
+        const removed = (await this.db.execute("SELECT data,revision FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NOT NULL FOR UPDATE", [workspaceId, accountId]))[0]
+        if (removed) {
+          const metadata = typeof removed.data === 'string' ? JSON.parse(removed.data) : removed.data
+          if (metadata.platform !== platform.key || metadata.platformUserId !== verified.platformUserId || !this.db.canAccess(member, accountId)) throw new UserError('原账号记录无法恢复，请联系管理员。', 403)
+          await this.db.execute("UPDATE records SET deleted_at=NULL WHERE kind='accounts' AND workspace_id=? AND id=?", [workspaceId, accountId])
+          account = { ...metadata, id: accountId, revision: removed.revision }
+        }
+      }
+      if (account) this.assertReauthorizable(account)
+      if (account && account.environmentId !== body.environmentId) throw new UserError('该账号已绑定其他环境，请使用原环境重新授权。', 409)
+      if ((await this.db.list('accounts', workspaceId)).some(item => item.environmentId === body.environmentId && item.platform === platform.key && item.id !== accountId)) throw new UserError('此环境已绑定同平台的其他账号，请使用独立环境。', 409)
+      const accountData = { platformUserId: verified.platformUserId, name: verified.name, avatar: verified.avatar || '', platform: platform.key, environmentId: body.environmentId, status: 'valid', launchUrl: verified.platform.url, origins: verified.platform.origins, authorizationOperationId: body.operationId }
+      await this.db.authAccounts.write(workspaceId, accountId, accountData, verified.session)
+      const saved = await this.db.put('accounts', workspaceId, accountId, { ...accountData, platformName: platform.name, environmentName: environment.name, checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
+      // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
+      if (!account && member.role === 'operator' && member.scope.mode === 'selected') {
+        await this.db.execute('UPDATE members SET scope=? WHERE workspace_id=? AND user_id=?', [JSON.stringify({ ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] }), workspaceId, userId])
+      }
+      return { account: saved, outcome: 'valid' }
     })
   }
-  async begin (workspaceId, userId, body) {
-    if (!this.available()) throw new UserError('平台授权服务尚未配置，请联系管理员。', 503)
-    if (!body || typeof body.environmentId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.environmentId)) throw new UserError('请选择有效的独立浏览器环境。')
-    if (body.accountId !== undefined && (typeof body.accountId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.accountId))) throw new UserError('原账号标识无效，请从账号列表重新进入。')
-    if (body.checkOnly === true && !body.accountId) throw new UserError('检测授权必须指定已有账号。')
-    const platform = this.service.catalog.find(item => item.key === body.platform)
-    if (!platform) throw new UserError('该平台不在系统支持范围内。')
-    const task = { id: crypto.randomUUID(), userId, platform, environmentId: body.environmentId, targetAccountId: body.accountId || null, mode: body.checkOnly === true ? 'check' : 'authorize', status: 'waiting', expiresAt: Date.now() + 600000, scriptVersion: this.clientMode ? 'client-jsapi-v2' : this.service.runtime().manifest.version }
-    await this.access(workspaceId, userId, task)
-    if (task.targetAccountId) {
-      const account = await this.db.get('accounts', workspaceId, task.targetAccountId)
-      if (!account || account.platform !== platform.key || account.environmentId !== body.environmentId) throw new UserError('重新授权的账号与环境不匹配。')
-      task.targetAccountRevision = account.revision
-      if (task.mode !== 'check') this.assertReauthorizable(account)
-    }
-    const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
-    task.publicKey = keys.publicKey; task.privateKey = this.db.encrypt(keys.privateKey)
-    if (this.clientMode) task.proofKey = this.db.encrypt(crypto.randomBytes(32).toString('hex'))
-    await this.db.put('authorizations', workspaceId, task.id, task, null)
-    return this.public(task)
-  }
-  async handle (workspaceId, userId, id, action, body) {
-    try { return await this.handleOperation(workspaceId, userId, id, action, body) } catch (error) {
-      if (error instanceof UserError) throw error
-      console.error('[媒体授权失败]', { operationId: id, action, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') })
-      const failure = new UserError(action === 'complete' ? '授权会话保存失败，请重试保存或联系管理员。' : '账号保存失败，请重试或联系管理员。', 500)
-      failure.diagnosticCode = /^[A-Z0-9_]+$/.test(error.code || '') ? error.code : 'AUTH_SAVE_FAILED'
-      throw failure
-    }
-  }
-  async handleOperation (workspaceId, userId, id, action, body) {
-    let task = await this.db.get('authorizations', workspaceId, id)
-    if (!task) throw new UserError('授权任务不存在。', 404)
-    await this.access(workspaceId, userId, task)
-    if (action && !['complete', 'confirm', 'cancel'].includes(action)) throw new UserError('不支持此授权操作。')
-    if (!action || task.status === 'saved') return this.public(task)
-    this.assertActive(task)
-    if (action === 'cancel') {
-      return await this.locked(workspaceId, userId, id, async current => {
-        if (current.status === 'saved') return this.public(current)
-        this.assertActive(current)
-        await this.db.mediaSessions.remove(workspaceId, id, 'authorization')
-        return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, status: 'cancelled', privateKey: null, credential: null, proofKey: null }, current.revision))
-      })
-    }
-    if (action === 'complete' && task.status === 'waiting') {
-      let snapshot
-      try {
-        const key = crypto.privateDecrypt({ key: this.db.decrypt(task.privateKey), oaepHash: 'sha256' }, Buffer.from(body.wrappedKey, 'base64'))
-        const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(body.iv, 'base64')); decipher.setAAD(Buffer.from(id)); decipher.setAuthTag(Buffer.from(body.tag, 'base64'))
-        snapshot = JSON.parse(Buffer.concat([decipher.update(Buffer.from(body.ciphertext, 'base64')), decipher.final()]).toString('utf8'))
-        if (snapshot.operationId !== id) throw new Error()
-      } catch { throw new UserError('授权数据校验失败，请重新开始。') }
-      let verified; let timer
-      try { verified = await Promise.race([this.clientMode ? Promise.resolve(verifyClientResult(task, snapshot, this.db.decrypt(task.proofKey))) : this.service.verifyAuthorization(task.platform.key, snapshot), new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error()), 45000); timer.unref() })]) } catch { throw new UserError('平台身份核验失败，请确认已登录并重试。', 422) } finally { clearTimeout(timer) }
-      if (verified?.outcome === 'invalid') {
-        return await this.locked(workspaceId, userId, id, async current => {
-          this.assertActive(current)
-          if (current.status === 'saved') return this.public(current)
-          if (current.mode !== 'check' || !current.targetAccountId || current.status !== 'waiting') throw new UserError('当前任务不接受账号失效结果。', 409)
-          const account = await this.db.get('accounts', workspaceId, current.targetAccountId)
-          if (!account || account.revision !== current.targetAccountRevision || account.platformUserId !== verified.platformUserId) throw new UserError('账号身份与检测任务不匹配。', 409)
-          await this.db.put('accounts', workspaceId, account.id, { ...account, status: 'invalid', checkedAt: Date.now() }, account.revision)
-          return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, status: 'saved', outcome: 'invalid', accountId: account.id, privateKey: null, proofKey: null }, current.revision))
-        })
-      }
-      if (typeof verified?.platformUserId !== 'string' || !verified.platformUserId.trim() || verified.platformUserId.length > 256 || !verified.session || typeof verified.session !== 'object' || Array.isArray(verified.session)) throw new UserError('平台未返回完整身份或会话。', 422)
-      return await this.locked(workspaceId, userId, id, async current => {
-        this.assertActive(current)
-        if (['review', 'saved'].includes(current.status)) return this.public(current)
-        if (current.status !== 'waiting') throw new UserError('授权状态已变化，请重新开始。', 409)
-        if (current.targetAccountId) {
-          const account = await this.db.get('accounts', workspaceId, current.targetAccountId)
-          if (!account || account.revision !== current.targetAccountRevision || account.platform !== current.platform.key || account.environmentId !== current.environmentId || account.platformUserId !== verified.platformUserId) throw new UserError('登录身份与原账号不一致，请登录原账号。', 409)
-          if (current.mode !== 'check') this.assertReauthorizable(account)
-        }
-        await this.db.mediaSessions.write(workspaceId, id, 'authorization', verified.session)
-        return this.public(await this.db.put('authorizations', workspaceId, id, { ...current, privateKey: null, status: 'review', identity: { platformUserId: verified.platformUserId, name: verified.name, avatar: verified.avatar || '' }, platformDefinition: verified.platform || current.platform, credential: null, sessionStorage: 'relational-v1' }, current.revision))
-      })
-    }
-    if (action === 'confirm') {
-      return await this.locked(workspaceId, userId, id, async (current, member, environment) => {
-        task = current
-        if (task.status === 'saved') return this.public(task)
-        if (task.status !== 'review' || task.expiresAt <= Date.now()) throw new UserError('请先完成平台身份核验。', 409)
-        const accountId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, task.platform.key, task.identity.platformUserId])).digest('hex').slice(0, 48)
-        let account = await this.db.get('accounts', workspaceId, accountId)
-        // 相同平台身份重新添加时恢复逻辑删除记录，保留原账号标识及历史凭据，不新建重复身份。
-        if (!account && !task.targetAccountId) {
-          const removed = (await this.db.execute("SELECT data,revision FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NOT NULL FOR UPDATE", [workspaceId, accountId]))[0]
-          if (removed) {
-            const metadata = typeof removed.data === 'string' ? JSON.parse(removed.data) : removed.data
-            if (metadata.platform !== task.platform.key || metadata.platformUserId !== task.identity.platformUserId || !this.db.canAccess(member, accountId)) throw new UserError('原账号记录无法恢复，请联系管理员。', 403)
-            await this.db.execute("UPDATE records SET deleted_at=NULL WHERE kind='accounts' AND workspace_id=? AND id=?", [workspaceId, accountId])
-            account = { ...metadata, id: accountId, revision: removed.revision }
-          }
-        }
-        if (task.targetAccountId && (task.targetAccountId !== accountId || !account || account.revision !== task.targetAccountRevision || account.environmentId !== task.environmentId)) throw new UserError('原账号记录已变化，请重新授权。', 409)
-        if (account && task.mode !== 'check') this.assertReauthorizable(account)
-        if (account && !this.db.canAccess(member, accountId)) throw new UserError('此账号已在团队中，请联系管理员分配权限。', 403)
-        if ((await this.db.list('accounts', workspaceId)).some(item => item.environmentId === task.environmentId && item.platform === task.platform.key && item.id !== accountId)) throw new UserError('此环境已绑定同平台的其他账号，请使用独立环境。', 409)
-        const snapshot = await this.db.mediaSessions.read(workspaceId, id, 'authorization')
-        if (!snapshot) throw new UserError('授权会话数据不存在，请重新开始。', 409)
-        const accountData = { ...task.identity, platform: task.platform.key, environmentId: task.environmentId, status: 'valid', launchUrl: task.platformDefinition?.url || task.platform.url || '', origins: task.platformDefinition?.origins || task.platform.origins || [], authorizationOperationId: task.id }
-        await this.db.authAccounts.write(workspaceId, accountId, accountData, snapshot)
-        await this.db.mediaSessions.remove(workspaceId, id, 'authorization')
-        await this.db.put('accounts', workspaceId, accountId, { ...accountData, platformName: task.platform.name, environmentId: task.environmentId, environmentName: environment.name, authorizationOperationId: task.id, status: 'valid', checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
-        // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
-        if (!account && member.role === 'operator' && member.scope.mode === 'selected') {
-          await this.db.execute('UPDATE members SET scope=? WHERE workspace_id=? AND user_id=?', [JSON.stringify({ ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] }), workspaceId, userId])
-        }
-        task = await this.db.put('authorizations', workspaceId, id, { ...task, status: 'saved', accountId, credential: null, proofKey: null }, task.revision)
-        return this.public(task)
-      })
-    }
-    return this.public(task)
+  async check (workspaceId, userId, accountId, body) {
+    if (!body || typeof body.operationId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.operationId)) throw new UserError('检测结果无效，请重新检测。')
+    return await this.db.transaction(async () => {
+      await this.db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
+      const row = (await this.db.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
+      if (!row) throw new UserError('你没有该团队的访问权限。', 403)
+      const member = { ...row, scope: typeof row.scope === 'string' ? JSON.parse(row.scope) : row.scope }; this.db.assertWrite(member)
+      const account = await this.db.get('accounts', workspaceId, accountId)
+      if (!account || !this.db.canAccess(member, accountId) || body.environmentId !== account.environmentId || body.platform !== account.platform) throw new UserError('账号不存在或无法访问。', 404)
+      const environment = await this.db.get('environments', workspaceId, account.environmentId)
+      if (!environment || !this.db.canAccess(member, environment.id)) throw new UserError('账号绑定的浏览器环境不存在或无法访问。', 403)
+      let verified
+      try { verified = verifyClientResult({ id: body.operationId, mode: 'check', targetAccountId: accountId, platform: { key: account.platform } }, body.result) } catch { throw new UserError('客户端未返回有效的账号检测结果。', 422) }
+      if (verified.platformUserId !== account.platformUserId) throw new UserError('检测到的平台身份与当前账号不一致。', 409)
+      const status = verified.outcome === 'invalid' ? 'invalid' : 'valid'
+      const item = await this.db.put('accounts', workspaceId, accountId, { ...account, status, checkedAt: Date.now() }, account.revision)
+      return { account: item, outcome: status === 'invalid' ? 'invalid' : 'valid' }
+    })
   }
 }
 module.exports = { MediaAuthorizations }

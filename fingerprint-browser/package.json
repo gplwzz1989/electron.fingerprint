@@ -1,7 +1,7 @@
 {
   "name": "@qijie/desktop-base",
   "productName": "浏览器基座",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": false,
   "description": "独立可配置的第三方桌面浏览器基座",
   "main": "main.js",

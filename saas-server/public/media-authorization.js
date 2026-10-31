@@ -36,12 +36,12 @@
     if (!desktop?.platformStatus) throw new Error('请升级客户端以使用独立平台能力。')
     const result = await desktop.platformStatus()
     if (!result?.ok) throw new Error(result?.error || '客户端平台能力不可用。')
-    if (result.protocol !== 'platform-runtime-v2') throw new Error('请更新客户端和平台能力包后再授权账号。')
+    if (result.protocol !== 'platform-runtime-v3') throw new Error('请更新客户端后再授权账号。')
   }
-  async function runPlatform ({ task, tabId, signal, onProgress }) {
+  async function runPlatform ({ task, scope, resourceId, signal, onProgress }) {
     const desktop = window.workspaceBridge
-    const started = await desktop.startPlatformTask({ task, tabId })
-    if (!started?.ok) throw new Error(started?.error || '平台任务启动失败。')
+    const started = await desktop.startPlatformTask({ task, scope, resourceId })
+    if (!started?.ok) throw new Error(started?.error || '客户端授权环境启动失败。')
     const abort = () => { void desktop.cancelPlatformTask({ id: started.id }).catch(() => {}) }
     signal.addEventListener('abort', abort, { once: true })
     let finished = false
@@ -50,7 +50,7 @@
         const state = await desktop.pollPlatformTask({ id: started.id })
         if (!state?.ok) throw new Error(state?.error || '平台任务已结束。')
         onProgress(state.message)
-        if (state.done) { finished = true; if (state.error) throw new Error(state.error); return state.result }
+        if (state.done) { finished = true; if (state.error) throw new Error(state.error); return { result: state.result, tabId: started.tabId } }
         await new Promise(resolve => setTimeout(resolve, 500))
       }
       throw new Error('已取消授权。')
@@ -60,11 +60,9 @@
     if (saving) throw new Error('正在保存授权，请稍候。')
     assertContext(pending); saving = true
     try {
-      status('正在核验平台身份，请稍候…')
-      const result = await api(pending.path + '/complete', 'POST', pending.envelope)
+      status('授权成功，正在保存账号会话…')
+      const result = await api(pending.path, 'POST', { operationId: pending.task.id, mode: pending.task.mode, platform: pending.task.platformKey, environmentId: pending.task.environmentId, accountId: pending.task.accountId, expectedRevision: pending.task.expectedRevision, result: pending.envelope })
       assertContext(pending); confirming = true
-      const savedTask = result.task.status === 'saved' ? result.task : (await api(pending.path + '/confirm', 'POST', {})).task
-      if (savedTask?.status !== 'saved') throw new Error('服务端尚未确认账号保存成功，请重试保存。')
       retrySave = null
       // 入库成功后才关闭本任务标签，界面收尾失败不能把授权成功改成失败。
       const warnings = []
@@ -80,48 +78,21 @@
           }
           location.hash = 'accounts'
         } finally { closingAfterSave = false }
-        document.dispatchEvent(new CustomEvent('media:saved', { detail: { success: savedTask.outcome !== 'invalid', message: pending.task?.mode === 'check' ? savedTask.outcome === 'invalid' ? '账号登录已失效，请重新授权。' : '账号授权有效。' : '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
+        document.dispatchEvent(new CustomEvent('media:saved', { detail: { success: result.outcome !== 'invalid', message: pending.task?.mode === 'check' ? result.outcome === 'invalid' ? '账号登录已失效，请重新授权。' : '账号授权有效。' : pending.task?.mode === 'reauthorize' ? '账号已重新授权。' : '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
       }
     } catch (error) {
-      // 身份核验明确失败后必须重新读取当前登录态，不能反复提交旧的失败快照。
-      if ([409, 422].includes(error.status) && pending.task) { recovery = pending; retrySave = null }
       throw error
     } finally { saving = false; confirming = false }
   }
   async function cancel () {
     if (confirming) throw new Error('正在确认保存结果，请等待完成后再操作。')
     ;(running || recovery?.controller || retrySave?.controller)?.abort()
-    const pending = retrySave || recovery; retrySave = null; recovery = null
-    if (pending) await api(pending.path + '/cancel', 'POST', {})
+    retrySave = null; recovery = null
     status('已取消授权。')
   }
   async function retry () {
     if (retrySave) return save(retrySave)
-    if (!recovery) throw new Error('当前没有待保存的授权，请先开始授权。')
-    if (recovering) throw new Error('正在重新采集授权，请稍候。')
-    const pending = recovery; assertContext(pending); recovering = true; pending.recovering = true
-    try {
-      // 保留已经扫码登录的标签，由客户端重建观察并按平台规则重新采集。
-      pending.runnerController.abort(); await pending.runnerPromise.catch(() => {})
-      assertContext(pending)
-      const desktop = window.workspaceBridge; const checked = result => { if (!result?.ok) throw new Error(result?.error || '会话采集失败，请重试。'); return result }
-      let tabs = checked(await desktop.tabs())
-      if (!tabs.tabs.some(tab => tab.id === pending.tabId)) {
-        const launch = checked(await desktop.launch({ workspaceId: pending.workspaceId, environmentId: pending.task.environmentId, authorizationId: pending.task.id, capabilities: [], allowedOrigins: [] }))
-        tabs = checked(await desktop.tabs())
-        const tab = launch.tabId ? tabs.tabs.find(item => item.id === launch.tabId) : tabs.tabs.find(item => item.externalReference?.resourceId === pending.task.environmentId || item.profileId === pending.task.environmentId)
-        if (!tab) throw new Error('授权环境暂时无法恢复，请重新开始授权。')
-        pending.tabId = tab.id
-        // 平台入口由客户端能力包决定，网页不提供执行地址。
-      }
-      assertContext(pending); status('正在从已登录环境重新采集会话并核验身份…')
-      const runnerController = new AbortController()
-      pending.runnerController = runnerController
-      pending.controller.signal.addEventListener('abort', () => runnerController.abort(), { once: true })
-      const envelope = await runPlatform({ task: pending.task, tabId: pending.tabId, signal: runnerController.signal, onProgress: message => status(message) })
-      assertContext(pending); retrySave = { ...pending, envelope }; recovery = null
-      await desktop.dashboard(); await save(retrySave)
-    } finally { recovering = false }
+    throw new Error('当前没有待保存的授权结果，请重新开始授权。')
   }
   async function start (account) {
     if (running || saving || recovering) throw new Error('已有授权正在进行，请先取消或完成。')
@@ -138,33 +109,25 @@
     running = new AbortController(); const controller = running
     Object.assign(controller, { workspaceId: context.workspaceId, userId: context.userId })
     context.controller = controller
-    let path
     try {
       await loadRuntime(controller.signal); assertContext(context)
-      const runner = { run: runPlatform }
-      const task = (await api(`/api/workspaces/${workspaceId}/authorizations`, 'POST', { platform: account?.platform || selectedPlatform, environmentId, accountId: account?.id, checkOnly: account?.checkOnly === true })).task
-      path = `/api/workspaces/${workspaceId}/authorizations/` + task.id
-      assertContext(context)
-      const launch = await desktop.launch({ workspaceId, environmentId, authorizationId: task.id, capabilities: [], allowedOrigins: [] })
-      if (!launch.ok) throw new Error(launch.error || '独立环境启动失败。')
-      assertContext(context)
-      const tabs = await desktop.tabs()
-      const tab = launch.tabId ? tabs.tabs.find(item => item.id === launch.tabId) : tabs.tabs.find(item => item.externalReference?.resourceId === environmentId || item.profileId === environmentId)
-      if (!tab) throw new Error('未找到授权环境标签。')
+      const mode = account?.checkOnly === true ? 'check' : account?.id ? 'reauthorize' : 'authorize'
+      const task = { id: crypto.randomUUID(), mode, platformKey: account?.platform || selectedPlatform, environmentId, accountId: account?.id || null, ...(Number.isInteger(account?.revision) ? { expectedRevision: account.revision } : {}), ...(account?.platformUserId ? { expectedUserId: account.platformUserId } : {}) }
       assertContext(context)
       const runnerController = new AbortController(); controller.signal.addEventListener('abort', () => runnerController.abort(), { once: true })
-      recovery = { ...context, path, task, tabId: tab.id, runnerController, runnerPromise: null }
+      const savePath = mode === 'check' ? `/api/workspaces/${workspaceId}/accounts/${account.id}/check` : `/api/workspaces/${workspaceId}/authorizations`
+      recovery = { ...context, path: savePath, task, tabId: null, runnerController, runnerPromise: null }
       const pending = recovery
-      pending.runnerPromise = runner.run({ desktop, task, tabId: tab.id, signal: runnerController.signal, onProgress: message => { if (sameContext(context) && !pending.recovering) status(message) } })
-      let envelope
-      try { envelope = await pending.runnerPromise } catch (error) { if (pending.recovering) return; throw error }
-      if (pending.recovering) return
+      pending.runnerPromise = runPlatform({ task, scope: workspaceId, resourceId: environmentId, signal: runnerController.signal, onProgress: message => { if (sameContext(context)) status(message) } })
+      const completed = await pending.runnerPromise
+      pending.tabId = completed.tabId
+      const envelope = completed.result
+      if (envelope?.operationId !== task.id || (mode === 'check' ? !['valid', 'invalid'].includes(envelope?.outcome) : envelope?.outcome !== 'valid')) throw new Error('客户端未确认授权成功，服务端未收到授权数据。')
       assertContext(context)
       retrySave = { ...pending, envelope }; recovery = null
-      await desktop.dashboard()
       await save(retrySave)
     } catch (error) {
-      if (path && (controller.signal.aborted || !retrySave && !recovery || !sameContext(context))) { await api(path + '/cancel', 'POST', {}).catch(() => {}); retrySave = null; recovery = null }
+      if (!retrySave || controller.signal.aborted || !sameContext(context)) { if (controller.signal.aborted || !sameContext(context)) retrySave = null; recovery = null }
       if (sameContext(context) && !controller.signal.aborted) await desktop.dashboard().catch(() => {})
       throw error
     } finally { running = null }
@@ -199,8 +162,8 @@
   document.addEventListener('workspace:render', async event => {
     const revision = ++renderRevision
     if (running && !sameContext({ workspaceId: running.workspaceId, userId: running.userId })) running.abort()
-    if (retrySave && !sameContext(retrySave)) { const stale = retrySave; retrySave = null; void api(stale.path + '/cancel', 'POST', {}).catch(() => {}) }
-    if (recovery && !sameContext(recovery)) { const stale = recovery; recovery = null; stale.controller.abort(); void api(stale.path + '/cancel', 'POST', {}).catch(() => {}) }
+    if (retrySave && !sameContext(retrySave)) { retrySave.controller?.abort(); retrySave = null }
+    if (recovery && !sameContext(recovery)) { const stale = recovery; recovery = null; stale.controller.abort() }
     if (event.detail?.route !== 'account-authorize') return
     authorizationModalClosed = false
     const target = surface()
@@ -212,7 +175,8 @@
     try {
       const context = currentContext(); const workspaceId = context.workspaceId
       if (!workspaceId) return
-      const { items } = await api(`/api/workspaces/${workspaceId}/environments`)
+      const items = context.environments
+      if (!Array.isArray(items)) throw new Error('环境列表尚未加载，请刷新工作空间后重试。')
       if (revision !== renderRevision || !sameContext(context)) return
       const list = target?.querySelector('[data-media-environments]')
       if (list) list.innerHTML = items.length ? items.map(item => `<button class="authorization-environment-option" type="button" role="option" data-media-environment="${escape(item.id)}" ${context.canWrite ? '' : 'disabled'}><span>${escape(item.name)}</span><span aria-hidden="true">→</span></button>`).join('') : '<p class="authorization-environment-empty">暂无可用环境，请先创建浏览器环境。</p>'

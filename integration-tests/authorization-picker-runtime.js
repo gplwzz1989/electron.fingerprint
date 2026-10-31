@@ -38,7 +38,7 @@ app.whenReady().then(async () => {
   await window.webContents.session.cookies.set({ url: origin, name: 'qijie_session', value: auth.token, httpOnly: true })
   await window.loadURL(origin)
   await until(() => page('Boolean(window.getMediaWorkspace?.().canWrite && window.WorkspaceUI)'))
-  await page(`window.workspaceBridge={platformStatus:()=>new Promise(resolve=>{window.__continueAuthorization=()=>resolve({ok:true,protocol:'platform-runtime-v2'})}),launch:async()=>({ok:true,tabId:'fixture-tab'}),tabs:async()=>({ok:true,tabs:[{id:'fixture-tab'}]}),startPlatformTask:async({task})=>({ok:true,id:task.id}),pollPlatformTask:input=>__pickerNative.poll({...input,fail:window.__failFixture}),cancelPlatformTask:async()=>({ok:true}),closeTab:async()=>({ok:true}),dashboard:async()=>({ok:true})};void 0`)
+  await page(`window.workspaceBridge={platformStatus:()=>new Promise(resolve=>{window.__continueAuthorization=()=>resolve({ok:true,protocol:'platform-runtime-v3'})}),startPlatformTask:async({task})=>({ok:true,id:task.id,tabId:'fixture-tab'}),pollPlatformTask:input=>__pickerNative.poll({...input,fail:window.__failFixture}),cancelPlatformTask:async()=>({ok:true}),closeTab:async()=>({ok:true}),dashboard:async()=>({ok:true})};void 0`)
   for (const fail of [true, false]) {
     await page(`window.__failFixture=${fail};WorkspaceUI.openPage('account-platforms')`)
     await until(() => page('Boolean(document.querySelector("[data-platform-key=xiaohongshu]:not(:disabled)"))'))

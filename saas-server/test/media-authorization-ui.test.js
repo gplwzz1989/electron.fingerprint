@@ -19,7 +19,7 @@ function fixture ({ manifestGate, failConfirm = false, failComplete = false, wai
   let tabOpen = true; let launches = 0; let tabEnvironment = 'environment-test'
   const desktop = { observeSession: async () => ({ ok: true, id: 'test-observer' }), captureSession: async () => { calls.push(['native:capture']); return { ok: true, ciphertext: 'recaptured-test-envelope' } }, closeSession: async () => ({ ok: true }), closeTab: async id => { calls.push(['native:close-tab', id]); if (closeFails) return { ok: false }; tabOpen = false; return { ok: true } }, navigate: async () => ({ ok: true }), launch: async payload => { launches++; tabOpen = true; tabEnvironment = payload.environmentId; return { ok: true } }, tabs: async () => ({ ok: true, tabs: tabOpen ? [{ id: 'tab-test', profileId: tabEnvironment }] : [] }), dashboard: async () => ({ ok: true }) }
   let releasePoll
-  desktop.platformStatus = async () => { calls.push(['native:platform-status']); if (manifestGate) await manifestGate; return { ok: true, version: 'test', protocol: 'platform-runtime-v2' } }
+  desktop.platformStatus = async () => { calls.push(['native:platform-status']); if (manifestGate) await manifestGate; return { ok: true, version: 'test', protocol: 'platform-runtime-v3' } }
   let runtimeStarts = 0
   desktop.startPlatformTask = async () => { runtimeStarts++; calls.push(['native:runtime-start']); return { ok: true, id: 'test-runtime-task' } }
   desktop.pollPlatformTask = async () => waitingRunner && runtimeStarts === 1 ? new Promise(resolve => { releasePoll = resolve }) : ({ ok: true, done: true, result: { ciphertext: 'test-only-envelope' } })

@@ -6,7 +6,7 @@ const { ProfileValidationError } = require('./profile-store')
 
 // 仅加载部署者指定的本地发布目录；网页不能提供脚本路径或执行代码。
 class PlatformRuntime {
-  constructor (directory) { this.directory = directory; this.jobs = new Map(); this.contexts = new Map() }
+  constructor (directory) { this.directory = directory; this.jobs = new Map() }
   async load () {
     if (!this.directory || !path.isAbsolute(this.directory)) throw new ProfileValidationError('客户端尚未配置平台能力包，请联系管理员。')
     const directory = await fs.realpath(this.directory)
@@ -35,30 +35,22 @@ class PlatformRuntime {
     if (!rpa || typeof rpa.identity !== 'function' || !Array.isArray(runtime.catalog)) throw new ProfileValidationError('平台或 RPA 能力接口不兼容。')
     return { runtime: { ...runtime, version: manifest.version }, rpa: { ...rpa, version: rpaEntry.version }, manifest }
   }
-  bind (owner, tabId, task) {
-    if (!task || typeof task.operationId !== 'string' || !/^[a-f0-9]{64}$/.test(task.proofKey) || task.expiresAt <= Date.now()) throw new ProfileValidationError('客户端授权上下文无效。')
-    if (this.contexts.size >= 64) for (const [id, item] of this.contexts) if (item.expiresAt <= Date.now() || item.owner.isDestroyed()) this.contexts.delete(id)
-    if (this.contexts.size >= 64) throw new ProfileValidationError('客户端授权上下文过多，请稍后重试。')
-    const context = { ...task, owner, ownerUrl: owner.getURL(), tabId }
-    this.contexts.set(task.operationId, context)
-    const clear = () => { if (this.contexts.get(task.operationId) === context) this.contexts.delete(task.operationId); owner.removeListener('destroyed', clear); owner.removeListener('did-start-navigation', navigate); clearTimeout(timer) }
-    const navigate = (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) clear() }
-    const timer = setTimeout(clear, Math.max(1, task.expiresAt - Date.now())); timer.unref()
-    owner.once('destroyed', clear); owner.on('did-start-navigation', navigate)
-  }
   async start (owner, input, desktop) {
     const ownerUrl = owner.getURL()
-    const context = this.contexts.get(input?.task?.id)
-    if (!context || context.owner !== owner || context.ownerUrl !== ownerUrl || context.tabId !== input.tabId) throw new ProfileValidationError('请先通过加密启动绑定授权任务。')
     const { runtime, rpa, manifest } = await this.load()
-    const platform = runtime.catalog.find(item => item.key === context.platformKey)
+    const request = input?.task
+    if (!request || typeof request.id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(request.id) || !input.tabId) throw new ProfileValidationError('平台授权任务无效。')
+    if (!['authorize', 'reauthorize', 'check'].includes(request.mode)) throw new ProfileValidationError('平台授权类型无效。')
+    if (request.expectedUserId !== undefined && (typeof request.expectedUserId !== 'string' || request.expectedUserId.length > 256)) throw new ProfileValidationError('原账号身份无效。')
+    const platform = runtime.catalog.find(item => item.key === request.platformKey)
     if (!platform) throw new ProfileValidationError('客户端能力包不支持此平台。')
-    input = { ...input, task: { id: context.operationId, expiresAt: context.expiresAt, publicKey: context.publicKey, mode: context.mode, platform } }
-    desktop.authorizeCapture = { proofKey: context.proofKey, platform, tabId: input.tabId, packageVersion: manifest.version, mode: context.mode, expectedUserId: context.expectedUserId }
-    if (!input?.task?.id || !Number.isFinite(input.task.expiresAt) || input.task.expiresAt <= Date.now() || input.task.expiresAt > Date.now() + 15 * 60000 || !input.tabId) throw new ProfileValidationError('平台任务无效或已过期。')
+    if (typeof input.tabId !== 'string' || !input.tabId) throw new ProfileValidationError('授权环境标签无效。')
     if ([...this.jobs.values()].some(job => job.owner === owner && !job.done)) throw new ProfileValidationError('已有平台任务正在执行，请先完成或取消。')
     if (owner.isDestroyed() || owner.getURL() !== ownerUrl) throw new ProfileValidationError('调用页面已关闭或变化。')
     if (this.jobs.size >= 32 || [...this.jobs.values()].some(job => job.owner === owner && !job.done)) throw new ProfileValidationError('平台任务较多，请稍后重试。')
+    const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
+    const task = { id: request.id, expiresAt: Date.now() + 15 * 60000, publicKey: keys.publicKey, mode: request.mode, platform }
+    desktop.authorizeCapture = { platform, tabId: input.tabId, packageVersion: manifest.version, mode: request.mode, expectedUserId: request.expectedUserId || '' }
     const id = crypto.randomUUID(); const controller = new AbortController()
     const job = { owner, controller, done: false, message: '正在启动平台授权…', version: manifest.version }
     this.jobs.set(id, job)
@@ -68,8 +60,19 @@ class PlatformRuntime {
     job.cleanup = cleanup
     owner.once('destroyed', cancel); owner.on('did-start-navigation', navigate)
     job.timer = setTimeout(cancel, 15 * 60000); job.timer.unref()
-    job.promise = Promise.resolve().then(() => runtime.run({ desktop, rpa, task: input.task, tabId: input.tabId, signal: controller.signal, onProgress: message => { job.message = String(message).slice(0, 500) } })).then(result => { job.result = result }, error => { if (!controller.signal.aborted) console.error('[平台任务失败]', { code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); job.error = controller.signal.aborted ? '已取消平台任务。' : '平台授权未完成，请检查登录窗口后重试。' }).finally(() => { job.done = true; clearTimeout(job.timer); job.timer = setTimeout(cancel, 60000); job.timer.unref() })
-    return { id, version: manifest.version }
+    job.promise = Promise.resolve().then(() => runtime.run({ desktop, rpa, task, tabId: input.tabId, signal: controller.signal, onProgress: message => { job.message = String(message).slice(0, 500) } })).then(result => { job.result = this.decryptCapture(result, keys.privateKey, request.id) }).catch(error => { if (!controller.signal.aborted) console.error('[平台任务失败]', { code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); job.error = controller.signal.aborted ? '已取消平台任务。' : '平台授权未完成，请检查登录窗口后重试。' }).finally(() => { job.done = true; clearTimeout(job.timer); job.timer = setTimeout(cancel, 60000); job.timer.unref() })
+    return { id, version: manifest.version, tabId: input.tabId, environmentId: input.environmentId }
+  }
+  decryptCapture (envelope, privateKey, operationId) {
+    try {
+      const key = crypto.privateDecrypt({ key: privateKey, oaepHash: 'sha256' }, Buffer.from(envelope.wrappedKey, 'base64'))
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'))
+      decipher.setAAD(Buffer.from(operationId)); decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
+      const snapshot = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8'))
+      if (snapshot.operationId !== operationId || !['valid', 'invalid'].includes(snapshot.outcome)) throw new Error()
+      if (snapshot.outcome === 'valid' && (!snapshot.identity?.platformUserId || !Array.isArray(snapshot.cookies) || !snapshot.platform)) throw new Error()
+      return snapshot
+    } catch { throw new ProfileValidationError('客户端会话数据解密失败，请重新授权。') }
   }
   async poll (owner, id, cancel = false) {
     const job = this.jobs.get(id)

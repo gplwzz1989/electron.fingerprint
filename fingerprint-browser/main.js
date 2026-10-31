@@ -294,6 +294,32 @@ async function launchProfile (payload) {
   return await tabBrowser.open(profile, targetUrl, payload.operationId)
 }
 
+async function preparePlatformAuthorization (owner, input) {
+  const task = input?.task
+  if (!task || typeof task.id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(task.id) || !['authorize', 'reauthorize', 'check'].includes(task.mode)) throw new ProfileValidationError('平台授权任务无效。')
+  if (typeof input.scope !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(input.scope) || typeof input.resourceId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(input.resourceId)) throw new ProfileValidationError('授权团队或环境标识无效。')
+  if (platformRuntime && [...platformRuntime.jobs.values()].some(job => job.owner === owner && !job.done)) throw new ProfileValidationError('已有平台任务正在执行，请先完成或取消。')
+  const origin = new URL(owner.getURL()).origin
+  const candidates = environmentRepository.list().filter(item => item.externalReference?.origin === origin && item.externalReference?.scope === input.scope && item.externalReference?.resourceId === input.resourceId)
+  const source = candidates.find(item => !item.externalReference?.authorizationOperationId) || candidates[0]
+  if (!source) throw new ProfileValidationError('此环境尚未在当前客户端打开过，请先从工作空间环境页启动一次该环境。')
+  const policy = capabilityRegistry.normalize({ capabilities: [], allowedOrigins: [] })
+  let environment = source
+  let result
+  if (task.mode === 'authorize' && !task.expectedUserId) {
+    const profileId = `authorization-${task.id}`
+    const profile = createProfileRecord({ id: profileId, name: `${source.profileName} 授权`, group: source.group, storage: source.storage, url: 'about:blank', revision: source.profileRevision, fingerprint: { ...source.fingerprint, id: profileId }, tlsFingerprint: source.tlsFingerprint, proxy: source.proxy })
+    assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+    environment = await environmentRepository.create(profile, 'about:blank', { preserveFingerprint: true, externalReference: { origin, scope: input.scope, resourceId: input.resourceId, authorizationOperationId: task.id } })
+    result = await tabBrowser.openEnvironment(environment, policy)
+  } else if (tabBrowser.isOpen(environment.id)) {
+    result = await tabBrowser.openPage(environment, randomUUID(), 'about:blank', policy)
+  } else {
+    result = await tabBrowser.openEnvironment(environment, policy)
+  }
+  return { tabId: result.tabId, environmentId: environment.id }
+}
+
 async function installClientUpdate () {
   try {
     const prepared = await clientUpdater.prepareInstall()
@@ -325,7 +351,7 @@ function registerIpc () {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
     platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
     try {
-      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version, protocol: 'platform-runtime-v2', update: platformPackages?.state } }
+      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version, protocol: 'platform-runtime-v3', update: platformPackages?.state } }
       if (action === 'poll' || action === 'cancel') return { ok: true, ...await platformRuntime.poll(event.sender, input?.id, action === 'cancel') }
       sessionObserver ||= new SessionObserver(tabBrowser)
       const desktop = {}
@@ -341,7 +367,8 @@ function registerIpc () {
         await contents.executeJavaScript('fetch(' + JSON.stringify(policy.platform.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }).then(() => true).catch(() => false)')
       }
       desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
-      return { ok: true, ...await platformRuntime.start(event.sender, input, desktop) }
+      const prepared = await preparePlatformAuthorization(event.sender, input)
+      return { ok: true, ...await platformRuntime.start(event.sender, { ...input, ...prepared }, desktop) }
     } catch (error) { if (error instanceof ProfileValidationError) throw error; throw new ProfileValidationError('平台能力不可用，请检查客户端能力包配置。') }
   })
   for (const action of ['open', 'read', 'capture', 'close']) handle(`session:${action}`, async (event, input) => {
@@ -370,22 +397,17 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
-      let bindAuthorization = result => result
-      if (decrypted.platformKey || decrypted.authorization) {
+      if (decrypted.platformKey) {
         platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
         const { runtime } = await platformRuntime.load()
-        const platform = runtime.catalog.find(item => item.key === (decrypted.platformKey || decrypted.authorization.platformKey))
+        const platform = runtime.catalog.find(item => item.key === decrypted.platformKey)
         if (!platform) throw new ProfileValidationError('客户端能力包尚未支持此平台，请更新平台能力。')
-        // 授权先创建空白标签，观察器安装后由能力包导航，避免重定向和登录响应抢先发生。
-        decrypted.url = decrypted.authorization ? 'about:blank' : platform.url
+        decrypted.url = platform.url
         if (decrypted.session) decrypted.session.origins = [...platform.origins]
-        if (decrypted.authorization) bindAuthorization = result => { platformRuntime.bind(event.sender, result.tabId, decrypted.authorization); return result }
       }
       const profile = createProfileRecord(decrypted)
-      const freshAuthorization = decrypted.authorization && decrypted.authorization.mode !== 'check' && !decrypted.authorization.expectedUserId
-      const launchReference = freshAuthorization ? { ...reference, authorizationOperationId: decrypted.authorization.operationId } : reference
-      const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(launchReference)).digest('hex')
-      const legacy = !freshAuthorization && environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
+      const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
+      const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
       profile.id = legacy ? legacy.profileId : nativeId
       // 只有同来源、同团队、同授权任务的本机采集记录才能复用，跨设备仍走云端恢复。
       let localSessionEnvironment = null
@@ -415,13 +437,13 @@ function registerIpc () {
           tabBrowser.updateEnvironmentProfile(existing)
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return bindAuthorization({ ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true }) }
+        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-        return bindAuthorization({ ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) })
+        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
       }
-      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: launchReference })
+      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: reference })
       const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
-      return bindAuthorization({ ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) })
+      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
