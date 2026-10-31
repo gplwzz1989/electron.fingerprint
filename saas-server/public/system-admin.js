@@ -39,6 +39,12 @@
     if (!response.ok || !data.ok) { const error = new Error(data.message || '操作未完成，请重试。'); error.status = response.status; throw error }
     return data
   }
+  function loginErrorMessage (error) {
+    if (error?.message === '邮箱格式不正确。') return '邮箱格式不正确，请检查邮箱并重试。'
+    if (error?.message === 'Maximum call stack size exceeded') return '后台管理页面加载失败，请刷新后重试。'
+    if (['当前账号没有系统管理员权限，请联系服务器管理员。', '无法连接服务，请检查网络后重试。'].includes(error?.message)) return error.message
+    return Number.isInteger(error?.status) ? error.message : '后台管理页面加载失败，请刷新后重试。'
+  }
   const passwordChangeMarkup = `<section class="platform-picker password-change-dialog"><header class="platform-picker-header password-change-header"><div><h2>修改登录密码</h2><p>验证当前密码后设置新密码。</p></div><button class="platform-picker-close" type="button" data-password-close aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><form id="password-change-form" class="password-change-form"><div class="password-change-fields"><label class="field" for="password-current"><span>当前密码</span><input id="password-current" name="currentPassword" type="password" autocomplete="current-password" placeholder="请输入当前密码" required></label><label class="field" for="password-new"><span>新密码</span><input id="password-new" name="newPassword" type="password" autocomplete="new-password" placeholder="至少 8 个字符" minlength="8" maxlength="256" required></label><label class="field" for="password-confirm"><span>确认新密码</span><input id="password-confirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" maxlength="256" required></label></div><p class="password-change-message" id="password-change-message" role="alert" aria-live="assertive"></p><footer class="password-change-footer"><button class="button" type="button" data-password-cancel>取消</button><button class="button primary" type="submit">保存新密码</button></footer></form></section>`
   function openPasswordChangeDialog (trigger) {
     const close = () => { window.ShadcnUI.closeDialog(); if (trigger?.isConnected) trigger.focus() }
@@ -230,7 +236,8 @@
       event.target.elements.password.value = ''
       await load()
     } catch (error) {
-      const message = error.message === '邮箱格式不正确。' ? '邮箱格式不正确，请检查邮箱并重试。' : error.message
+      if (!Number.isInteger(error.status) || error.message === 'Maximum call stack size exceeded') console.error('[系统管理页面加载异常]', error)
+      const message = loginErrorMessage(error)
       $('#login-message').textContent = message
       if (error.message === '邮箱格式不正确。') {
         email.setAttribute('aria-invalid', 'true')
@@ -252,6 +259,10 @@
   }, true)
   void load().catch(error => {
     $('#initial-message').hidden = true; $('#login').hidden = false
-    if (error.status !== 401) { $('#login-message').textContent = error.message; notify(error.message, true) }
+    if (error.status !== 401) {
+      if (!Number.isInteger(error.status) || error.message === 'Maximum call stack size exceeded') console.error('[系统管理初始化异常]', error)
+      const message = loginErrorMessage(error)
+      $('#login-message').textContent = message; notify(message, true)
+    }
   })
 })()

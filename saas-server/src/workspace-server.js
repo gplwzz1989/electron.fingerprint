@@ -102,7 +102,7 @@ class WorkspaceServer {
     await this.configurationReady
     await this.refreshSystemSettings()
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     const address = this.server?.address(); const origin = this.publicUrl ? new URL(this.publicUrl).origin : `http://${this.host}:${address?.port || this.port}`
     const url = new URL(req.url, origin); const pathname = url.pathname; const method = req.method
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })
