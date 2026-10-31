@@ -40,7 +40,7 @@
     return data
   }
   function loginErrorMessage (error) {
-    if (error?.message === '邮箱格式不正确。') return '邮箱格式不正确，请检查邮箱并重试。'
+    if (error?.message === '账号或邮箱格式不正确。') return '请输入有效的管理员账号或邮箱。'
     if (error?.message === 'Maximum call stack size exceeded') return '后台管理页面加载失败，请刷新后重试。'
     if (['当前账号没有系统管理员权限，请联系服务器管理员。', '无法连接服务，请检查网络后重试。'].includes(error?.message)) return error.message
     return Number.isInteger(error?.status) ? error.message : '后台管理页面加载失败，请刷新后重试。'
@@ -239,7 +239,7 @@
       if (!Number.isInteger(error.status) || error.message === 'Maximum call stack size exceeded') console.error('[系统管理页面加载异常]', error)
       const message = loginErrorMessage(error)
       $('#login-message').textContent = message
-      if (error.message === '邮箱格式不正确。') {
+      if (error.message === '账号或邮箱格式不正确。') {
         email.setAttribute('aria-invalid', 'true')
         $('#login-message').dataset.emailError = 'true'
         email.focus()

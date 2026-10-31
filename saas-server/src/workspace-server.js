@@ -13,7 +13,7 @@ const { BillingService } = require('./billing-service')
 const { sealLaunch, validateLaunchRequest } = require('./desktop-protocol')
 const { MediaAuthorizations } = require('./media-authorizations')
 const { ClientUpdateService } = require('./client-update-service')
-const { SystemSettings } = require('./system-settings')
+const { SystemSettings, DEFAULT_ADMIN_ACCOUNT, DEFAULT_ADMIN_EMAIL } = require('./system-settings')
 const { PlatformReleaseService } = require('./platform-release-service')
 
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
@@ -146,8 +146,12 @@ class WorkspaceServer {
         if (++attempts.count > 12) throw new UserError('尝试次数较多，请稍后再试。', 429)
         if (this.rateLimits.size > 2000) for (const [id, entry] of this.rateLimits) if (entry.until < now) this.rateLimits.delete(id)
         this.rateLimits.set(key, attempts)
-        const body = await this.body(req); const email = normalizeEmail(body.email)
-        if (!email) throw new UserError('邮箱格式不正确。')
+        const body = await this.body(req)
+        const loginIdentifier = typeof body.email === 'string' ? body.email.trim() : ''
+        const isDefaultAdmin = pathname.endsWith('/login') && loginIdentifier.toLowerCase() === DEFAULT_ADMIN_ACCOUNT
+        const email = normalizeEmail(loginIdentifier)
+        if (pathname.endsWith('/register') && !email) throw new UserError('邮箱格式不正确。')
+        if (pathname.endsWith('/login') && !email && !isDefaultAdmin) throw new UserError('账号或邮箱格式不正确。')
         if (typeof body.password !== 'string' || !body.password || body.password.length > 256) throw new UserError('请填写有效的密码。')
         const password = body.password
         let user
@@ -157,7 +161,7 @@ class WorkspaceServer {
           const nickname = text(body.nickname ?? body.name, '昵称', 60)
           user = await this.database.register({ email, password, verificationCode: body.verificationCode, name: nickname, workspaceName: body.nickname === undefined ? text(body.workspaceName ?? nickname, '团队名称', 80) : nickname })
         } else {
-          const found = await this.database.userByEmail(email)
+          const found = await this.database.userByEmail(isDefaultAdmin ? DEFAULT_ADMIN_EMAIL : email)
           if (!found || !verifyPassword(password, found.passwordHash)) throw new UserError('邮箱或密码错误。', 401)
           user = safeUser(found)
         }
@@ -465,10 +469,10 @@ if (require.main === module) {
   if (process.argv[2] === '--init-system-admin') {
     void server.configurationReady.then(async () => {
       const result = await server.systemSettings.provisionAdmin(process.argv[3])
-      console.log(`系统管理员已配置：${result.email}`)
+      console.log(`系统管理员已配置：${result.account || result.email}`)
       if (result.password) console.log(`初始密码（请妥善保存）：${result.password}`)
       else console.log('现有账号密码保持不变。')
-    }).catch(() => { console.error('管理员初始化失败，请检查邮箱、数据库和配置文件。'); process.exitCode = 1 }).finally(async () => { server.registrationMailer.close(); await server.database.close() })
+    }).catch(() => { console.error('管理员初始化失败，请检查账号、数据库和配置文件。'); process.exitCode = 1 }).finally(async () => { server.registrationMailer.close(); await server.database.close() })
   } else {
   server.start().then(address => console.log(`工作空间服务已启动：http://${address.address}:${address.port}`)).catch(async () => {
     console.error('工作空间服务启动失败，请检查端口、数据库和环境配置。')

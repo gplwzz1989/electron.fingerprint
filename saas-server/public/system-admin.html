@@ -30,9 +30,9 @@
       <div class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z M3 7l9 5 9-5M12 12v10M7.5 4.5l9 5v5"/></svg></div>
       <p class="eyebrow">栖界 · 平台控制台</p>
       <h1>系统管理员登录</h1><p class="muted">使用已授予系统管理权限的账号。</p>
-      <label for="login-email">邮箱</label>
-      <input id="login-email" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="请输入管理员邮箱" aria-describedby="login-email-hint" required>
-      <small id="login-email-hint" class="login-hint">支持粘贴邮箱；首尾空格会自动清理。</small>
+      <label for="login-email">管理员账号或邮箱</label>
+      <input id="login-email" name="email" type="text" inputmode="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="请输入 admin 或管理员邮箱" aria-describedby="login-email-hint" required>
+      <small id="login-email-hint" class="login-hint">首次初始化默认账号为 admin；也可使用已授权管理员邮箱。</small>
       <label for="login-password">密码</label>
       <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
       <button class="primary" type="submit">登录控制台</button>

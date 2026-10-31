@@ -5,6 +5,9 @@ const { UserError } = require('./mysql-database')
 const { readServerConfig } = require('./server-config')
 const { hashPassword } = require('./auth')
 const { normalizeEmail } = require('./email-address')
+const DEFAULT_ADMIN_ACCOUNT = 'admin'
+const DEFAULT_ADMIN_EMAIL = 'admin@qijie.local'
+const DEFAULT_ADMIN_PASSWORD = '88888888'
 const toBigInt = value => typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)))
 const toNumber = value => typeof value === 'bigint' ? Number(value) : value
 
@@ -127,23 +130,24 @@ class SystemSettings {
     })
     return await this.publicSettings(userId)
   }
-  async provisionAdmin (email) {
-    email = normalizeEmail(email)
-    if (!email) throw new UserError('请填写有效的管理员邮箱。')
+  async provisionAdmin (identifier = DEFAULT_ADMIN_ACCOUNT) {
+    const isDefaultAccount = !identifier || (typeof identifier === 'string' && identifier.trim().toLowerCase() === DEFAULT_ADMIN_ACCOUNT)
+    const email = isDefaultAccount ? DEFAULT_ADMIN_EMAIL : normalizeEmail(identifier)
+    if (!email) throw new UserError('请填写有效的管理员账号或邮箱。')
     return await this.db.transaction(async () => {
       let user = await this.db.userByEmail(email); let password = null
       if (!user) {
-        password = crypto.randomBytes(24).toString('base64url')
+        password = isDefaultAccount ? DEFAULT_ADMIN_PASSWORD : crypto.randomBytes(24).toString('base64url')
         user = { id: crypto.randomUUID() }; const workspaceId = crypto.randomUUID(); const now = Date.now()
         const timestamp = toBigInt(now)
-        await this.db.client.user.create({ data: { id: user.id, email, name: '系统管理员', passwordHash: hashPassword(password), createdAt: timestamp, emailVerifiedAt: timestamp } })
+        await this.db.client.user.create({ data: { id: user.id, email, name: isDefaultAccount ? DEFAULT_ADMIN_ACCOUNT : '系统管理员', passwordHash: hashPassword(password), createdAt: timestamp, emailVerifiedAt: timestamp } })
         await this.db.client.workspace.create({ data: { id: workspaceId, name: '管理工作空间', ownerId: user.id } })
         await this.db.client.member.create({ data: { id: crypto.randomUUID(), workspaceId, userId: user.id, role: 'owner', scope: { mode: 'all', ids: [] } } })
       }
       await this.db.client.systemAdministrator.upsert({ where: { userId: user.id }, create: { userId: user.id, createdAt: toBigInt(Date.now()) }, update: {} })
-      return { email, password }
+      return { account: isDefaultAccount ? DEFAULT_ADMIN_ACCOUNT : email, email, password }
     })
   }
 }
 
-module.exports = { SystemSettings }
+module.exports = { SystemSettings, DEFAULT_ADMIN_ACCOUNT, DEFAULT_ADMIN_EMAIL }
