@@ -25,6 +25,16 @@ const runtime = {
   PRISMA_CLI_PATH: path.join(serverDirectory, 'prisma-cli/build/index.js')
 }
 
+for (const engine of [runtime.PRISMA_QUERY_ENGINE_BINARY, runtime.PRISMA_SCHEMA_ENGINE_BINARY]) {
+  try {
+    if (!fs.existsSync(engine)) throw new Error()
+    fs.chmodSync(engine, 0o755)
+  } catch {
+    console.error('Prisma Linux 引擎文件缺失或无法设置执行权限，请检查部署目录权限。')
+    process.exit(1)
+  }
+}
+
 const sync = spawnSync(process.execPath, ['scripts/prisma-cli.cjs', 'db', 'push'], { cwd: serverDirectory, env: runtime, stdio: 'inherit' })
 if (sync.error) {
   console.error('Prisma 数据库结构同步未能启动，请检查服务配置和引擎文件。')
