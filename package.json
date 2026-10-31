@@ -61,6 +61,7 @@
   },
   "private": true,
   "scripts": {
+    "watch": "npm --prefix fingerprint-browser run watch",
     "asar": "asar",
     "generate-version-json": "node script/generate-version-json.js",
     "lint": "node ./script/lint.js && npm run lint:docs",

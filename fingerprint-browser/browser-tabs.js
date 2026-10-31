@@ -60,7 +60,18 @@ async function checkProxyConnection (proxy) {
 }
 
 async function loadUrlWithProxyTimeout (contents, url, proxy) {
-  const loading = contents.loadURL(url)
+  const loading = contents.loadURL(url).catch(error => {
+    if (error?.code !== 'ERR_ABORTED' && error?.errno !== -3) throw error
+    // 平台登录重定向会中断首个导航；等待后续主文档完成，不能把中断当成页面失败或提前成功。
+    if (!contents.isLoading?.()) { if (/^https?:/.test(contents.getURL())) return; throw error }
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { contents.removeListener('did-finish-load', finish); contents.removeListener('did-fail-load', fail); contents.removeListener('destroyed', destroyed) }
+      const finish = () => { cleanup(); resolve() }
+      const fail = (_event, code, _description, _url, main) => { if (main && code !== -3) { cleanup(); reject(error) } }
+      const destroyed = () => { cleanup(); reject(error) }
+      contents.once('did-finish-load', finish); contents.on('did-fail-load', fail); contents.once('destroyed', destroyed)
+    })
+  })
   const proxied = proxy && proxy.mode !== 'direct'
   let timer
   try {
@@ -761,4 +772,4 @@ class TabBrowser {
   }
 }
 
-module.exports = { TabBrowser, applyProxyConfig }
+module.exports = { TabBrowser, applyProxyConfig, loadUrlWithProxyTimeout }

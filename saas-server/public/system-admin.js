@@ -179,7 +179,7 @@
       render(result); notify(result.message); await loadAudit()
     } catch (error) { notify(error.message, true) } finally { busy = false; if (save) save.disabled = false }
   })
-  $('#reload').addEventListener('click', () => { if (!dirty || confirm('重新加载会放弃尚未保存的修改，是否继续？')) void load().catch(error => notify(error.message, true)) })
+  $('#reload').addEventListener('click', async () => { if (!dirty || await window.WorkspaceDialogs.confirm({ title: '放弃未保存的修改？', description: '重新加载会丢弃尚未保存的设置。已保存的配置不受影响。', actionLabel: '重新加载', destructive: true, trigger: $('#reload') })) void load().catch(error => notify(error.message, true)) })
   $('#login-form').addEventListener('submit', async event => {
     event.preventDefault(); const button = event.submitter || event.target.querySelector('button[type="submit"]'); button.disabled = true
     try { await api('/api/auth/login', 'POST', Object.fromEntries(new FormData(event.target))); event.target.elements.password.value = ''; await load() } catch (error) { $('#login-message').textContent = error.message } finally { button.disabled = false }

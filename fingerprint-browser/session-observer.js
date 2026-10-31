@@ -56,7 +56,7 @@ class SessionObserver {
     }
     contents.debugger.on('message', job.listener)
     this.jobs.set(id, job)
-    const cleanup = () => { void this.close(owner, id) }
+    const cleanup = () => { void this.close(owner, id).catch(() => {}) }
     contents.once('destroyed', cleanup); owner.once('destroyed', cleanup)
     job.ownerNavigation = (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) cleanup() }
     owner.on('did-start-navigation', job.ownerNavigation)
@@ -115,11 +115,15 @@ class SessionObserver {
   async close (owner, id) {
     const job = this.jobs.get(id); if (!job || job.owner !== owner) return
     this.jobs.delete(id); clearTimeout(job.timer)
-    owner.removeListener('destroyed', job.cleanup); job.contents.removeListener('destroyed', job.cleanup)
+    owner.removeListener('destroyed', job.cleanup)
     owner.removeListener('did-start-navigation', job.ownerNavigation)
-    job.contents.debugger.removeListener('message', job.listener)
     job.pending.clear(); job.responses.length = 0; job.storage = null
-    if (job.attached && !job.contents.isDestroyed() && job.contents.debugger.isAttached() && !job.contents.debugger.listenerCount('message')) job.contents.debugger.detach()
+    if (!job.contents.isDestroyed()) {
+      job.contents.removeListener('destroyed', job.cleanup)
+      const debuggerApi = job.contents.debugger
+      debuggerApi.removeListener('message', job.listener)
+      if (job.attached && debuggerApi.isAttached() && !debuggerApi.listenerCount('message')) debuggerApi.detach()
+    }
   }
 }
 module.exports = { SessionObserver }

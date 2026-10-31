@@ -68,7 +68,7 @@ class PlatformRuntime {
     job.cleanup = cleanup
     owner.once('destroyed', cancel); owner.on('did-start-navigation', navigate)
     job.timer = setTimeout(cancel, 15 * 60000); job.timer.unref()
-    job.promise = Promise.resolve().then(() => runtime.run({ desktop, rpa, task: input.task, tabId: input.tabId, signal: controller.signal, onProgress: message => { job.message = String(message).slice(0, 500) } })).then(result => { job.result = result }, () => { job.error = controller.signal.aborted ? '已取消平台任务。' : '平台授权未完成，请检查登录窗口后重试。' }).finally(() => { job.done = true; clearTimeout(job.timer); job.timer = setTimeout(cancel, 60000); job.timer.unref() })
+    job.promise = Promise.resolve().then(() => runtime.run({ desktop, rpa, task: input.task, tabId: input.tabId, signal: controller.signal, onProgress: message => { job.message = String(message).slice(0, 500) } })).then(result => { job.result = result }, error => { if (!controller.signal.aborted) console.error('[平台任务失败]', { code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); job.error = controller.signal.aborted ? '已取消平台任务。' : '平台授权未完成，请检查登录窗口后重试。' }).finally(() => { job.done = true; clearTimeout(job.timer); job.timer = setTimeout(cancel, 60000); job.timer.unref() })
     return { id, version: manifest.version }
   }
   async poll (owner, id, cancel = false) {

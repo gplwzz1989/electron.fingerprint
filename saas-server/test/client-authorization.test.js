@@ -25,8 +25,8 @@ test('默认生产链路：无平台服务依赖，密文绑定任务、拒绝�
     await db.execute('INSERT INTO members VALUES(?,?,?,?,?)', [crypto.randomUUID(), workspace, user, 'owner', JSON.stringify({ mode: 'all', ids: [] })])
     await db.put('environments', workspace, environment, { name: '隔离测试环境', startUrl: 'about:blank', fingerprint: db.encodeFingerprint(getDefaultProfile()) }, null)
     const session = await db.createSession(user)
-    const request = async (route, body, expected = 200) => {
-      const response = await fetch(`http://127.0.0.1:${address.port}/api/workspaces/${workspace}/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: 'qijie_session=' + session.token, 'X-CSRF-Token': session.csrf }, body: JSON.stringify(body) })
+    const request = async (route, body, expected = 200, method = 'POST') => {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/workspaces/${workspace}/${route}`, { method, headers: { 'Content-Type': 'application/json', Cookie: 'qijie_session=' + session.token, 'X-CSRF-Token': session.csrf }, body: JSON.stringify(body) })
       const result = await response.json(); assert.equal(response.status, expected, result.message); return result
     }
     const task = (await request('authorizations', { platform: 'douyin', environmentId: environment }, 201)).task
@@ -56,5 +56,14 @@ test('默认生产链路：无平台服务依赖，密文绑定任务、拒绝�
     assert.equal((await db.get('accounts', workspace, saved.accountId)).status, 'invalid')
     assert.equal((await db.execute('SELECT auth_status FROM auth_accounts WHERE workspace_id=?', [workspace]))[0].auth_status, 'invalid')
     await request(`accounts/${saved.accountId}/launch`, createLaunchRequest(workspace, saved.accountId).request, 409)
+    await request(`accounts/${saved.accountId}`, {}, 200, 'DELETE')
+    assert.equal(await db.get('accounts', workspace, saved.accountId), null)
+    const restored = (await request('authorizations', { platform: 'douyin', environmentId: environment }, 201)).task
+    const restoreLaunch = createLaunchRequest(workspace, environment)
+    const restoreProfile = restoreLaunch.open((await request(`environments/${environment}/launch`, { ...restoreLaunch.request, authorizationId: restored.id })).envelope)
+    await request(`authorizations/${restored.id}/complete`, seal(restored, payload, restoreProfile.authorization.proofKey))
+    const restoredAccount = (await request(`authorizations/${restored.id}/confirm`, {})).task
+    assert.equal(restoredAccount.accountId, saved.accountId)
+    assert.equal((await db.authAccounts.read(workspace, saved.accountId)).sessionVersion, 2)
   } finally { await server.stop() }
 })

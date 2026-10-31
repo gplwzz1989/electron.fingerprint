@@ -25,6 +25,7 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
     require, fs, path, URL, validateSessionSnapshot, createProfileRecord, ProfileValidationError, assertTrusted () {}, assertFingerprintSave () {}, fingerprintRuntime: {},
     encryptedLaunchRequests: { consume: () => ({ profile: structuredClone(decrypted), reference: structuredClone(reference) }) },
     environmentRepository: repository,
+    platformRuntime: { load: async () => ({ runtime: { catalog: [{ key: 'douyin', url: 'https://creator.douyin.com/', origins: ['https://creator.douyin.com'] }] } }), bind () {} },
     capabilityRegistry: { normalize: input => input },
     handle: (_channel, callback) => { launch = callback },
     tabBrowser: {
@@ -75,4 +76,15 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
   const remoteOpen = await launch({ sender: {} }, {})
   assert.equal(remoteOpen.ok, true, remoteOpen.error); assert.notEqual(remoteOpen.environmentId, first.environmentId)
   assert.equal(importedSession.version, 1)
+  // 新授权使用独立目录；同一任务重试仍复用，下一任务不能带入已有登录态。
+  delete decrypted.session; delete decrypted.localSessionSource
+  decrypted.authorization = { operationId: 'fresh-one', platformKey: 'douyin', mode: 'authorize', expectedUserId: null }
+  const fresh = await launch({ sender: {} }, {})
+  assert.equal(fresh.ok, true, fresh.error); assert.notEqual(fresh.environmentId, first.environmentId)
+  assert.equal(repository.get(fresh.environmentId).creationUrl, 'about:blank')
+  const retry = await launch({ sender: {} }, {})
+  assert.equal(retry.environmentId, fresh.environmentId)
+  decrypted.authorization.operationId = 'fresh-two'
+  const another = await launch({ sender: {} }, {})
+  assert.notEqual(another.environmentId, fresh.environmentId)
 })

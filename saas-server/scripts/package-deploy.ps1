@@ -16,6 +16,9 @@ foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','p
 if ($LASTEXITCODE -ne 0) { throw '服务端入口语法检查失败。' }
 & node $NccCli version
 if ($LASTEXITCODE -ne 0) { throw '单文件打包工具不可用。' }
+# 先构建 shadcn/ui 公共界面组件，成功后才清理旧交付物。
+& node (Join-Path $serverRoot 'scripts/build-ui.cjs')
+if ($LASTEXITCODE -ne 0) { throw '公共界面组件构建失败，已保留旧产物。' }
 if (Test-Path -LiteralPath $distRoot) {
   $pending = [Collections.Generic.Queue[string]]::new()
   $pending.Enqueue($distRoot)

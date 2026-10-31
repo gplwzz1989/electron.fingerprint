@@ -32,7 +32,7 @@ class AuthAccountStore {
   async write (workspaceId, id, account, snapshot) { return await this.db.transaction(() => this.writeRows(this.db.execute.bind(this.db), workspaceId, id, account, snapshot)) }
   async read (workspaceId, id) {
     const row = (await this.db.execute('SELECT * FROM auth_accounts WHERE workspace_id=? AND id=?', [workspaceId, id]))[0]
-    if (!row) return null
+    if (!row || row.auth_status === 'archived') return null
     try { return { cookies: JSON.parse(this.db.decrypt(row.platform_cookie_hash)), storage: JSON.parse(this.db.decrypt(row.platform_local_storage_hash)), sessionVersion: Number(row.session_version), origins: typeof row.origins === 'string' ? JSON.parse(row.origins) : row.origins, entryUrl: row.entry_url } } catch { throw new this.UserError('账号凭据无法读取，请联系管理员恢复原始加密密钥。', 500) }
   }
 }

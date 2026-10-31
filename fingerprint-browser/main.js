@@ -329,7 +329,11 @@ function registerIpc () {
       if (action === 'poll' || action === 'cancel') return { ok: true, ...await platformRuntime.poll(event.sender, input?.id, action === 'cancel') }
       sessionObserver ||= new SessionObserver(tabBrowser)
       const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) })
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => {
+        try { return { ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) } } catch (error) {
+          console.error('[平台能力调用失败]', { method, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); throw error
+        }
+      }
       desktop.refreshIdentity = async () => {
         const policy = desktop.authorizeCapture
         const contents = tabBrowser.getTab(policy.tabId)?.view?.webContents
@@ -372,23 +376,26 @@ function registerIpc () {
         const { runtime } = await platformRuntime.load()
         const platform = runtime.catalog.find(item => item.key === (decrypted.platformKey || decrypted.authorization.platformKey))
         if (!platform) throw new ProfileValidationError('客户端能力包尚未支持此平台，请更新平台能力。')
-        decrypted.url = platform.url
+        // 授权先创建空白标签，观察器安装后由能力包导航，避免重定向和登录响应抢先发生。
+        decrypted.url = decrypted.authorization ? 'about:blank' : platform.url
         if (decrypted.session) decrypted.session.origins = [...platform.origins]
         if (decrypted.authorization) bindAuthorization = result => { platformRuntime.bind(event.sender, result.tabId, decrypted.authorization); return result }
       }
       const profile = createProfileRecord(decrypted)
-      const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(reference)).digest('hex')
-      const legacy = environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
+      const freshAuthorization = decrypted.authorization && decrypted.authorization.mode !== 'check' && !decrypted.authorization.expectedUserId
+      const launchReference = freshAuthorization ? { ...reference, authorizationOperationId: decrypted.authorization.operationId } : reference
+      const nativeId = 'remote-' + require('node:crypto').createHash('sha256').update(JSON.stringify(launchReference)).digest('hex')
+      const legacy = !freshAuthorization && environmentRepository.list().find(item => item.profileId === profile.id && (!item.externalReference || JSON.stringify(item.externalReference) === JSON.stringify(reference)))
       profile.id = legacy ? legacy.profileId : nativeId
       // 只有同来源、同团队、同授权任务的本机采集记录才能复用，跨设备仍走云端恢复。
       let localSessionEnvironment = null
       const source = decrypted.localSessionSource
       if (typeof source?.resourceId === 'string' && typeof source.operationId === 'string' && source.operationId) {
-        const candidate = environmentRepository.list().find(item => item.externalReference?.origin === reference.origin && item.externalReference?.scope === reference.scope && item.externalReference?.resourceId === source.resourceId)
-        if (candidate) {
+        const candidates = environmentRepository.list().filter(item => item.externalReference?.origin === reference.origin && item.externalReference?.scope === reference.scope && item.externalReference?.resourceId === source.resourceId)
+        for (const candidate of candidates) {
           try {
             const capture = JSON.parse(await fs.readFile(path.join(candidate.dataDir, 'local-session-capture.json'), 'utf8'))
-            if (capture.operationId === source.operationId) localSessionEnvironment = candidate
+            if (capture.operationId === source.operationId) { localSessionEnvironment = candidate; break }
           } catch { /* 本机采集记录缺失时按跨设备流程恢复，不猜测登录状态。 */ }
         }
       }
@@ -412,7 +419,7 @@ function registerIpc () {
         const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
         return bindAuthorization({ ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) })
       }
-      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: reference })
+      const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: launchReference })
       const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
       return bindAuthorization({ ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) })
     } catch (error) {
@@ -930,6 +937,7 @@ async function createDashboard () {
   dashboardView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments(), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
   const view = dashboardView
   const contents = view.webContents
+  if (process.env.FP_AUTH_DEBUG === '1') contents.on('console-message', (_event, _level, message) => { if (typeof message === 'string' && message.startsWith('[授权诊断]')) console.log(message) })
   capabilityRegistry.register(contents, 'home', { pinnedUrl: clientConfig.appUrl })
   automationServer?.attachSession(contents.session, capabilityRegistry)
   dashboardWindow.on('closed', () => {

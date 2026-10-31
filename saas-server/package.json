@@ -1,11 +1,13 @@
 {
   "name": "@qijie/saas-server",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
   "main": "src/workspace-server.js",
   "scripts": {
+    "build:ui": "node scripts/build-ui.cjs",
     "start": "node src/workspace-server.js",
-    "test": "node --test test/client-authorization.test.js test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/media-session-store.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
+    "watch": "node --watch src/workspace-server.js",
+    "test": "node --test test/resource-deletion.test.js test/client-authorization.test.js test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/media-session-store.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
     "package:source": "pwsh -NoProfile -File scripts/package-source.ps1"
   },
   "engines": {
@@ -16,5 +18,11 @@
     "mysql2": "3.24.6",
     "nodemailer": "10.2.1",
     "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@radix-ui/react-alert-dialog": "1.2.1",
+    "esbuild": "0.25.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   }
 }

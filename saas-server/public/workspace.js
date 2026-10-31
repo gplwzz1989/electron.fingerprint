@@ -23,7 +23,16 @@
   window.getMediaWorkspace = () => ({ workspaceId: state.workspaceId, userId: state.user?.id, canWrite: canWrite() })
   document.addEventListener('media:saved', event => {
     const message = event.detail?.message || '账号授权成功，已添加到账号列表。'
-    void reload().then(() => { window.WorkspaceUI.render(); noticeResult(message, true); if (event.detail?.warning) showError(event.detail.warning) }).catch(() => { noticeResult(message, true); showError('账号授权已保存，但账号列表暂未刷新，请刷新页面后查看。') })
+    const success = event.detail?.success !== false
+    void reload().then(() => { window.WorkspaceUI.render(); noticeResult(message, success, success ? '' : 'error'); if (event.detail?.warning) showError(event.detail.warning) }).catch(() => { noticeResult(message, success, success ? '' : 'error'); showError('账号授权已保存，但账号列表暂未刷新，请刷新页面后查看。') })
+  })
+  document.addEventListener('media:notice', event => {
+    const detail = event.detail || {}
+    noticeResult(detail.message || '授权未完成，请重试。', !detail.error, detail.pending ? 'pending' : detail.error ? 'error' : '')
+    if (detail.retry) {
+      clearTimeout(noticeTimer)
+      for (const [operation, label] of [['retry', '重试'], ['cancel', '结束']]) { const button = document.createElement('button'); button.type = 'button'; button.className = 'row-action'; button.dataset.mediaOperation = operation; button.textContent = label; document.getElementById('workspace-result').append(button) }
+    }
   })
   let viewRevision = 0
   let nativeTabs = { tabs: [], activeId: null }
@@ -44,7 +53,7 @@
     if (!invitation || !state.user || invitationInProgress) return
     invitationInProgress = true
     try {
-      if (!confirm('是否接受此团队邀请？')) { history.replaceState(null, '', '#overview'); window.WorkspaceUI.render(); return }
+      if (!await window.WorkspaceDialogs.confirm({ title: '接受团队邀请？', description: '接受后，你将按邀请中分配的权限加入该团队。', actionLabel: '接受邀请' })) { history.replaceState(null, '', '#overview'); window.WorkspaceUI.render(); return }
       await request(`/api/workspaces/${encodeURIComponent(invitation[1])}/invitations/${encodeURIComponent(invitation[2])}/accept`, 'POST', { token: invitation[3] })
       const current = await request('/api/auth/me')
       state.workspaces = current.workspaces; state.workspaceId = invitation[1]
@@ -112,12 +121,15 @@
     return true
   }
   let noticeTimer
-  function noticeResult (message, success = false) {
+  function noticeResult (message, success = false, tone = '') {
     let node = document.getElementById('workspace-result')
     if (!node) { node = document.createElement('div'); node.id = 'workspace-result'; node.className = 'workspace-result'; node.setAttribute('role', 'status'); document.querySelector('.shell').append(node) }
     clearTimeout(noticeTimer)
-    node.classList.toggle('workspace-result--success', success)
-    node.textContent = message; noticeTimer = setTimeout(() => node.remove(), success ? 3000 : 5000)
+    node.classList.toggle('workspace-result--success', success || tone === 'error')
+    node.classList.toggle('workspace-result--error', tone === 'error')
+    node.classList.toggle('workspace-result--pending', tone === 'pending')
+    node.setAttribute('role', tone === 'error' ? 'alert' : 'status')
+    node.textContent = message; if (tone !== 'pending') noticeTimer = setTimeout(() => node.remove(), success ? 3000 : 5000)
   }
   function updateShell () {
     const login = document.querySelector('.topbar [data-route="signin"]')
@@ -153,19 +165,19 @@
   function routeTo (route) { if (window.WorkspaceUI.openPage) return window.WorkspaceUI.openPage(route); if (location.hash === `#${route}`) window.WorkspaceUI.render(); else location.hash = route }
   function actions (items) { return items.map(item => `<button class="row-action${item.danger ? ' danger' : ''}" type="button" data-operation="${item.action}" data-id="${escape(item.id)}" ${item.disabled ? 'disabled' : ''}>${escape(item.label)}</button>`).join('') }
   function cells (route, item) {
-    if (route === 'fingerprints') return [`${escape(item.name)}<small>版本 ${item.version}</small>`, escape(`Chrome ${item.profile.browser.chromiumMajor} / ${item.profile.hardware.platform}`), escape(`${item.profile.locale.language} / ${item.profile.locale.timezone}`), String((state.lists.environments || []).filter(environment => environment.fingerprintId === item.id).length), escape(timestamp(item.updatedAt)), actions([{ action: 'edit-fingerprint', id: item.id, label: '编辑', disabled: !canWrite() }, { action: 'remove-fingerprint', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
+    if (route === 'fingerprints') return [`${escape(item.name)}<small>版本 ${item.version}</small>`, escape(`Chrome ${item.profile.browser.chromiumMajor} / ${item.profile.hardware.platform}`), escape(`${item.profile.locale.language} / ${item.profile.locale.timezone}`), String((state.lists.environments || []).filter(environment => environment.fingerprintId === item.id).length), escape(timestamp(item.updatedAt)), actions([{ action: 'edit-fingerprint', id: item.id, label: '编辑', disabled: !canWrite() }, { action: 'remove-fingerprint', id: item.id, label: '删除', danger: true, disabled: !canWrite() }])]
     if (route === 'environments' || route === 'overview') {
       const fingerprint = state.lists.fingerprints?.find(record => record.id === item.fingerprintId)
       const proxy = state.lists.proxies?.find(record => record.id === item.proxyId)
-      const values = [escape(item.name), escape(`${fingerprint?.name || '指纹快照'} · 版本 ${item.fingerprintVersion}`), escape(proxy?.name || '直连'), window.workspaceBridge ? nativeTabs.tabs.some(tab => tab.profileId === item.id) ? '运行中' : '未运行' : '请在客户端查看', escape(timestamp(item.updatedAt)), actions([{ action: 'launch-environment', id: item.id, label: '启动', disabled: !window.workspaceBridge || !canWrite() }, { action: 'edit-environment', id: item.id, label: '编辑', disabled: !canWrite() }, { action: 'remove-environment', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
+      const values = [escape(item.name), escape(`${fingerprint?.name || '指纹快照'} · 版本 ${item.fingerprintVersion}`), escape(proxy?.name || '直连'), window.workspaceBridge ? nativeTabs.tabs.some(tab => tab.profileId === item.id) ? '运行中' : '未运行' : '请在客户端查看', escape(timestamp(item.updatedAt)), actions([{ action: 'launch-environment', id: item.id, label: '启动', disabled: !window.workspaceBridge || !canWrite() }, { action: 'edit-environment', id: item.id, label: '编辑', disabled: !canWrite() }, { action: 'remove-environment', id: item.id, label: '删除', danger: true, disabled: !canWrite() }])]
       return route === 'overview' ? values.filter((_value, index) => index !== 4) : values
     }
-    if (route === 'proxies') return [escape(item.name), escape(`${item.protocol.toUpperCase()} · ${item.host}:${item.port}`), `<span class="${item.status === 'available' ? 'status-valid' : 'status-error'}">${item.status === 'available' ? '已检测可用' : '检测失败'}</span><small>${escape(timestamp(item.checkedAt))}</small>`, escape(item.timezone), String((state.lists.environments || []).filter(environment => environment.proxyId === item.id).length), actions([{ action: 'check-proxy', id: item.id, label: '重新检测', disabled: !canWrite() }, { action: 'remove-proxy', id: item.id, label: '移除', danger: true, disabled: !canWrite() }])]
+    if (route === 'proxies') return [escape(item.name), escape(`${item.protocol.toUpperCase()} · ${item.host}:${item.port}`), `<span class="${item.status === 'available' ? 'status-valid' : 'status-error'}">${item.status === 'available' ? '已检测可用' : '检测失败'}</span><small>${escape(timestamp(item.checkedAt))}</small>`, escape(item.timezone), String((state.lists.environments || []).filter(environment => environment.proxyId === item.id).length), actions([{ action: 'check-proxy', id: item.id, label: '重新检测', disabled: !canWrite() }, { action: 'remove-proxy', id: item.id, label: '删除', danger: true, disabled: !canWrite() }])]
     if (route === 'accounts') {
       const platform = window.QijieProductDesign.pages.find(page => page.id === 'account-platforms').platforms.find(platform => platform.key === item.platform)
       const avatar = typeof item.avatar === 'string' && /^https:\/\//i.test(item.avatar) ? item.avatar : ''
       const identity = `<div class="account-identity"><span class="account-avatar"><span aria-hidden="true">${escape((item.name || '账').slice(0, 1))}</span>${avatar ? `<img src="${escape(avatar)}" alt="${escape(item.name)}头像" referrerpolicy="no-referrer" loading="lazy">` : ''}${platform?.icon ? `<img class="account-platform-badge" src="${escape(platform.icon)}" alt="${escape(item.platformName)}">` : ''}</span><div class="account-identity-text"><strong>${escape(item.name)}</strong><small>${escape(item.platformName)} · ${escape(item.platformUserId)}</small></div></div>`
-      return [identity, item.status === 'valid' ? '<span class="status-valid">授权有效</span>' : '<span class="status-error">待重新授权</span>', escape(item.environmentName), escape(timestamp(item.checkedAt)), actions([{ action: 'open-account', id: item.id, label: '打开账号', disabled: !window.workspaceBridge || !canWrite() || item.status !== 'valid' }, { action: 'check-account', id: item.id, label: '检测授权', disabled: !canWrite() }, { action: 'reauthorize-account', id: item.id, label: '重新授权', disabled: !canWrite() || !['invalid', 'expired'].includes(item.status) }])]
+      return [identity, item.status === 'valid' ? '<span class="status-valid">授权有效</span>' : '<span class="status-error">待重新授权</span>', escape(item.environmentName), escape(timestamp(item.checkedAt)), actions([{ action: 'open-account', id: item.id, label: '打开账号', disabled: !window.workspaceBridge || !canWrite() || item.status !== 'valid' }, { action: 'check-account', id: item.id, label: '检测授权', disabled: !canWrite() }, { action: 'reauthorize-account', id: item.id, label: '重新授权', disabled: !canWrite() || !['invalid', 'expired'].includes(item.status) }, { action: 'remove-account', id: item.id, label: '删除', danger: true, disabled: !canWrite() }])]
     }
     if (route === 'members') return [escape(item.name), escape(labelRole(item.role)), item.scope.mode === 'all' ? '全部资源' : `${item.scope.ids.length} 项资源`, '已加入', escape(item.email), actions([{ action: 'permissions', id: item.id, label: '权限', disabled: !canAdmin() || item.role === 'owner' }, { action: 'remove-member', id: item.id, label: '移除', danger: true, disabled: !canAdmin() || item.role === 'owner' || item.userId === state.user?.id }])]
     return [escape(item.name), escape(item.status), escape(item.environmentName), escape(timestamp(item.checkedAt)), '']
@@ -508,9 +520,14 @@
     }
     if (operation === 'check-proxy') { const result = (await request(`${base()}/proxies/${id}/check`, 'POST', {})).result; await reload(); window.WorkspaceUI.render(); noticeResult(`检测通过，出口时区为 ${result.timezone}。`); return }
     if (operation.startsWith('remove-')) {
-      const resource = { 'remove-fingerprint': 'fingerprints', 'remove-environment': 'environments', 'remove-proxy': 'proxies', 'remove-member': 'members' }[operation]
-      if (!resource || !confirm('确认移除此记录？正在使用的指纹或代理不会被移除。')) return
-      await request(`${base()}/${resource}/${id}`, 'DELETE'); await reload(); window.WorkspaceUI.render(); noticeResult('记录已移除。'); return
+      const resource = { 'remove-fingerprint': 'fingerprints', 'remove-environment': 'environments', 'remove-proxy': 'proxies', 'remove-account': 'accounts', 'remove-member': 'members' }[operation]
+      if (!resource) return
+      if (!window.WorkspaceDialogs?.confirmDelete) throw new Error('删除确认组件尚未加载，请刷新页面后重试。')
+      const labels = { fingerprints: '指纹', environments: '环境', proxies: '代理', accounts: '账号', members: '成员' }
+      const record = (state.lists[resource] || []).find(item => item.id === id)
+      const trigger = document.querySelector(`[data-operation="${operation}"][data-id="${CSS.escape(id)}"]`)
+      if (!await window.WorkspaceDialogs.confirmDelete({ title: `确认删除${labels[resource]}？`, name: record?.name || '', description: resource === 'members' ? '移除后，该成员将无法访问当前团队资源。' : '删除后将从当前列表中移除，历史数据仍会保留。', trigger })) return
+      await request(`${base()}/${resource}/${id}`, 'DELETE'); await reload(); window.WorkspaceUI.render(); noticeResult('记录已删除。', true); return
     }
     if (operation === 'reauthorize-account') {
       const account = state.lists.accounts.find(item => item.id === id)

@@ -111,7 +111,7 @@ test('隔离 MySQL：授权核验、加密持久化、身份匹配、重复确�
     await service.handle(workspaceId, userId, rollback.id, 'complete', seal(rollback, { cookies: [{ value: 'test-session-secret' }], testIdentity: 'rollback-test-id' }))
     const originalPut = db.put.bind(db)
     db.put = async (...args) => { if (args[0] === 'accounts') throw new Error('仅隔离测试触发的入库失败'); return originalPut(...args) }
-    try { await assert.rejects(service.handle(workspaceId, userId, rollback.id, 'confirm', {}), /入库失败/) } finally { db.put = originalPut }
+    try { await assert.rejects(service.handle(workspaceId, userId, rollback.id, 'confirm', {}), /账号保存失败/) } finally { db.put = originalPut }
     const rollbackId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, 'douyin', 'rollback-test-id'])).digest('hex').slice(0, 48)
     assert.equal(await db.get('account-sessions', workspaceId, rollbackId), null)
     assert.equal(await db.mediaSessions.read(workspaceId, rollbackId, 'account'), null)

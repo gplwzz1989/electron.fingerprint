@@ -370,6 +370,10 @@
       if(page.id==='signin') openSigninDialog(entry.trigger)
       else if(page.id==='proxy-create') openProxyDialog(entry.trigger)
       else if(page.id==='account-platforms') openPlatformPicker(entry.trigger)
+      else if(page.id==='account-authorize') {
+        root.innerHTML=`<div class="platform-backdrop"><section class="platform-picker authorization-environment-picker" role="dialog" aria-modal="true" aria-labelledby="authorization-environment-title"><header class="platform-picker-header"><div><h2 id="authorization-environment-title">选择授权环境</h2><p>${escapeHTML(selectedPlatform?.name || '')} · 选择后直接打开登录页</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭环境选择">${icon('close')}</button></header><div class="authorization-environments" data-media-environments role="listbox" aria-label="授权浏览器环境"><p class="authorization-environment-empty">正在读取环境…</p></div></section></div>`
+        activateDialog(entry.trigger,page.id,baseRoute)
+      }
       else {
         root.innerHTML=`<div class="platform-backdrop"><section class="platform-picker workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title" aria-describedby="workspace-modal-description"><header class="platform-picker-header"><div><h2 id="workspace-modal-title">${escapeHTML(page.title)}</h2><p id="workspace-modal-description">${escapeHTML(page.description || '')}</p></div><button class="platform-picker-close" type="button" data-close-platforms aria-label="关闭${escapeHTML(page.title)}">${icon('close')}</button></header><div class="workspace-modal-body page-${page.kind} page-${page.id}">${renderPage(page)}</div></section></div>`
         const heading=root.querySelector('.page-heading')
@@ -403,6 +407,15 @@
     else { clearDialog(false,false); currentRoute=baseRoute; if(restoreFocus && closed.trigger?.isConnected)closed.trigger.focus(); document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:baseRoute}})) }
     history.replaceState(null,'',`#${parent?.pageId || baseRoute}`)
     modalClosed(closed.pageId)
+  }
+  function closeAllPages() {
+    if(!modalStack.length) return
+    saveDraft()
+    const closed=modalStack.splice(0)
+    clearDialog(false,false); currentRoute=baseRoute
+    history.replaceState(null,'',`#${baseRoute}`)
+    document.dispatchEvent(new CustomEvent('workspace:render',{detail:{route:baseRoute}}))
+    closed.reverse().forEach(entry=>modalClosed(entry.pageId))
   }
   function closePlatformPicker(restoreFocus = true) { closePage(restoreFocus) }
   function openPage(route, options = {}) {
@@ -489,6 +502,7 @@
     if(key) {if(event.target.open) expandedGroups.add(key);else expandedGroups.delete(key)}
   },true)
   document.addEventListener('keydown', event => {
+    if (document.querySelector('[data-slot="alert-dialog-content"]')) return
     const picker = document.querySelector('.platform-picker')
     if (!picker) return
     if (event.key === 'Escape') {
@@ -515,6 +529,7 @@
     resetDraft: route => drafts.delete(route),
     closeDialog: closePlatformPicker,
     closePage,
+    closeAllPages,
     openPage,
     getSurface,
     getBaseRoute: () => baseRoute,

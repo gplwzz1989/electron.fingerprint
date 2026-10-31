@@ -57,6 +57,15 @@ class MediaAuthorizations {
     return this.public(task)
   }
   async handle (workspaceId, userId, id, action, body) {
+    try { return await this.handleOperation(workspaceId, userId, id, action, body) } catch (error) {
+      if (error instanceof UserError) throw error
+      console.error('[媒体授权失败]', { operationId: id, action, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') })
+      const failure = new UserError(action === 'complete' ? '授权会话保存失败，请重试保存或联系管理员。' : '账号保存失败，请重试或联系管理员。', 500)
+      failure.diagnosticCode = /^[A-Z0-9_]+$/.test(error.code || '') ? error.code : 'AUTH_SAVE_FAILED'
+      throw failure
+    }
+  }
+  async handleOperation (workspaceId, userId, id, action, body) {
     let task = await this.db.get('authorizations', workspaceId, id)
     if (!task) throw new UserError('授权任务不存在。', 404)
     await this.access(workspaceId, userId, task)
@@ -112,7 +121,17 @@ class MediaAuthorizations {
         if (task.status === 'saved') return this.public(task)
         if (task.status !== 'review' || task.expiresAt <= Date.now()) throw new UserError('请先完成平台身份核验。', 409)
         const accountId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, task.platform.key, task.identity.platformUserId])).digest('hex').slice(0, 48)
-        const account = await this.db.get('accounts', workspaceId, accountId)
+        let account = await this.db.get('accounts', workspaceId, accountId)
+        // 相同平台身份重新添加时恢复逻辑删除记录，保留原账号标识及历史凭据，不新建重复身份。
+        if (!account && !task.targetAccountId) {
+          const removed = (await this.db.execute("SELECT data,revision FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NOT NULL FOR UPDATE", [workspaceId, accountId]))[0]
+          if (removed) {
+            const metadata = typeof removed.data === 'string' ? JSON.parse(removed.data) : removed.data
+            if (metadata.platform !== task.platform.key || metadata.platformUserId !== task.identity.platformUserId || !this.db.canAccess(member, accountId)) throw new UserError('原账号记录无法恢复，请联系管理员。', 403)
+            await this.db.execute("UPDATE records SET deleted_at=NULL WHERE kind='accounts' AND workspace_id=? AND id=?", [workspaceId, accountId])
+            account = { ...metadata, id: accountId, revision: removed.revision }
+          }
+        }
         if (task.targetAccountId && (task.targetAccountId !== accountId || !account || account.revision !== task.targetAccountRevision || account.environmentId !== task.environmentId)) throw new UserError('原账号记录已变化，请重新授权。', 409)
         if (account && task.mode !== 'check') this.assertReauthorizable(account)
         if (account && !this.db.canAccess(member, accountId)) throw new UserError('此账号已在团队中，请联系管理员分配权限。', 403)

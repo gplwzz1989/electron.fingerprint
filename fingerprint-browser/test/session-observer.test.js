@@ -138,3 +138,14 @@ test('等待加载期间取消授权，不采集 Cookie', async () => {
   await state.observer.close(state.owner, id)
   await assert.rejects(capturing, /已结束/)
 })
+
+test('页面销毁后关闭观察器不再访问已销毁的 debugger，也不会产生异步拒绝', async () => {
+  const state = fixture(); const { id } = await state.observer.open(state.owner, state.input)
+  state.contents.isDestroyed = () => true
+  Object.defineProperty(state.contents, 'debugger', { get () { throw new Error('已销毁对象不得访问') } })
+  state.contents.emit('destroyed')
+  await new Promise(resolve => setImmediate(resolve))
+  await state.observer.close(state.owner, id)
+  assert.equal(state.observer.jobs.size, 0)
+  assert.equal(state.owner.listenerCount('did-start-navigation'), 0)
+})

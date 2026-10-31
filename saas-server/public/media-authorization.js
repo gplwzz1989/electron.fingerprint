@@ -1,6 +1,7 @@
 ;(function () {
   'use strict'
   let selectedPlatform = ''; let running = null; let retrySave = null; let recovery = null; let recovering = false; let saving = false; let confirming = false; let renderRevision = 0
+  let detachedAuthorization = false
   let authorizationModalClosed = false; let closingAfterSave = false
   const surface = () => window.WorkspaceUI?.getSurface?.() || document.getElementById('page')
   const currentContext = () => window.getMediaWorkspace?.() || {}
@@ -16,9 +17,13 @@
     let response
     try { response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrf }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(60000) }) } catch { throw new Error('请求未完成，请检查网络后重试。') }
     let data
-    try { data = await response.json() } catch { throw new Error('服务响应异常，请稍后重试。') };  if (!response.ok || !data.ok) throw Object.assign(new Error(data.message || '授权操作未完成，请重试。'), { status: response.status }); return data
+    try { data = await response.json() } catch { throw new Error('服务响应异常，请稍后重试。') };  if (!response.ok || !data.ok) { console.error('[授权诊断] ' + JSON.stringify({ action: path.split('/').at(-1), status: response.status, code: data.errorCode || '' })); throw Object.assign(new Error(data.message || '授权操作未完成，请重试。'), { status: response.status }) }; return data
   }
   function status (message, error = false) {
+    message = typeof message === 'string' && message ? message : '正在等待平台授权…'
+    if (detachedAuthorization || surface()?.querySelector('[data-media-environments]')) {
+      document.dispatchEvent(new CustomEvent('media:notice', { detail: { message, error, pending: !error && !message.startsWith('已取消'), retry: error && Boolean(retrySave || recovery) } })); return
+    }
     if (authorizationModalClosed) return
     const target = surface()
     if (!target?.querySelector('#media-auth-status')) target?.insertAdjacentHTML('afterbegin', '<p id="media-auth-status" class="notice" aria-live="polite"></p>')
@@ -75,7 +80,7 @@
           }
           location.hash = 'accounts'
         } finally { closingAfterSave = false }
-        document.dispatchEvent(new CustomEvent('media:saved', { detail: { message: pending.task?.mode === 'check' ? savedTask.outcome === 'invalid' ? '账号登录已失效，请重新授权。' : '账号授权有效。' : '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
+        document.dispatchEvent(new CustomEvent('media:saved', { detail: { success: savedTask.outcome !== 'invalid', message: pending.task?.mode === 'check' ? savedTask.outcome === 'invalid' ? '账号登录已失效，请重新授权。' : '账号授权有效。' : '账号授权成功，已添加到账号列表。', warning: warnings.join(' ') } }))
       }
     } catch (error) {
       // 身份核验明确失败后必须重新读取当前登录态，不能反复提交旧的失败快照。
@@ -102,9 +107,9 @@
       const desktop = window.workspaceBridge; const checked = result => { if (!result?.ok) throw new Error(result?.error || '会话采集失败，请重试。'); return result }
       let tabs = checked(await desktop.tabs())
       if (!tabs.tabs.some(tab => tab.id === pending.tabId)) {
-        checked(await desktop.launch({ workspaceId: pending.workspaceId, environmentId: pending.task.environmentId, authorizationId: pending.task.id, capabilities: [], allowedOrigins: [] }))
+        const launch = checked(await desktop.launch({ workspaceId: pending.workspaceId, environmentId: pending.task.environmentId, authorizationId: pending.task.id, capabilities: [], allowedOrigins: [] }))
         tabs = checked(await desktop.tabs())
-        const tab = tabs.tabs.find(item => item.externalReference?.resourceId === pending.task.environmentId || item.profileId === pending.task.environmentId)
+        const tab = launch.tabId ? tabs.tabs.find(item => item.id === launch.tabId) : tabs.tabs.find(item => item.externalReference?.resourceId === pending.task.environmentId || item.profileId === pending.task.environmentId)
         if (!tab) throw new Error('授权环境暂时无法恢复，请重新开始授权。')
         pending.tabId = tab.id
         // 平台入口由客户端能力包决定，网页不提供执行地址。
@@ -128,6 +133,8 @@
     const context = currentContext(); const workspaceId = context.workspaceId
     if (!workspaceId) throw new Error('请先选择团队。')
     if (!context.canWrite) throw new Error('当前角色无权授权账号，请联系管理员。')
+    detachedAuthorization = Boolean(window.WorkspaceUI?.closeAllPages)
+    if (detachedAuthorization) window.WorkspaceUI.closeAllPages()
     running = new AbortController(); const controller = running
     Object.assign(controller, { workspaceId: context.workspaceId, userId: context.userId })
     context.controller = controller
@@ -142,7 +149,7 @@
       if (!launch.ok) throw new Error(launch.error || '独立环境启动失败。')
       assertContext(context)
       const tabs = await desktop.tabs()
-      const tab = tabs.tabs.find(item => item.externalReference?.resourceId === environmentId || item.profileId === environmentId)
+      const tab = launch.tabId ? tabs.tabs.find(item => item.id === launch.tabId) : tabs.tabs.find(item => item.externalReference?.resourceId === environmentId || item.profileId === environmentId)
       if (!tab) throw new Error('未找到授权环境标签。')
       assertContext(context)
       const runnerController = new AbortController(); controller.signal.addEventListener('abort', () => runnerController.abort(), { once: true })
@@ -164,13 +171,14 @@
   }
   document.addEventListener('click', event => {
     const platform = event.target.closest('[data-platform-key]'); if (platform) selectedPlatform = platform.dataset.platformKey
-    const button = event.target.closest('[data-media-operation]'); if (!button) return
+    const environment = event.target.closest('[data-media-environment]')
+    const button = environment || event.target.closest('[data-media-operation]'); if (!button) return
     event.preventDefault(); event.stopImmediatePropagation()
     button.disabled = true
     Promise.resolve().then(() => {
       if (button.dataset.mediaOperation === 'cancel') return cancel()
       if (button.dataset.mediaOperation === 'retry') return retry()
-      return start()
+      return environment ? start({ environmentId: environment.dataset.mediaEnvironment, platform: selectedPlatform }) : start()
     }).catch(error => status(error.message, true)).finally(() => { button.disabled = false })
   }, true)
   document.addEventListener('media:reauthorize', event => {
@@ -186,7 +194,7 @@
     if (event.detail?.pageId !== 'account-authorize') return
     authorizationModalClosed = true; renderRevision++
     // 关闭授权面板只停止任务与观察，保留已扫码环境和平台登录态。
-    if (!closingAfterSave && !confirming) void cancel().catch(() => {})
+    if (!detachedAuthorization && !closingAfterSave && !confirming) void cancel().catch(() => {})
   })
   document.addEventListener('workspace:render', async event => {
     const revision = ++renderRevision
@@ -206,6 +214,8 @@
       if (!workspaceId) return
       const { items } = await api(`/api/workspaces/${workspaceId}/environments`)
       if (revision !== renderRevision || !sameContext(context)) return
+      const list = target?.querySelector('[data-media-environments]')
+      if (list) list.innerHTML = items.length ? items.map(item => `<button class="authorization-environment-option" type="button" role="option" data-media-environment="${escape(item.id)}" ${context.canWrite ? '' : 'disabled'}><span>${escape(item.name)}</span><span aria-hidden="true">→</span></button>`).join('') : '<p class="authorization-environment-empty">暂无可用环境，请先创建浏览器环境。</p>'
       const select = target?.querySelector('#field-account-authorize-0-1')
       if (select) select.innerHTML = '<option value="">选择独立浏览器环境</option>' + items.map(item => `<option value="${escape(item.id)}">${escape(item.name)}</option>`).join('')
     } catch (error) { status(error.message, true) }

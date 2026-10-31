@@ -296,7 +296,16 @@ class WorkspaceServer {
           }
           return send({ envelope: await this.launchEnvelope(workspaceId, member, environment, encryption, extra) })
         }
-        if (method === 'DELETE' && id) { db.assertWrite(member); await getRecord('environments'); await db.remove('environments', workspaceId, id); return send({}) }
+        if (method === 'DELETE' && id) {
+          await db.transaction(async () => {
+            await db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
+            const current = await db.membership(workspaceId, user.id); db.assertWrite(current)
+            const environment = await db.get('environments', workspaceId, id)
+            if (!environment || !db.canAccess(current, id)) throw new UserError('环境不存在或无法访问。', 404)
+            if ((await db.list('accounts', workspaceId)).some(account => account.environmentId === id)) throw new UserError('该环境仍有关联账号，请先删除账号。', 409)
+            await db.remove('environments', workspaceId, id)
+          }); return send({})
+        }
       }
       if (resource === 'members') {
         if (method === 'GET' && !id) return send({ items: (await db.members(workspaceId)) })
@@ -335,6 +344,21 @@ class WorkspaceServer {
             await db.execute("UPDATE records SET data=JSON_SET(data,'$.used',true),revision=revision+1 WHERE kind='invitations' AND id=? AND workspace_id=?", [id, workspaceId])
           }); return send({})
         }
+      }
+      if (resource === 'accounts' && method === 'DELETE' && id && !action) {
+        await db.transaction(async () => {
+          await db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
+          const current = await db.membership(workspaceId, user.id); db.assertWrite(current)
+          const account = await db.get('accounts', workspaceId, id)
+          if (!account || !db.canAccess(current, id)) throw new UserError('账号不存在或无法访问。', 404)
+          await db.put('accounts', workspaceId, id, { ...account, status: 'invalid', checkedAt: Date.now() }, account.revision)
+          await db.execute("UPDATE auth_accounts SET auth_status='archived',updated_at=? WHERE workspace_id=? AND id=?", [Date.now(), workspaceId, id])
+          await db.remove('accounts', workspaceId, id)
+          for (const task of await db.list('authorizations', workspaceId)) if (['waiting', 'review'].includes(task.status) && (task.targetAccountId === id || task.platform?.key === account.platform && task.identity?.platformUserId === account.platformUserId)) {
+            await db.mediaSessions.remove(workspaceId, task.id, 'authorization')
+            await db.put('authorizations', workspaceId, task.id, { ...task, status: 'cancelled', privateKey: null, proofKey: null, credential: null }, task.revision)
+          }
+        }); return send({ message: '账号已删除。' })
       }
       if (resource === 'accounts' && method === 'GET' && !id) return send({ items: (await db.list('accounts', workspaceId)).filter(accessible) })
       if (resource === 'accounts' && method === 'POST' && id && ['launch', 'check'].includes(action)) {
@@ -415,7 +439,7 @@ class WorkspaceServer {
       throw new UserError('该操作不存在。', 404)
     } catch (error) {
       if (!(error instanceof UserError)) console.error('[Workspace request failed]', error.code || error.name)
-      return this.json(res, error instanceof UserError ? error.status : 500, { ok: false, message: error instanceof UserError ? error.message : '操作未完成，请稍后重试。' })
+      return this.json(res, error instanceof UserError ? error.status : 500, { ok: false, message: error instanceof UserError ? error.message : '操作未完成，请稍后重试。', ...(error.diagnosticCode ? { errorCode: error.diagnosticCode } : {}) })
     }
   }
   static (req, res, pathname) {

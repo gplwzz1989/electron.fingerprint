@@ -104,9 +104,19 @@ Module._load = function (request, parent, isMain) {
   return origModuleLoad.apply(this, arguments)
 }
 
-const { TabBrowser } = require('../browser-tabs')
+const { TabBrowser, loadUrlWithProxyTimeout } = require('../browser-tabs')
 
 async function run () {
+  const redirect = new EventEmitter(); let loading = true
+  redirect.loadURL = async () => { throw Object.assign(new Error('仅测试导航中断'), { code: 'ERR_ABORTED', errno: -3 }) }
+  redirect.getURL = () => 'https://example.com/login'; redirect.isLoading = () => loading
+  redirect.stop = () => {}
+  const redirected = loadUrlWithProxyTimeout(redirect, 'https://example.com/start')
+  await new Promise(resolve => setImmediate(resolve)); loading = false; redirect.emit('did-finish-load')
+  await redirected
+  assert.equal(redirect.listenerCount('did-finish-load'), 0)
+  redirect.loadURL = async () => { throw Object.assign(new Error('真实网络错误不能忽略'), { code: 'ERR_CONNECTION_REFUSED' }) }
+  await assert.rejects(loadUrlWithProxyTimeout(redirect, 'https://example.com/start'), /真实网络错误/)
   const testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tab-browser-popups-test-'))
   const envDataDir = path.join(testDir, 'tab-env-1')
   await fs.mkdir(envDataDir, { recursive: true })
@@ -256,8 +266,7 @@ async function run () {
     else delete process.versions.chrome
   }
 
-  // 清理临时目录
-  await fs.rm(testDir, { recursive: true, force: true }).catch(() => {})
+  // 临时目录保留用于失败诊断，避免永久删除测试资料。
   console.log('OAuth 弹窗分流与生命周期管理自检通过。')
 }
 
