@@ -1,4 +1,3 @@
-const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
@@ -72,7 +71,7 @@ class WorkspaceServer {
     this.serviceConfigFiles = { mailConfigFile, billingConfigFile, updateConfigFile }
     this.systemSettings = new SystemSettings(this.database, undefined, { SAAS_PUBLIC_URL: publicUrl, SAAS_ALLOW_PRIVATE_PROXY: String(allowPrivateProxy) })
     this.publicDirectory = path.join(__dirname, '../public'); this.rateLimits = new Map()
-    this.server = http.createServer((req, res) => { this.handle(req, res).catch(() => { if (!res.headersSent) this.json(res, 500, { ok: false, message: '服务暂时不可用，请稍后重试。' }); else res.destroy() }) })
+    this.app = null; this.server = null
     this.configurationReady = this.systemSettings.initialize().then(() => this.refreshSystemSettings())
   }
   async refreshSystemSettings () {
@@ -101,7 +100,7 @@ class WorkspaceServer {
     await this.refreshSystemSettings()
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self' http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
-    const address = this.server.address(); const origin = this.publicUrl ? new URL(this.publicUrl).origin : `http://${this.host}:${address?.port || this.port}`
+    const address = this.server?.address(); const origin = this.publicUrl ? new URL(this.publicUrl).origin : `http://${this.host}:${address?.port || this.port}`
     const url = new URL(req.url, origin); const pathname = url.pathname; const method = req.method
     const send = (data, status = 200) => this.json(res, status, { ok: true, ...data })
     try {
@@ -470,8 +469,19 @@ class WorkspaceServer {
     }
     return sealLaunch({ id: environment.id, name: environment.name, url: environment.startUrl, fingerprint, proxy, ...extra }, encryption, { workspaceId, environmentId: extra.id || environment.id })
   }
-  async start () { await this.database.ready; await this.configurationReady; return await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(this.port, this.host, () => resolve(this.server.address())) }) }
-  async stop () { await new Promise(resolve => this.server.close(resolve)); this.registrationMailer.close(); await this.database.close() }
+  async start () {
+    await this.database.ready
+    await this.configurationReady
+    const { createNestApplication } = require('./nest-application')
+    this.app = await createNestApplication(this)
+    this.server = this.app.getHttpServer()
+    return this.server.address()
+  }
+  async stop () {
+    if (this.app) { await this.app.close(); this.app = null; this.server = null }
+    this.registrationMailer.close()
+    await this.database.close()
+  }
 }
 
 if (require.main === module) {
@@ -486,7 +496,11 @@ if (require.main === module) {
       else console.log('现有账号密码保持不变。')
     }).catch(() => { console.error('管理员初始化失败，请检查邮箱、数据库和配置文件。'); process.exitCode = 1 }).finally(async () => { server.registrationMailer.close(); await server.database.close() })
   } else {
-  server.start().then(address => console.log(`工作空间服务已启动：http://${address.address}:${address.port}`)).catch(() => { console.error('工作空间服务启动失败，请检查端口、数据库和环境配置。'); process.exitCode = 1 })
+  server.start().then(address => console.log(`工作空间服务已启动：http://${address.address}:${address.port}`)).catch(async () => {
+    console.error('工作空间服务启动失败，请检查端口、数据库和环境配置。')
+    try { await server.stop() } catch {}
+    process.exitCode = 1
+  })
   let stopping = false
   const shutdown = () => {
     if (stopping) return
