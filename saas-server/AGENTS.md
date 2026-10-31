@@ -26,3 +26,4 @@
 - 禁止新增独立 `http.createServer()`、旁路 Express 路由或绕过 Nest 生命周期的网络入口。保持现有公开路由、状态码、中文错误响应、CSRF 和 Cookie 行为兼容。
 - HTTP 请求正文由业务服务按现有 JSON、表单及支付回调格式读取；调整 Nest 中间件时必须保留原始回调正文、CSRF 与错误响应行为。
 - 数据库、邮件、支付、客户端更新和平台发布服务由 Nest 模块提供依赖；关闭应用时释放 Nest HTTP 服务、数据库和后台定时资源。
+- MySQL 表间关联、归属校验和删除时的关联清理由业务服务显式执行；创建或调整表结构时禁止定义 `FOREIGN KEY`、`REFERENCES` 或 `ON DELETE CASCADE` 等外键硬约束。
