@@ -5,6 +5,8 @@ const { UserError } = require('./mysql-database')
 const { readServerConfig } = require('./server-config')
 const { hashPassword } = require('./auth')
 const { normalizeEmail } = require('./email-address')
+const toBigInt = value => typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)))
+const toNumber = value => typeof value === 'bigint' ? Number(value) : value
 
 // 系统配置属于平台，不属于任何团队；敏感值只进入加密存储，接口不回显。
 const fields = [
@@ -38,10 +40,7 @@ const fields = [
 class SystemSettings {
   constructor (database, configFile, defaults = {}) { this.db = database; this.configFile = configFile; this.defaults = defaults }
   async initialize () {
-    await this.db.execute('CREATE TABLE IF NOT EXISTS system_settings(id TINYINT PRIMARY KEY,value_ciphertext LONGTEXT NOT NULL,revision INT NOT NULL,updated_at BIGINT NOT NULL,updated_by VARCHAR(36)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
-    await this.db.execute('CREATE TABLE IF NOT EXISTS system_administrators(user_id VARCHAR(36) PRIMARY KEY,created_at BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
-    await this.db.execute('CREATE TABLE IF NOT EXISTS system_settings_audit(id VARCHAR(36) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,revision INT NOT NULL,changed_fields JSON NOT NULL,created_at BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
-    if ((await this.db.execute('SELECT id FROM system_settings WHERE id=1')).length) return
+    if (await this.db.client.systemSetting.findUnique({ where: { id: 1 } })) return
     const config = { ...readServerConfig(this.configFile), ...this.defaults }
     const values = Object.fromEntries(fields.map(field => [field.key, config[field.key] ?? (field.type === 'boolean' ? 'false' : field.type === 'plans' ? [] : '')]))
     values.SMTP_PORT ||= '465'
@@ -59,14 +58,14 @@ class SystemSettings {
       if (!values[key] && config[legacy]) values[key] = fs.readFileSync(path.resolve(directory, config[legacy]), 'utf8')
     }
     if (config.BILLING_PLANS_FILE) values.BILLING_PLANS = JSON.parse(fs.readFileSync(path.resolve(directory, config.BILLING_PLANS_FILE), 'utf8')).plans
-    await this.db.execute('INSERT IGNORE INTO system_settings VALUES(1,?,1,?,NULL)', [this.db.encrypt(JSON.stringify(values)), Date.now()])
+    await this.db.client.systemSetting.create({ data: { id: 1, valueCiphertext: this.db.encrypt(JSON.stringify(values)), revision: 1, updatedAt: toBigInt(Date.now()), updatedBy: null } })
   }
   async read () {
-    const row = (await this.db.execute('SELECT * FROM system_settings WHERE id=1'))[0]
+    const row = await this.db.client.systemSetting.findUnique({ where: { id: 1 } })
     if (!row) throw new UserError('系统配置尚未初始化。', 503)
-    return { values: JSON.parse(this.db.decrypt(row.value_ciphertext)), revision: row.revision, updatedAt: row.updated_at }
+    return { values: JSON.parse(this.db.decrypt(row.valueCiphertext)), revision: row.revision, updatedAt: toNumber(row.updatedAt) }
   }
-  async isAdmin (userId) { return Boolean((await this.db.execute('SELECT user_id FROM system_administrators WHERE user_id=?', [userId]))[0]) }
+  async isAdmin (userId) { return Boolean(await this.db.client.systemAdministrator.findUnique({ where: { userId } })) }
   async assertAdmin (userId) { if (!await this.isAdmin(userId)) throw new UserError('此操作仅允许系统管理员执行。', 403) }
   async publicSettings (userId) {
     await this.assertAdmin(userId)
@@ -111,9 +110,10 @@ class SystemSettings {
     if (Object.keys(input.values).some(key => !allowed.has(key)) || (input.clearSecrets || []).some(key => !allowed.get(key)?.secret)) throw new UserError('包含不允许修改的系统参数。')
     await this.db.transaction(async () => {
       await this.assertAdmin(userId)
-      const row = (await this.db.execute('SELECT * FROM system_settings WHERE id=1 FOR UPDATE'))[0]
+      const row = await this.db.client.systemSetting.findUnique({ where: { id: 1 } })
+      if (!row) throw new UserError('系统配置尚未初始化。', 503)
       if (row.revision !== input.revision) throw new UserError('配置已被修改，请刷新后重试。', 409)
-      const values = JSON.parse(this.db.decrypt(row.value_ciphertext)); const changed = []
+      const values = JSON.parse(this.db.decrypt(row.valueCiphertext)); const changed = []
       for (const [key, value] of Object.entries(input.values)) {
         if (allowed.get(key).secret && value === '') continue
         if (JSON.stringify(values[key]) !== JSON.stringify(value)) { values[key] = value; changed.push(key) }
@@ -121,8 +121,9 @@ class SystemSettings {
       for (const key of input.clearSecrets || []) if (values[key]) { values[key] = ''; changed.push(key) }
       this.validate(values)
       if (!changed.length) return
-      await this.db.execute('UPDATE system_settings SET value_ciphertext=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=1', [this.db.encrypt(JSON.stringify(values)), Date.now(), userId])
-      await this.db.execute('INSERT INTO system_settings_audit VALUES(?,?,?,?,?)', [crypto.randomUUID(), userId, row.revision + 1, JSON.stringify([...new Set(changed)]), Date.now()])
+      const now = toBigInt(Date.now())
+      await this.db.client.systemSetting.update({ where: { id: 1 }, data: { valueCiphertext: this.db.encrypt(JSON.stringify(values)), revision: { increment: 1 }, updatedAt: now, updatedBy: userId } })
+      await this.db.client.systemSettingsAudit.create({ data: { id: crypto.randomUUID(), userId, revision: row.revision + 1, changedFields: [...new Set(changed)], createdAt: now } })
     })
     return await this.publicSettings(userId)
   }
@@ -134,11 +135,12 @@ class SystemSettings {
       if (!user) {
         password = crypto.randomBytes(24).toString('base64url')
         user = { id: crypto.randomUUID() }; const workspaceId = crypto.randomUUID(); const now = Date.now()
-        await this.db.execute('INSERT INTO users VALUES(?,?,?,?,?,?)', [user.id, email, '系统管理员', hashPassword(password), now, now])
-        await this.db.execute('INSERT INTO workspaces VALUES(?,?,?)', [workspaceId, '管理工作空间', user.id])
-        await this.db.execute('INSERT INTO members VALUES(?,?,?,?,?)', [crypto.randomUUID(), workspaceId, user.id, 'owner', JSON.stringify({ mode: 'all', ids: [] })])
+        const timestamp = toBigInt(now)
+        await this.db.client.user.create({ data: { id: user.id, email, name: '系统管理员', passwordHash: hashPassword(password), createdAt: timestamp, emailVerifiedAt: timestamp } })
+        await this.db.client.workspace.create({ data: { id: workspaceId, name: '管理工作空间', ownerId: user.id } })
+        await this.db.client.member.create({ data: { id: crypto.randomUUID(), workspaceId, userId: user.id, role: 'owner', scope: { mode: 'all', ids: [] } } })
       }
-      await this.db.execute('INSERT IGNORE INTO system_administrators VALUES(?,?)', [user.id, Date.now()])
+      await this.db.client.systemAdministrator.upsert({ where: { userId: user.id }, create: { userId: user.id, createdAt: toBigInt(Date.now()) }, update: {} })
       return { email, password }
     })
   }

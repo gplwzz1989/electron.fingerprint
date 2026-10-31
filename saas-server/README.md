@@ -4,7 +4,7 @@
 
 当前 HTTP 服务使用 NestJS 11（Express 适配器），由 `src/nest-application.js` 注册认证、平台、系统配置、支付、团队资源和通用入口控制器；`src/workspace-server.js` 提供数据库、业务服务和兼容公开 API 的请求服务。`npm start` 保留为启动命令，先加载当前环境配置和数据库，再由 NestJS 管理 HTTP 生命周期。系统后台和业务页面由同一 Nest 服务提供。NestJS 请求由模块中的控制器接入，再注入同一业务请求服务，以保留现有 API、权限与事务行为。
 
-服务使用 MySQL 持久化、邮箱验证码注册、会话认证和团队资源接口。下方旧版 `/api/v1`、租约与文件存储说明仅作历史原型参考，不作为新版能力验收结果；新版不创建预置用户或演示团队。
+服务通过 Prisma 6.19 Client 访问 MySQL，模型定义在 `prisma/schema.prisma`，表间归属由业务逻辑校验，不创建外键或手写 SQL。`npm start` 会先生成 Prisma Client 并同步 schema，再启动 NestJS。服务同时提供邮箱验证码注册、会话认证和团队资源接口。下方旧版 `/api/v1`、租约与文件存储说明仅作历史原型参考，不作为新版能力验收结果；新版不创建预置用户或演示团队。
 
 ## 当前注册与 QQ 邮箱配置
 
@@ -58,13 +58,13 @@ SMTP 加密行为参见 [Nodemailer 官方 SMTP 文档](https://nodemailer.com/s
 
 ## 系统管理后台
 
-生产包使用精简启动配置，邮件、支付、套餐、更新目录和公开地址在 `/system-admin.html` 维护，并加密存入数据库。部署后运行 `node saas-server/server/index.js --init-system-admin 管理员邮箱` 初始化系统管理员；该命令仅在服务器本地执行。旧环境文件的业务配置仅在首次初始化时迁入数据库，本文前述文件字段保留兼容迁移说明；后续以后台配置为准。平台授权脚本与身份核验模块随生产包提供。
+生产包使用精简启动配置，邮件、支付、套餐、更新目录和公开地址在 `/system-admin.html` 维护，并加密存入数据库。服务包包含 Prisma schema、同步工具和 Windows/Linux x64 引擎，启动时通过 Prisma CLI 同步表结构；平台授权脚本不进入 SaaS 包，由客户端从发布接口下载。部署后运行 `node saas-server/server/index.js --init-system-admin 管理员邮箱` 初始化系统管理员；该命令仅在服务器本地执行。旧环境文件的业务配置仅在首次初始化时迁入数据库，本文前述文件字段保留兼容迁移说明；后续以后台配置为准。
 
 ## 当前开发与客户端
 
 开发客户端读取 `fingerprint-browser/build-config.json` 的 `dev` 地址，默认 `http://127.0.0.1:8088/`；`test` 地址由部署者填写；`prod` 首页为 `https://qijie.xinmeitool.com`，打包脚本默认使用 `prod`。生产部署时在 `.env.prod` 设置 `SAAS_PUBLIC_URL=https://qijie.xinmeitool.com`；客户端生产更新清单地址为 `https://qijie.xinmeitool.com/api/client-updates/prod/win32/x64.json`，服务端通过 `CLIENT_UPDATES_DIR` 提供签名清单和安装包。客户端不包含业务 HTML、服务端环境文件或数据库密码。
 
-`npm start` 读取对应环境文件并连接 MySQL；`npm test` 使用独立的 `qijie_workspace_test_*` 数据库，不向开发库初始化测试账号。`node scripts/acceptance-server.js` 只用于已有隔离库的网页验收；`--local-mailbox` 额外启用本机测试收件器，正式服务禁止启用。配置文件中的数据库密码按完整原值读取，不要省略末尾字符。
+`npm start` 读取对应环境文件、执行 `prisma generate` 和 `prisma db push` 后启动；`npm test` 使用独立的 `qijie_workspace_test_*` 数据库，不向开发库初始化测试账号。`node scripts/acceptance-server.js` 只用于已有隔离库的网页验收；`--local-mailbox` 额外启用本机测试收件器，正式服务禁止启用。配置文件中的数据库密码按完整原值读取，不要省略末尾字符。
 
 ## 以下为旧版原型历史说明
 

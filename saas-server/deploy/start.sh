@@ -8,5 +8,10 @@ if [ ! -f "$server_directory/.env.$server_environment" ]; then
   exit 1
 fi
 export SAAS_ENV="$server_environment"
+export PRISMA_CLI_QUERY_ENGINE_TYPE=binary
+export PRISMA_QUERY_ENGINE_BINARY="$server_directory/prisma-cli/query-engine-debian-openssl-3.0.x"
+export PRISMA_SCHEMA_ENGINE_BINARY="$server_directory/prisma-cli/schema-engine-debian-openssl-3.0.x"
+export PRISMA_CLI_PATH="$server_directory/prisma-cli/build/index.js"
 cd "$server_directory"
+node scripts/prisma-cli.cjs db push
 exec node server/index.js

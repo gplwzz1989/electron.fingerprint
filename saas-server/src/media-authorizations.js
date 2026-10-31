@@ -8,13 +8,9 @@ class MediaAuthorizations {
     if (!['invalid', 'expired'].includes(account?.status)) throw new UserError('账号授权仍有效，无需重新授权。', 409)
   }
   async lockContext (workspaceId, userId, environmentId) {
-    await this.db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
-    const row = (await this.db.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
-    if (!row) throw new UserError('你没有该团队的访问权限。', 403)
-    const member = { ...row, scope: typeof row.scope === 'string' ? JSON.parse(row.scope) : row.scope }
+    const member = await this.db.membership(workspaceId, userId)
     this.db.assertWrite(member)
-    const environmentRow = (await this.db.execute("SELECT id,data,deleted_at FROM records WHERE kind='environments' AND id=? AND workspace_id=? FOR UPDATE", [environmentId, workspaceId]))[0]
-    const environment = environmentRow && !environmentRow.deleted_at ? { ...(typeof environmentRow.data === 'string' ? JSON.parse(environmentRow.data) : environmentRow.data), id: environmentRow.id } : null
+    const environment = await this.db.get('environments', workspaceId, environmentId)
     if (!environment || !this.db.canAccess(member, environment.id)) throw new UserError('浏览器环境不存在或无法访问。', 403)
     return { member, environment }
   }
@@ -43,7 +39,7 @@ class MediaAuthorizations {
       const saved = await this.db.authAccounts.get(workspaceId, accountId)
       // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
       if (!account && member.role === 'operator' && member.scope.mode === 'selected') {
-        await this.db.execute('UPDATE members SET scope=? WHERE workspace_id=? AND user_id=?', [JSON.stringify({ ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] }), workspaceId, userId])
+        await this.db.client.member.update({ where: { workspaceId_userId: { workspaceId, userId } }, data: { scope: { ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] } } })
       }
       return { account: saved, outcome: 'valid' }
     })
@@ -51,10 +47,7 @@ class MediaAuthorizations {
   async check (workspaceId, userId, accountId, body) {
     if (!body || typeof body.operationId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(body.operationId)) throw new UserError('检测结果无效，请重新检测。')
     return await this.db.transaction(async () => {
-      await this.db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
-      const row = (await this.db.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
-      if (!row) throw new UserError('你没有该团队的访问权限。', 403)
-      const member = { ...row, scope: typeof row.scope === 'string' ? JSON.parse(row.scope) : row.scope }; this.db.assertWrite(member)
+      const member = await this.db.membership(workspaceId, userId); this.db.assertWrite(member)
       const account = await this.db.get('accounts', workspaceId, accountId)
       if (!account || !this.db.canAccess(member, accountId) || body.environmentId !== account.environmentId || body.platform !== account.platform) throw new UserError('账号不存在或无法访问。', 404)
       const environment = await this.db.get('environments', workspaceId, account.environmentId)

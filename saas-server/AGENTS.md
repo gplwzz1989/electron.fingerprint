@@ -27,3 +27,4 @@
 - HTTP 请求正文由业务服务按现有 JSON、表单及支付回调格式读取；调整 Nest 中间件时必须保留原始回调正文、CSRF 与错误响应行为。
 - 数据库、邮件、支付、客户端更新和平台发布服务由 Nest 模块提供依赖；关闭应用时释放 Nest HTTP 服务、数据库和后台定时资源。
 - MySQL 表间关联、归属校验和删除时的关联清理由业务服务显式执行；禁止在 DDL 中定义 `FOREIGN KEY`、`REFERENCES` 或 `ON DELETE CASCADE`；需要按关联字段查询时显式建立普通索引。
+- MySQL 数据读写统一使用 Prisma Client；表结构只在 `prisma/schema.prisma` 中维护，并通过 Prisma CLI 同步。业务代码和脚本禁止使用 mysql2、手写 SQL、`$queryRaw` 或 `$executeRaw`；Prisma 的原生查询引擎按打包目标提供二进制文件，不改用 C++ 实现。

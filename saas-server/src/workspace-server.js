@@ -17,6 +17,7 @@ const { SystemSettings } = require('./system-settings')
 const { PlatformReleaseService } = require('./platform-release-service')
 
 const hash = text => crypto.createHash('sha256').update(text).digest('hex')
+const toBigInt = value => typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)))
 const text = (value, label, limit = 160) => {
   if (typeof value !== 'string' || !value.trim() || value.length > limit) throw new UserError(`请填写有效的${label}。`)
   return value.trim()
@@ -157,7 +158,7 @@ class WorkspaceServer {
           user = await this.database.register({ email, password, verificationCode: body.verificationCode, name: nickname, workspaceName: body.nickname === undefined ? text(body.workspaceName ?? nickname, '团队名称', 80) : nickname })
         } else {
           const found = await this.database.userByEmail(email)
-          if (!found || !verifyPassword(password, found.password_hash)) throw new UserError('邮箱或密码错误。', 401)
+          if (!found || !verifyPassword(password, found.passwordHash)) throw new UserError('邮箱或密码错误。', 401)
           user = safeUser(found)
         }
         const session = await this.database.createSession(user.id)
@@ -172,10 +173,10 @@ class WorkspaceServer {
         if (typeof body.currentPassword !== 'string' || !body.currentPassword || body.currentPassword.length > 256) throw new UserError('请填写有效的当前密码。')
         if (typeof body.newPassword !== 'string' || body.newPassword.length < 8 || body.newPassword.length > 256 || !body.newPassword.trim()) throw new UserError('新密码至少需要 8 个字符，且不能全部为空格。')
         if (body.newPassword !== body.confirmPassword) throw new UserError('两次输入的新密码不一致。')
-        await this.database.changePassword(session.user_id, body.currentPassword, body.newPassword, session.hash)
+        await this.database.changePassword(session.userId, body.currentPassword, body.newPassword, session.hash)
         return send({ message: '密码已更新，其他登录会话已退出。' })
       }
-      const user = await this.database.user(session.user_id)
+      const user = await this.database.user(session.userId)
       if (method === 'GET' && pathname === '/api/auth/me') return send({ user, workspaces: await this.database.workspaces(user.id), csrf: session.csrf, isSystemAdmin: await this.systemSettings.isAdmin(user.id) })
       if (pathname === '/api/system/platform-releases' || pathname.startsWith('/api/system/platform-releases/')) {
         await this.systemSettings.assertAdmin(user.id)
@@ -199,7 +200,10 @@ class WorkspaceServer {
       }
       if (pathname === '/api/system/audit' && method === 'GET') {
         await this.systemSettings.assertAdmin(user.id)
-        return send({ items: await this.database.execute('SELECT a.revision,a.changed_fields,a.created_at,u.email FROM system_settings_audit a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 20') })
+        const audit = await this.database.client.systemSettingsAudit.findMany({ orderBy: { createdAt: 'desc' }, take: 20 })
+        const users = await this.database.client.user.findMany({ where: { id: { in: [...new Set(audit.map(item => item.userId))] } }, select: { id: true, email: true } })
+        const emails = new Map(users.map(item => [item.id, item.email]))
+        return send({ items: audit.map(item => ({ revision: item.revision, changed_fields: item.changedFields, created_at: Number(item.createdAt), email: emails.get(item.userId) || '' })) })
       }
       if (method === 'POST' && pathname === '/api/auth/logout') { await this.database.logout(this.cookie(req)); res.setHeader('Set-Cookie', 'qijie_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return send({}) }
       if (method === 'GET' && pathname === '/api/fingerprint-defaults') { const profile = getDefaultProfile(); profile.id = crypto.randomUUID(); profile.noise.seed = crypto.randomUUID(); return send({ profile }) }
@@ -240,7 +244,7 @@ class WorkspaceServer {
           db.assertWrite(member)
           if (!(await db.fingerprints(workspaceId)).some(item => item.id === id && accessible(item))) throw new UserError('指纹不存在或无法访问。', 404)
           if ((await db.list('environments', workspaceId)).some(item => item.fingerprintId === id)) throw new UserError('该指纹仍被环境引用，请先调整环境。', 409)
-          await db.execute('UPDATE fingerprints SET deleted_at=? WHERE id=? AND workspace_id=?', [Date.now(), id, workspaceId])
+          await db.client.fingerprint.updateMany({ where: { id, workspaceId, deletedAt: null }, data: { deletedAt: toBigInt(Date.now()) } })
           return send({})
         }
       }
@@ -295,7 +299,6 @@ class WorkspaceServer {
         }
         if (method === 'DELETE' && id) {
           await db.transaction(async () => {
-            await db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
             const current = await db.membership(workspaceId, user.id); db.assertWrite(current)
             const environment = await db.get('environments', workspaceId, id)
             if (!environment || !db.canAccess(current, id)) throw new UserError('环境不存在或无法访问。', 404)
@@ -313,12 +316,12 @@ class WorkspaceServer {
           if (!['admin', 'operator', 'viewer'].includes(body.role)) throw new UserError('角色无效。')
           if (member.role !== 'owner' && (target.role === 'admin' || body.role === 'admin')) throw new UserError('只有所有者可调整管理员。', 403)
           if (!['all', 'selected'].includes(body.scope?.mode) || !Array.isArray(body.scope.ids) || body.scope.ids.some(id => typeof id !== 'string')) throw new UserError('资源范围格式不正确。')
-          await db.execute('UPDATE members SET role=?,scope=? WHERE id=? AND workspace_id=?', [body.role, JSON.stringify(body.scope), id, workspaceId]); return send({})
+          await db.client.member.update({ where: { id }, data: { role: body.role, scope: body.scope } }); return send({})
         }
         if (method === 'DELETE' && id) {
           db.assertWrite(member, true); const target = (await db.members(workspaceId)).find(item => item.id === id)
           if (!target || target.role === 'owner' || target.userId === user.id || (target.role === 'admin' && member.role !== 'owner')) throw new UserError('不能移除此成员。', 403)
-          await db.execute('DELETE FROM members WHERE id=? AND workspace_id=?', [id, workspaceId]); return send({})
+          await db.client.member.delete({ where: { id } }); return send({})
         }
       }
       if (resource === 'invitations') {
@@ -334,17 +337,15 @@ class WorkspaceServer {
           const body = await this.body(req); const invitation = await db.get('invitations', workspaceId, id)
           if (!invitation || invitation.used || invitation.expiresAt < Date.now() || invitation.email !== user.email || hash(String(body.token || '')) !== invitation.tokenHash) throw new UserError('邀请无效、已使用或不属于当前账户。', 403)
           await this.billing.withCapacity(workspaceId, 'members', async () => {
-            const locked = (await db.execute("SELECT data FROM records WHERE kind='invitations' AND id=? AND workspace_id=? FOR UPDATE", [id, workspaceId]))[0]
-            const latest = typeof locked?.data === 'string' ? JSON.parse(locked.data) : locked?.data
+            const latest = await db.get('invitations', workspaceId, id)
             if (!latest || latest.used || latest.expiresAt < Date.now()) throw new UserError('邀请已使用或已经过期。', 403)
-            await db.execute('INSERT INTO members VALUES(?,?,?,?,?)', [crypto.randomUUID(), workspaceId, user.id, invitation.role, JSON.stringify({ mode: 'selected', ids: [] })])
-            await db.execute("UPDATE records SET data=JSON_SET(data,'$.used',true),revision=revision+1 WHERE kind='invitations' AND id=? AND workspace_id=?", [id, workspaceId])
+            await db.client.member.create({ data: { id: crypto.randomUUID(), workspaceId, userId: user.id, role: invitation.role, scope: { mode: 'selected', ids: [] } } })
+            await db.put('invitations', workspaceId, id, { ...latest, used: true }, latest.revision)
           }); return send({})
         }
       }
       if (resource === 'accounts' && method === 'DELETE' && id && !action) {
         await db.transaction(async () => {
-          await db.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
           const current = await db.membership(workspaceId, user.id); db.assertWrite(current)
           const account = await db.get('accounts', workspaceId, id)
           if (!account || !db.canAccess(current, id)) throw new UserError('账号不存在或无法访问。', 404)

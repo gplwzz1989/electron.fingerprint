@@ -1,8 +1,8 @@
-const mysql = require('mysql2/promise')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { AsyncLocalStorage } = require('node:async_hooks')
+const { Prisma, PrismaClient } = require('@prisma/client')
 const { hashPassword, verifyPassword } = require('./auth')
 const { readServerConfig } = require('./server-config')
 const { AuthAccountStore } = require('./auth-account-store')
@@ -11,12 +11,23 @@ class UserError extends Error {
   constructor (message, status = 400) { super(message); this.status = status }
 }
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value
+const normalize = value => {
+  if (typeof value === 'bigint') return Number(value)
+  if (Array.isArray(value)) return value.map(normalize)
+  if (value && typeof value === 'object' && !(value instanceof Date)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]))
+  return value instanceof Date ? value.getTime() : value
+}
+const toBigInt = value => typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)))
+function databaseUrl (configuration) {
+  const hostname = configuration.host.includes(':') && !configuration.host.startsWith('[') ? `[${configuration.host}]` : configuration.host
+  return `mysql://${encodeURIComponent(configuration.user)}:${encodeURIComponent(configuration.password)}@${hostname}:${configuration.port}/${configuration.database}?connection_limit=8&connect_timeout=10`
+}
 
 function readDatabaseConfig (file = process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`)) {
   const config = readServerConfig(file)
   if (!config.DB_HOST || !config.DB_USER || !config.DB_NAME || !config.DB_PORT || config.DB_PASSWORD === undefined) throw new Error('数据库配置不完整，请检查服务端环境配置文件。')
   if (!/^[a-zA-Z0-9_]+$/.test(config.DB_NAME) || !Number.isInteger(Number(config.DB_PORT))) throw new Error('数据库名称或端口配置无效。')
-  return { host: config.DB_HOST, port: Number(config.DB_PORT), user: config.DB_USER, password: config.DB_PASSWORD, database: config.DB_NAME, charset: 'utf8mb4', supportBigNumbers: true, decimalNumbers: true, connectTimeout: 10000 }
+  return { host: config.DB_HOST, port: Number(config.DB_PORT), user: config.DB_USER, password: config.DB_PASSWORD, database: config.DB_NAME }
 }
 
 class WorkspaceDatabase {
@@ -35,34 +46,18 @@ class WorkspaceDatabase {
       this.key = fs.readFileSync(keyFile)
     }
     if (this.key.length !== 32) throw new Error('服务端数据加密密钥无效，请恢复原密钥。')
+    const url = databaseUrl(this.configuration)
+    this.prisma = new PrismaClient({ datasources: { db: { url } } })
     this.authAccounts = new AuthAccountStore(this, UserError)
     this.ready = this.initialize()
   }
   async initialize () {
-    const { database, ...connectionConfig } = this.configuration
-    const connection = await mysql.createConnection(connectionConfig)
-    try { await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`) } finally { await connection.end() }
-    this.pool = mysql.createPool({ ...this.configuration, connectionLimit: 8, waitForConnections: true, queueLimit: 100 })
-    const tables = [
-      'CREATE TABLE IF NOT EXISTS platform_release_state(id INT PRIMARY KEY,release_version VARCHAR(32) NOT NULL,manifest JSON)',
-      'CREATE TABLE IF NOT EXISTS platform_releases(id BIGINT AUTO_INCREMENT PRIMARY KEY,component VARCHAR(16) NOT NULL,version VARCHAR(32) NOT NULL,sha256 CHAR(64) NOT NULL,file_name VARCHAR(160) NOT NULL UNIQUE,size_bytes INT NOT NULL,published_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,INDEX platform_release_component(component,id))',
-      'CREATE TABLE IF NOT EXISTS users(id VARCHAR(36) PRIMARY KEY,email VARCHAR(254) NOT NULL UNIQUE,name VARCHAR(160) NOT NULL,password_hash VARCHAR(256) NOT NULL,created_at BIGINT NOT NULL,email_verified_at BIGINT)',
-      'CREATE TABLE IF NOT EXISTS workspaces(id VARCHAR(36) PRIMARY KEY,name VARCHAR(160) NOT NULL,owner_id VARCHAR(36) NOT NULL,INDEX workspaces_owner(owner_id))',
-      'CREATE TABLE IF NOT EXISTS members(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,user_id VARCHAR(36) NOT NULL,role VARCHAR(16) NOT NULL,scope JSON NOT NULL,UNIQUE(workspace_id,user_id),INDEX members_user(user_id))',
-      'CREATE TABLE IF NOT EXISTS sessions(hash VARCHAR(64) PRIMARY KEY,user_id VARCHAR(36) NOT NULL,csrf VARCHAR(48) NOT NULL,expires_at BIGINT NOT NULL,INDEX sessions_user(user_id))',
-      'CREATE TABLE IF NOT EXISTS fingerprints(id VARCHAR(36) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,name VARCHAR(160) NOT NULL,version INT NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,deleted_at BIGINT,INDEX fingerprints_workspace(workspace_id,deleted_at),INDEX fingerprints_creator(created_by))',
-      'CREATE TABLE IF NOT EXISTS fingerprint_versions(fingerprint_id VARCHAR(36) NOT NULL,version INT NOT NULL,profile JSON NOT NULL,created_by VARCHAR(36) NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(fingerprint_id,version),INDEX fingerprint_versions_creator(created_by))',
-      'CREATE TABLE IF NOT EXISTS records(kind VARCHAR(32) NOT NULL,id VARCHAR(64) NOT NULL,workspace_id VARCHAR(36) NOT NULL,data JSON NOT NULL,revision INT NOT NULL,deleted_at BIGINT,PRIMARY KEY(kind,id),INDEX records_workspace(workspace_id,kind,deleted_at))',
-      'CREATE TABLE IF NOT EXISTS registration_codes(email VARCHAR(254) PRIMARY KEY,generation VARCHAR(36) NOT NULL,code_hash VARCHAR(64) NOT NULL,expires_at BIGINT NOT NULL,resend_after BIGINT NOT NULL,attempts INT NOT NULL,delivered TINYINT NOT NULL,consumed_at BIGINT)',
-      'CREATE TABLE IF NOT EXISTS registration_limits(scope_key VARCHAR(80) PRIMARY KEY,window_start BIGINT NOT NULL,requests INT NOT NULL)',
-      'CREATE TABLE IF NOT EXISTS billing_orders(id VARCHAR(32) PRIMARY KEY,workspace_id VARCHAR(36) NOT NULL,created_by VARCHAR(36) NOT NULL,request_id VARCHAR(36) NOT NULL,provider VARCHAR(24) NOT NULL,plan JSON NOT NULL,amount INT NOT NULL,currency VARCHAR(3) NOT NULL,status VARCHAR(16) NOT NULL,code_url TEXT,transaction_id VARCHAR(100),created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,paid_at BIGINT,checked_at BIGINT,UNIQUE(workspace_id,request_id),UNIQUE(provider,transaction_id),INDEX billing_workspace(workspace_id,created_at),INDEX billing_orders_creator(created_by))',
-      'CREATE TABLE IF NOT EXISTS billing_subscriptions(workspace_id VARCHAR(36) PRIMARY KEY,plan JSON NOT NULL,starts_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,last_order_id VARCHAR(32) NOT NULL,INDEX billing_subscriptions_last_order(last_order_id))'
-    ]
-    for (const statement of tables) await this.pool.query(statement + ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')
-    await this.pool.query("INSERT IGNORE INTO platform_release_state VALUES(1,'0.2.0',NULL)")
-    const [verifiedColumn] = await this.pool.query("SHOW COLUMNS FROM users LIKE 'email_verified_at'")
-    if (!verifiedColumn.length) {
-      try { await this.pool.query('ALTER TABLE users ADD COLUMN email_verified_at BIGINT NULL') } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
+    try { await this.prisma.$connect() } catch { throw new Error('无法连接 Prisma 配置的 MySQL 数据库。') }
+    try {
+      await this.prisma.platformReleaseState.upsert({ where: { id: 1 }, create: { id: 1, releaseVersion: '0.2.0', manifest: Prisma.DbNull }, update: {} })
+    } catch (error) {
+      if (error.code === 'P2021') throw new Error('Prisma 数据库结构尚未同步，请执行 `npm run prisma:sync`。')
+      throw error
     }
     await this.migrateFingerprintEncryption()
     await this.authAccounts.initialize()
@@ -74,170 +69,195 @@ class WorkspaceDatabase {
     try { const data = JSON.parse(this.decrypt(envelope.ciphertext)); if (data.purpose !== 'fingerprint' || !data.profile) throw new Error(); return data.profile } catch { throw new UserError('指纹无法解密，请联系管理员恢复服务端加密密钥。', 500) }
   }
   async migrateFingerprintEncryption () {
-    // 在同一事务中迁移旧明文快照，升级不得丢弃已有指纹或改变历史版本。
-    const connection = await this.pool.getConnection()
-    try {
-      await connection.beginTransaction()
-      const [existing] = await connection.query("SELECT profile FROM fingerprint_versions WHERE JSON_EXTRACT(profile,'$.format') IS NOT NULL LIMIT 1")
-      if (existing.length) this.decodeFingerprint(existing[0].profile)
-      const [versions] = await connection.query("SELECT fingerprint_id,version,profile FROM fingerprint_versions WHERE JSON_EXTRACT(profile,'$.format') IS NULL FOR UPDATE")
-      for (const row of versions) await connection.execute('UPDATE fingerprint_versions SET profile=? WHERE fingerprint_id=? AND version=?', [JSON.stringify(this.encodeFingerprint(parse(row.profile))), row.fingerprint_id, row.version])
-      const [environments] = await connection.query("SELECT id,data FROM records WHERE kind='environments' AND JSON_EXTRACT(data,'$.fingerprint') IS NOT NULL AND JSON_EXTRACT(data,'$.fingerprint.format') IS NULL FOR UPDATE")
-      for (const row of environments) { const data = parse(row.data); data.fingerprint = this.encodeFingerprint(data.fingerprint); await connection.execute("UPDATE records SET data=? WHERE kind='environments' AND id=?", [JSON.stringify(data), row.id]) }
-      await connection.commit()
-    } catch (error) { await connection.rollback(); throw error } finally { connection.release() }
+    // 保留已有指纹快照并加密；只通过 Prisma 模型读取和更新。
+    await this.prisma.$transaction(async transaction => await this.context.run(transaction, async () => {
+      const versions = await this.client.fingerprintVersion.findMany()
+      for (const row of versions) {
+        const profile = parse(row.profile)
+        if (profile?.format === 'qijie-fingerprint-storage-v1') this.decodeFingerprint(profile)
+        else await this.client.fingerprintVersion.update({ where: { fingerprintId_version: { fingerprintId: row.fingerprintId, version: row.version } }, data: { profile: this.encodeFingerprint(profile) } })
+      }
+      const environments = await this.client.record.findMany({ where: { kind: 'environments', deletedAt: null } })
+      for (const row of environments) {
+        const data = parse(row.data)
+        if (!data?.fingerprint || data.fingerprint.format === 'qijie-fingerprint-storage-v1') continue
+        await this.client.record.update({ where: { kind_id: { kind: row.kind, id: row.id } }, data: { data: { ...data, fingerprint: this.encodeFingerprint(data.fingerprint) } } })
+      }
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   }
-  async execute (statement, parameters = []) {
-    await this.ready
-    const [result] = await (this.context.getStore() || this.pool).execute(statement, parameters)
-    return result
-  }
+  get client () { return this.context.getStore() || this.prisma }
   async transaction (operation) {
     await this.ready
     if (this.context.getStore()) return await operation()
-    const connection = await this.pool.getConnection()
-    try {
-      await connection.beginTransaction()
-      const result = await this.context.run(connection, operation)
-      await connection.commit()
-      return result
-    } catch (error) { await connection.rollback(); throw error } finally { connection.release() }
+    return await this.prisma.$transaction(async transaction => await this.context.run(transaction, operation), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   }
   verificationHash (email, generation, code) { return crypto.createHmac('sha256', this.key).update(`${email}:${generation}:${code}`).digest('hex') }
   async reserveRegistrationCode (email, ipKey, generation, codeHash) {
     return await this.transaction(async () => {
       const now = Date.now()
       for (const [scope, maximum] of [[`ip:${ipKey}`, 20], [`email:${crypto.createHash('sha256').update(email).digest('hex')}`, 5]]) {
-        await this.execute('INSERT INTO registration_limits VALUES(?,?,0) ON DUPLICATE KEY UPDATE scope_key=scope_key', [scope, now])
-        const limit = (await this.execute('SELECT * FROM registration_limits WHERE scope_key=? FOR UPDATE', [scope]))[0]
-        const expired = now - limit.window_start >= 3600000
+        const limit = await this.client.registrationLimit.upsert({ where: { scopeKey: scope }, create: { scopeKey: scope, windowStart: toBigInt(now), requests: 0 }, update: {} })
+        const expired = now - Number(limit.windowStart) >= 3600000
         if (!expired && limit.requests >= maximum) throw new UserError('验证码发送较频繁，请稍后再试。', 429)
-        await this.execute('UPDATE registration_limits SET window_start=?,requests=? WHERE scope_key=?', [expired ? now : limit.window_start, expired ? 1 : limit.requests + 1, scope])
+        await this.client.registrationLimit.update({ where: { scopeKey: scope }, data: { windowStart: toBigInt(expired ? now : Number(limit.windowStart)), requests: expired ? 1 : limit.requests + 1 } })
       }
-      const current = (await this.execute('SELECT * FROM registration_codes WHERE email=? FOR UPDATE', [email]))[0]
-      if (current?.resend_after > now) throw new UserError('验证码已发送，请六十秒后再试。', 429)
-      await this.execute('INSERT INTO registration_codes VALUES(?,?,?,?,?,0,0,NULL) ON DUPLICATE KEY UPDATE generation=VALUES(generation),code_hash=VALUES(code_hash),expires_at=VALUES(expires_at),resend_after=VALUES(resend_after),attempts=0,delivered=0,consumed_at=NULL', [email, generation, codeHash, now + 300000, now + 60000])
+      const current = await this.client.registrationCode.findUnique({ where: { email } })
+      if (current && Number(current.resendAfter) > now) throw new UserError('验证码已发送，请六十秒后再试。', 429)
+      await this.client.registrationCode.upsert({
+        where: { email },
+        create: { email, generation, codeHash, expiresAt: toBigInt(now + 300000), resendAfter: toBigInt(now + 60000), attempts: 0, delivered: 0, consumedAt: null },
+        update: { generation, codeHash, expiresAt: toBigInt(now + 300000), resendAfter: toBigInt(now + 60000), attempts: 0, delivered: 0, consumedAt: null }
+      })
     })
   }
   async markRegistrationCode (email, generation, delivered) {
-    await this.execute('UPDATE registration_codes SET delivered=?,resend_after=IF(?,resend_after,?) WHERE email=? AND generation=? AND consumed_at IS NULL', [delivered ? 1 : 0, delivered ? 1 : 0, Date.now() + 5000, email, generation])
+    const current = await this.client.registrationCode.findUnique({ where: { email } })
+    if (!current || current.generation !== generation || current.consumedAt !== null) return
+    await this.client.registrationCode.update({ where: { email }, data: { delivered: delivered ? 1 : 0, resendAfter: delivered ? current.resendAfter : toBigInt(Date.now() + 5000) } })
   }
   async register ({ email, name, password, workspaceName, verificationCode }) {
     try {
       const result = await this.transaction(async () => {
         if (await this.userByEmail(email)) throw new UserError('该邮箱已注册，请直接登录。', 409)
-        const verification = (await this.execute('SELECT * FROM registration_codes WHERE email=? FOR UPDATE', [email]))[0]
-        if (!verification || !verification.delivered || verification.consumed_at || verification.expires_at <= Date.now()) throw new UserError('验证码无效或已过期，请重新获取。')
+        const verification = await this.client.registrationCode.findUnique({ where: { email } })
+        if (!verification || !verification.delivered || verification.consumedAt !== null || Number(verification.expiresAt) <= Date.now()) throw new UserError('验证码无效或已过期，请重新获取。')
         if (verification.attempts >= 5) throw new UserError('验证码错误次数过多，请重新获取。', 429)
         const submitted = this.verificationHash(email, verification.generation, String(verificationCode || ''))
-        if (!crypto.timingSafeEqual(Buffer.from(submitted, 'hex'), Buffer.from(verification.code_hash, 'hex'))) {
-          await this.execute('UPDATE registration_codes SET attempts=attempts+1 WHERE email=?', [email])
+        if (!crypto.timingSafeEqual(Buffer.from(submitted, 'hex'), Buffer.from(verification.codeHash, 'hex'))) {
+          await this.client.registrationCode.update({ where: { email }, data: { attempts: { increment: 1 } } })
           return { verificationError: '验证码不正确，请检查邮箱后重试。' }
         }
         const userId = crypto.randomUUID(); const workspaceId = crypto.randomUUID()
-        await this.execute('INSERT INTO users(id,email,name,password_hash,created_at,email_verified_at) VALUES(?,?,?,?,?,?)', [userId, email, name, hashPassword(password), Date.now(), Date.now()])
-        await this.execute('INSERT INTO workspaces VALUES(?,?,?)', [workspaceId, workspaceName, userId])
-        await this.execute('INSERT INTO members VALUES(?,?,?,?,?)', [crypto.randomUUID(), workspaceId, userId, 'owner', JSON.stringify({ mode: 'all', ids: [] })])
-        await this.execute('UPDATE registration_codes SET consumed_at=? WHERE email=?', [Date.now(), email])
+        const now = toBigInt(Date.now())
+        await this.client.user.create({ data: { id: userId, email, name, passwordHash: hashPassword(password), createdAt: now, emailVerifiedAt: now } })
+        await this.client.workspace.create({ data: { id: workspaceId, name: workspaceName, ownerId: userId } })
+        await this.client.member.create({ data: { id: crypto.randomUUID(), workspaceId, userId, role: 'owner', scope: { mode: 'all', ids: [] } } })
+        await this.client.registrationCode.update({ where: { email }, data: { consumedAt: now } })
         return await this.user(userId)
       })
       if (result.verificationError) throw new UserError(result.verificationError)
       return result
-    } catch (error) { if (error.code === 'ER_DUP_ENTRY') throw new UserError('该邮箱已注册，请直接登录。', 409); throw error }
+    } catch (error) { if (error.code === 'P2002') throw new UserError('该邮箱已注册，请直接登录。', 409); throw error }
   }
-  async user (id) { return (await this.execute('SELECT id,email,name FROM users WHERE id=?', [id]))[0] || null }
-  async userByEmail (email) { return (await this.execute('SELECT * FROM users WHERE email=?', [email]))[0] || null }
-  async workspaces (userId) { return await this.execute('SELECT w.*,m.role FROM workspaces w JOIN members m ON w.id=m.workspace_id WHERE m.user_id=?', [userId]) }
+  async user (id) { return normalize(await this.client.user.findUnique({ where: { id }, select: { id: true, email: true, name: true } })) }
+  async userByEmail (email) { return normalize(await this.client.user.findUnique({ where: { email } })) }
+  async workspaces (userId) {
+    const members = await this.client.member.findMany({ where: { userId }, select: { workspaceId: true, role: true } })
+    if (!members.length) return []
+    const roles = new Map(members.map(member => [member.workspaceId, member.role]))
+    const workspaces = await this.client.workspace.findMany({ where: { id: { in: members.map(member => member.workspaceId) } } })
+    return normalize(workspaces).map(workspace => ({ ...workspace, role: roles.get(workspace.id) }))
+  }
   async membership (workspaceId, userId) {
-    const member = (await this.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=?', [workspaceId, userId]))[0]
+    const member = await this.client.member.findUnique({ where: { workspaceId_userId: { workspaceId, userId } } })
     if (!member) throw new UserError('你没有该团队的访问权限。', 403)
-    return { ...member, scope: parse(member.scope) }
+    return normalize(member)
   }
-  async members (workspaceId) { return (await this.execute('SELECT m.id,m.user_id AS userId,m.role,m.scope,u.name,u.email FROM members m JOIN users u ON m.user_id=u.id WHERE m.workspace_id=?', [workspaceId])).map(item => ({ ...item, scope: parse(item.scope) })) }
+  async members (workspaceId) {
+    const members = await this.client.member.findMany({ where: { workspaceId } })
+    if (!members.length) return []
+    const users = await this.client.user.findMany({ where: { id: { in: members.map(member => member.userId) } }, select: { id: true, name: true, email: true } })
+    const byId = new Map(users.map(user => [user.id, user]))
+    return normalize(members).map(member => ({ id: member.id, userId: member.userId, role: member.role, scope: member.scope, name: byId.get(member.userId)?.name, email: byId.get(member.userId)?.email }))
+  }
   canAccess (member, id) { return ['owner', 'admin'].includes(member.role) || member.scope.mode === 'all' || member.scope.ids.includes(id) }
   assertWrite (member, admin = false) { if (!['owner', 'admin', ...(admin ? [] : ['operator'])].includes(member.role)) throw new UserError('你没有此操作权限。', 403) }
   async session (token) {
     if (!token) return null
-    return (await this.execute('SELECT * FROM sessions WHERE hash=? AND expires_at>?', [crypto.createHash('sha256').update(token).digest('hex'), Date.now()]))[0] || null
+    const session = await this.client.session.findUnique({ where: { hash: crypto.createHash('sha256').update(token).digest('hex') } })
+    return session && Number(session.expiresAt) > Date.now() ? normalize(session) : null
   }
   async createSession (userId) {
     const token = crypto.randomBytes(32).toString('base64url'); const csrf = crypto.randomBytes(24).toString('hex')
-    await this.execute('DELETE FROM sessions WHERE expires_at<=?', [Date.now()])
-    await this.execute('INSERT INTO sessions VALUES(?,?,?,?)', [crypto.createHash('sha256').update(token).digest('hex'), userId, csrf, Date.now() + 86400000])
+    const now = Date.now()
+    await this.client.session.deleteMany({ where: { expiresAt: { lte: toBigInt(now) } } })
+    await this.client.session.create({ data: { hash: crypto.createHash('sha256').update(token).digest('hex'), userId, csrf, expiresAt: toBigInt(now + 86400000) } })
     return { token, csrf }
   }
-  async logout (token) { await this.execute('DELETE FROM sessions WHERE hash=?', [crypto.createHash('sha256').update(token).digest('hex')]) }
+  async logout (token) { await this.client.session.deleteMany({ where: { hash: crypto.createHash('sha256').update(token).digest('hex') } }) }
   async changePassword (userId, currentPassword, newPassword, currentSessionHash) {
     return await this.transaction(async () => {
-      const user = (await this.execute('SELECT password_hash FROM users WHERE id=? FOR UPDATE', [userId]))[0]
+      const user = await this.client.user.findUnique({ where: { id: userId }, select: { passwordHash: true } })
       if (!user) throw new UserError('账号不存在。', 404)
-      if (!verifyPassword(currentPassword, user.password_hash)) throw new UserError('当前密码不正确。', 401)
-      if (verifyPassword(newPassword, user.password_hash)) throw new UserError('新密码不能与当前密码相同。')
-      await this.execute('UPDATE users SET password_hash=? WHERE id=?', [hashPassword(newPassword), userId])
-      await this.execute('DELETE FROM sessions WHERE user_id=? AND hash<>?', [userId, currentSessionHash])
+      if (!verifyPassword(currentPassword, user.passwordHash)) throw new UserError('当前密码不正确。', 401)
+      if (verifyPassword(newPassword, user.passwordHash)) throw new UserError('新密码不能与当前密码相同。')
+      await this.client.user.update({ where: { id: userId }, data: { passwordHash: hashPassword(newPassword) } })
+      await this.client.session.deleteMany({ where: { userId, hash: { not: currentSessionHash } } })
     })
   }
   async list (kind, workspaceId) {
     if (kind === 'accounts') return await this.authAccounts.list(workspaceId)
-    return (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND deleted_at IS NULL', [kind, workspaceId])).map(row => ({ ...parse(row.data), id: row.id, revision: row.revision }))
+    const rows = await this.client.record.findMany({ where: { kind, workspaceId, deletedAt: null } })
+    return rows.map(row => ({ ...normalize(parse(row.data)), id: row.id, revision: row.revision }))
   }
   async get (kind, workspaceId, id) {
     if (kind === 'accounts') return await this.authAccounts.get(workspaceId, id)
-    const row = (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND id=? AND deleted_at IS NULL', [kind, workspaceId, id]))[0]
-    return row ? { ...parse(row.data), id: row.id, revision: row.revision } : null
+    const row = await this.client.record.findFirst({ where: { kind, workspaceId, id, deletedAt: null } })
+    return row ? { ...normalize(parse(row.data)), id: row.id, revision: row.revision } : null
   }
   async put (kind, workspaceId, id, value, expectedRevision) {
     if (kind === 'accounts') return await this.authAccounts.updateSummary(workspaceId, id, value, expectedRevision)
     try {
       return await this.transaction(async () => {
-        const current = (await this.execute('SELECT * FROM records WHERE kind=? AND id=? FOR UPDATE', [kind, id]))[0]
-        if (current && (current.workspace_id !== workspaceId || current.deleted_at)) throw new UserError('记录不存在或无法访问。', 404)
+        const current = await this.client.record.findUnique({ where: { kind_id: { kind, id } } })
+        if (current && (current.workspaceId !== workspaceId || current.deletedAt !== null)) throw new UserError('记录不存在或无法访问。', 404)
         if ((current && expectedRevision !== current.revision) || (!current && expectedRevision !== null)) throw new UserError('记录已更新，请重新加载后再保存。', 409)
         const revision = (current?.revision || 0) + 1
-        if (current) await this.execute('UPDATE records SET data=?,revision=? WHERE kind=? AND id=? AND workspace_id=?', [JSON.stringify(value), revision, kind, id, workspaceId])
-        else await this.execute('INSERT INTO records(kind,id,workspace_id,data,revision) VALUES(?,?,?,?,?)', [kind, id, workspaceId, JSON.stringify(value), revision])
+        if (current) {
+          const result = await this.client.record.updateMany({ where: { kind, id, workspaceId, revision: current.revision, deletedAt: null }, data: { data: value, revision } })
+          if (result.count !== 1) throw new UserError('记录已更新，请重新加载后再保存。', 409)
+        } else await this.client.record.create({ data: { kind, id, workspaceId, data: value, revision, deletedAt: null } })
         return { ...value, id, revision }
       })
-    } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('记录被其他操作更新，请刷新后重试。', 409); throw error }
+    } catch (error) { if (['P2002', 'P2034'].includes(error.code)) throw new UserError('记录被其他操作更新，请刷新后重试。', 409); throw error }
   }
   async remove (kind, workspaceId, id) {
     if (kind === 'accounts') return await this.authAccounts.archive(workspaceId, id)
-    await this.execute('UPDATE records SET deleted_at=? WHERE kind=? AND workspace_id=? AND id=?', [Date.now(), kind, workspaceId, id])
+    await this.client.record.updateMany({ where: { kind, workspaceId, id, deletedAt: null }, data: { deletedAt: toBigInt(Date.now()) } })
   }
-  async fingerprints (workspaceId) { return (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND f.version=v.version WHERE f.workspace_id=? AND f.deleted_at IS NULL', [workspaceId])).map(row => ({ id: row.id, name: row.name, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at, profile: this.decodeFingerprint(row.profile) })) }
-  async fingerprint (workspaceId, id, version) { const row = (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND v.version=? WHERE f.workspace_id=? AND f.id=? AND f.deleted_at IS NULL', [version, workspaceId, id]))[0]; return row ? { id: row.id, name: row.name, version, profile: this.decodeFingerprint(row.profile) } : null }
+  async fingerprints (workspaceId) {
+    const rows = await this.client.fingerprint.findMany({ where: { workspaceId, deletedAt: null } })
+    const profiles = await Promise.all(rows.map(row => this.client.fingerprintVersion.findUnique({ where: { fingerprintId_version: { fingerprintId: row.id, version: row.version } } })))
+    return rows.flatMap((row, index) => profiles[index] ? [{ id: row.id, name: row.name, version: row.version, createdAt: Number(row.createdAt), updatedAt: Number(row.updatedAt), profile: this.decodeFingerprint(profiles[index].profile) }] : [])
+  }
+  async fingerprint (workspaceId, id, version) {
+    const row = await this.client.fingerprint.findFirst({ where: { workspaceId, id, deletedAt: null } })
+    if (!row) return null
+    const selectedVersion = version ?? row.version
+    const profile = await this.client.fingerprintVersion.findUnique({ where: { fingerprintId_version: { fingerprintId: id, version: selectedVersion } } })
+    return profile ? { id: row.id, name: row.name, version: selectedVersion, profile: this.decodeFingerprint(profile.profile) } : null
+  }
   async saveFingerprint (workspaceId, userId, { id = crypto.randomUUID(), name, profile, expectedVersion = null }) {
     try {
       return await this.transaction(async () => {
-        const current = (await this.execute('SELECT * FROM fingerprints WHERE id=? FOR UPDATE', [id]))[0]
-        if (current && (current.workspace_id !== workspaceId || current.deleted_at)) throw new UserError('指纹不存在或无法访问。', 404)
+        const current = await this.client.fingerprint.findUnique({ where: { id } })
+        if (current && (current.workspaceId !== workspaceId || current.deletedAt !== null)) throw new UserError('指纹不存在或无法访问。', 404)
         if ((current && expectedVersion !== current.version) || (!current && expectedVersion !== null)) throw new UserError('指纹版本已变化，请重新加载后再保存。', 409)
         const version = (current?.version || 0) + 1; const now = Date.now()
-        if (current) await this.execute('UPDATE fingerprints SET name=?,version=?,updated_at=? WHERE id=? AND workspace_id=?', [name, version, now, id, workspaceId])
-        else await this.execute('INSERT INTO fingerprints VALUES(?,?,?,?,?,?,?,NULL)', [id, workspaceId, name, version, userId, now, now])
-        await this.execute('INSERT INTO fingerprint_versions VALUES(?,?,?,?,?)', [id, version, JSON.stringify(this.encodeFingerprint(profile)), userId, now])
+        if (current) await this.client.fingerprint.update({ where: { id }, data: { name, version, updatedAt: toBigInt(now) } })
+        else await this.client.fingerprint.create({ data: { id, workspaceId, name, version, createdBy: userId, createdAt: toBigInt(now), updatedAt: toBigInt(now), deletedAt: null } })
+        await this.client.fingerprintVersion.create({ data: { fingerprintId: id, version, profile: this.encodeFingerprint(profile), createdBy: userId, createdAt: toBigInt(now) } })
         return await this.fingerprint(workspaceId, id, version)
       })
-    } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('指纹被其他操作更新，请刷新后重试。', 409); throw error }
+    } catch (error) { if (['P2002', 'P2034'].includes(error.code)) throw new UserError('指纹被其他操作更新，请刷新后重试。', 409); throw error }
   }
   encrypt (text) { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv); return Buffer.concat([iv, cipher.update(text), cipher.final(), cipher.getAuthTag()]).toString('base64') }
   decrypt (value) { const bytes = Buffer.from(value, 'base64'); const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, bytes.subarray(0, 12)); decipher.setAuthTag(bytes.subarray(-16)); return Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]).toString('utf8') }
   async readAccountSession (workspaceId, userId, accountId) {
     return await this.transaction(async () => {
-      await this.execute('SELECT id FROM workspaces WHERE id=? FOR UPDATE', [workspaceId])
-      const row = (await this.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
+      const row = await this.client.member.findUnique({ where: { workspaceId_userId: { workspaceId, userId } } })
       if (!row) throw new UserError('你没有该团队的访问权限。', 403)
-      const member = { ...row, scope: parse(row.scope) }; this.assertWrite(member)
+      const member = normalize(row); this.assertWrite(member)
       const account = await this.authAccounts.get(workspaceId, accountId, { lock: true })
       if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
-      const environment = (await this.execute("SELECT id FROM records WHERE kind='environments' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, account.environmentId]))[0]
-      if (!environment || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
+      const environment = await this.client.record.findUnique({ where: { kind_id: { kind: 'environments', id: account.environmentId } } })
+      if (!environment || environment.workspaceId !== workspaceId || environment.deletedAt !== null || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
       const snapshot = await this.authAccounts.read(workspaceId, accountId)
       if (!snapshot) throw new UserError('账号会话尚未保存，请重新授权。', 409)
       return snapshot
     })
   }
-  async close () { await this.ready; await this.pool.end() }
+  async close () { await this.ready; await this.prisma.$disconnect() }
 }
 
 module.exports = { WorkspaceDatabase, UserError, readDatabaseConfig }

@@ -5,12 +5,26 @@ $distRoot = Join-Path $serverRoot 'dist'
 if (!$OutputRoot) { $OutputRoot = $distRoot }
 $outputDirectory = [IO.Path]::GetFullPath($OutputRoot)
 if (!$outputDirectory.Equals($distRoot,[StringComparison]::OrdinalIgnoreCase)) { throw '部署包必须使用 saas-server/dist 固定目录，不能创建历史版本目录。' }
+if (!$NccCli) {
+  $localNcc = Join-Path $serverRoot 'node_modules/@vercel/ncc/dist/ncc/cli.js'
+  if (Test-Path -LiteralPath $localNcc -PathType Leaf) { $NccCli = $localNcc }
+}
 # 先核验工具和输入，再将旧产物移入回收站；不触碰外部运行时和原生缓存。
 if (!$NccCli -or !(Test-Path -LiteralPath $NccCli -PathType Leaf)) { throw '请通过 NccCli 参数或 SAAS_NCC_CLI 指定已有 ncc 编译工具入口。' }
 $NccCli = (Resolve-Path -LiteralPath $NccCli).Path
 if ($NccCli.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw '打包工具位于待清理目录，请使用目录外的已有工具。' }
-foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','public','deploy/production.env.example','package.json','deploy/start.ps1','deploy/start.sh','deploy/ecosystem.config.js')) {
+foreach ($inputPath in @('src/workspace-server.js','src/fingerprint/profiles','public','deploy/production.env.example','package.json','deploy/start.ps1','deploy/start.sh','deploy/ecosystem.config.js','prisma/schema.prisma','scripts/prisma-cli.cjs','scripts/prepare-prisma-engines.cjs','scripts/build-deploy-bundles.cjs','node_modules/prisma/build/index.js','node_modules/@prisma/fetch-engine/dist/index.js','node_modules/@vercel/ncc/dist/ncc/cli.js')) {
   if (!(Test-Path -LiteralPath (Join-Path $serverRoot $inputPath))) { throw ('打包所需文件缺失：' + $inputPath) }
+}
+& npm run prisma:validate --prefix $serverRoot
+if ($LASTEXITCODE -ne 0) { throw 'Prisma 数据库结构校验失败。' }
+& npm run prisma:generate --prefix $serverRoot
+if ($LASTEXITCODE -ne 0) { throw 'Prisma Client 或 Linux x64 查询引擎生成失败。' }
+& npm run prisma:prepare-linux-engine --prefix $serverRoot
+if ($LASTEXITCODE -ne 0) { throw 'Prisma Linux x64 Schema Engine 准备失败。' }
+foreach ($engine in @('node_modules/.prisma/client/query-engine-debian-openssl-3.0.x','node_modules/.prisma/client/query-engine-windows.exe','node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x','node_modules/@prisma/engines/schema-engine-windows.exe')) {
+  $enginePath = Join-Path $serverRoot $engine
+  if (!(Test-Path -LiteralPath $enginePath -PathType Leaf) -or (Get-Item -LiteralPath $enginePath).Length -lt 1MB) { throw ('Prisma 原生引擎缺失或无效：' + $engine) }
 }
 & node --check (Join-Path $serverRoot 'src/workspace-server.js')
 if ($LASTEXITCODE -ne 0) { throw '服务端入口语法检查失败。' }
@@ -51,12 +65,29 @@ if (Test-Path -LiteralPath $distRoot) {
 $payload = Join-Path $outputDirectory 'qijie-saas-server'
 $server = Join-Path $payload 'saas-server'
 New-Item -ItemType Directory -Path $server -Force | Out-Null
-# 业务代码和运行依赖合并为单文件，不分发源码目录或 node_modules。
-& node $NccCli build (Join-Path $serverRoot 'src/workspace-server.js') -o (Join-Path $server 'server') --no-cache
-if ($LASTEXITCODE -ne 0) { throw '服务端单文件打包失败。' }
+# 业务依赖合并进服务入口；只保留 Prisma Client 的生成运行文件，不复制完整 node_modules。
+& node --expose-gc (Join-Path $serverRoot 'scripts/build-deploy-bundles.cjs') $server
+if ($LASTEXITCODE -ne 0) { throw '服务端或 Prisma 同步工具打包失败。' }
 # 授权脚本与身份核验模块由独立客户端加载；SaaS 部署包只包含业务服务与任务结果校验。
 & node --check (Join-Path $server 'server/index.js')
 if ($LASTEXITCODE -ne 0) { throw '服务端生成文件语法校验失败。' }
+& node --check (Join-Path $server 'prisma-cli/build/index.js')
+if ($LASTEXITCODE -ne 0) { throw 'Prisma 同步工具生成文件语法校验失败。' }
+Copy-Item -LiteralPath (Join-Path $serverRoot 'prisma/schema.prisma') -Destination (Join-Path $server 'prisma/schema.prisma') -Force
+Copy-Item -LiteralPath (Join-Path $serverRoot 'scripts/prisma-cli.cjs') -Destination (Join-Path $server 'scripts/prisma-cli.cjs') -Force
+foreach ($engine in @(
+  @{ Source = 'node_modules/.prisma/client/query-engine-debian-openssl-3.0.x'; Name = 'query-engine-debian-openssl-3.0.x' },
+  @{ Source = 'node_modules/.prisma/client/query-engine-windows.exe'; Name = 'query-engine-windows.exe' },
+  @{ Source = 'node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x'; Name = 'schema-engine-debian-openssl-3.0.x' },
+  @{ Source = 'node_modules/@prisma/engines/schema-engine-windows.exe'; Name = 'schema-engine-windows.exe' }
+)) {
+  Copy-Item -LiteralPath (Join-Path $serverRoot $engine.Source) -Destination (Join-Path $server "prisma-cli/$($engine.Name)") -Force
+}
+$env:PRISMA_CLI_QUERY_ENGINE_TYPE = 'binary'
+$env:PRISMA_QUERY_ENGINE_BINARY = Join-Path $server 'prisma-cli/query-engine-windows.exe'
+$env:PRISMA_SCHEMA_ENGINE_BINARY = Join-Path $server 'prisma-cli/schema-engine-windows.exe'
+& node (Join-Path $server 'prisma-cli/build/index.js') --version
+if ($LASTEXITCODE -ne 0) { throw 'Prisma Linux/Windows 引擎与数据库同步工具不匹配。' }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'src/fingerprint/profiles') -Destination (Join-Path $server 'server/profiles') -Recurse
 # 只复制网页运行资源，排除项目说明和素材来源记录。
 $publicRoot = Join-Path $serverRoot 'public'

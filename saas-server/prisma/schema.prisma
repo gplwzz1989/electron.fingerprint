@@ -1,0 +1,226 @@
+generator client {
+  provider      = "prisma-client-js"
+  engineType    = "binary"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+model PlatformReleaseState {
+  id             Int    @id
+  releaseVersion String @map("release_version") @db.VarChar(32)
+  manifest       Json?
+
+  @@map("platform_release_state")
+}
+
+model PlatformRelease {
+  id          BigInt @id @default(autoincrement())
+  component   String @db.VarChar(16)
+  version     String @db.VarChar(32)
+  sha256      String @db.Char(64)
+  fileName    String @unique(map: "file_name") @map("file_name") @db.VarChar(160)
+  sizeBytes   Int    @map("size_bytes")
+  publishedBy String @map("published_by") @db.VarChar(36)
+  createdAt   BigInt @map("created_at")
+
+  @@index([component, id], map: "platform_release_component")
+  @@map("platform_releases")
+}
+
+model User {
+  id              String  @id @db.VarChar(36)
+  email           String  @unique(map: "email") @db.VarChar(254)
+  name            String  @db.VarChar(160)
+  passwordHash    String  @map("password_hash") @db.VarChar(256)
+  createdAt       BigInt  @map("created_at")
+  emailVerifiedAt BigInt? @map("email_verified_at")
+
+  @@map("users")
+}
+
+model Workspace {
+  id      String @id @db.VarChar(36)
+  name    String @db.VarChar(160)
+  ownerId String @map("owner_id") @db.VarChar(36)
+
+  @@index([ownerId], map: "owner_id")
+  @@map("workspaces")
+}
+
+model Member {
+  id          String @id @db.VarChar(36)
+  workspaceId String @map("workspace_id") @db.VarChar(36)
+  userId      String @map("user_id") @db.VarChar(36)
+  role        String @db.VarChar(16)
+  scope       Json
+
+  @@unique([workspaceId, userId], map: "workspace_id")
+  @@index([userId], map: "user_id")
+  @@map("members")
+}
+
+model Session {
+  hash      String @id @db.VarChar(64)
+  userId    String @map("user_id") @db.VarChar(36)
+  csrf      String @db.VarChar(48)
+  expiresAt BigInt @map("expires_at")
+
+  @@index([userId], map: "user_id")
+  @@map("sessions")
+}
+
+model Fingerprint {
+  id          String  @id @db.VarChar(36)
+  workspaceId String  @map("workspace_id") @db.VarChar(36)
+  name        String  @db.VarChar(160)
+  version     Int
+  createdBy   String  @map("created_by") @db.VarChar(36)
+  createdAt   BigInt  @map("created_at")
+  updatedAt   BigInt  @map("updated_at")
+  deletedAt   BigInt? @map("deleted_at")
+
+  @@index([workspaceId, deletedAt], map: "fingerprints_workspace")
+  @@index([createdBy], map: "created_by")
+  @@map("fingerprints")
+}
+
+model FingerprintVersion {
+  fingerprintId String @map("fingerprint_id") @db.VarChar(36)
+  version       Int
+  profile       Json
+  createdBy     String @map("created_by") @db.VarChar(36)
+  createdAt     BigInt @map("created_at")
+
+  @@id([fingerprintId, version])
+  @@index([createdBy], map: "created_by")
+  @@map("fingerprint_versions")
+}
+
+model Record {
+  kind        String  @db.VarChar(32)
+  id          String  @db.VarChar(64)
+  workspaceId String  @map("workspace_id") @db.VarChar(36)
+  data        Json
+  revision    Int
+  deletedAt   BigInt? @map("deleted_at")
+
+  @@id([kind, id])
+  @@index([workspaceId, kind, deletedAt], map: "records_workspace")
+  @@map("records")
+}
+
+model RegistrationCode {
+  email       String  @id @db.VarChar(254)
+  generation  String  @db.VarChar(36)
+  codeHash    String  @map("code_hash") @db.VarChar(64)
+  expiresAt   BigInt  @map("expires_at")
+  resendAfter BigInt  @map("resend_after")
+  attempts    Int
+  delivered   Int     @db.TinyInt
+  consumedAt  BigInt? @map("consumed_at")
+
+  @@map("registration_codes")
+}
+
+model RegistrationLimit {
+  scopeKey    String @id @map("scope_key") @db.VarChar(80)
+  windowStart BigInt @map("window_start")
+  requests    Int
+
+  @@map("registration_limits")
+}
+
+model BillingOrder {
+  id            String  @id @db.VarChar(32)
+  workspaceId   String  @map("workspace_id") @db.VarChar(36)
+  createdBy     String  @map("created_by") @db.VarChar(36)
+  requestId     String  @map("request_id") @db.VarChar(36)
+  provider      String  @db.VarChar(24)
+  plan          Json
+  amount        Int
+  currency      String  @db.VarChar(3)
+  status        String  @db.VarChar(16)
+  codeUrl       String? @map("code_url") @db.Text
+  transactionId String? @map("transaction_id") @db.VarChar(100)
+  createdAt     BigInt  @map("created_at")
+  expiresAt     BigInt  @map("expires_at")
+  paidAt        BigInt? @map("paid_at")
+  checkedAt     BigInt? @map("checked_at")
+
+  @@unique([workspaceId, requestId], map: "workspace_id")
+  @@unique([provider, transactionId], map: "provider")
+  @@index([workspaceId, createdAt], map: "billing_workspace")
+  @@map("billing_orders")
+}
+
+model BillingSubscription {
+  workspaceId String @id @map("workspace_id") @db.VarChar(36)
+  plan        Json
+  startsAt    BigInt @map("starts_at")
+  expiresAt   BigInt @map("expires_at")
+  lastOrderId String @map("last_order_id") @db.VarChar(32)
+
+  @@index([lastOrderId], map: "billing_subscriptions_last_order")
+  @@map("billing_subscriptions")
+}
+
+model SystemSetting {
+  id              Int     @id @db.TinyInt
+  valueCiphertext String  @map("value_ciphertext") @db.LongText
+  revision        Int
+  updatedAt       BigInt  @map("updated_at")
+  updatedBy       String? @map("updated_by") @db.VarChar(36)
+
+  @@map("system_settings")
+}
+
+model SystemAdministrator {
+  userId    String @id @map("user_id") @db.VarChar(36)
+  createdAt BigInt @map("created_at")
+
+  @@map("system_administrators")
+}
+
+model SystemSettingsAudit {
+  id            String @id @db.VarChar(36)
+  userId        String @map("user_id") @db.VarChar(36)
+  revision      Int
+  changedFields Json   @map("changed_fields")
+  createdAt     BigInt @map("created_at")
+
+  @@map("system_settings_audit")
+}
+
+model PlatformAccount {
+  id                       String  @db.VarChar(64)
+  workspaceId              String  @map("workspace_id") @db.VarChar(36)
+  platformCode             String  @map("platform_code") @db.VarChar(100)
+  platformUserId           String  @map("platform_user_id") @db.VarChar(256)
+  platformUserName         String  @map("platform_user_name") @db.VarChar(160)
+  platformAvatar           String? @map("platform_avatar") @db.Text
+  environmentId            String  @map("environment_id") @db.VarChar(64)
+  authType                 String  @default("COOKIE") @map("auth_type") @db.VarChar(16)
+  authStatus               String  @map("auth_status") @db.VarChar(16)
+  platformCookieHash       String  @map("platform_cookie_hash") @db.LongText
+  platformLocalStorageHash String  @map("platform_local_storage_hash") @db.LongText
+  sessionVersion           BigInt  @map("session_version")
+  origins                  Json
+  entryUrl                 String? @map("entry_url") @db.Text
+  authorizationOperationId String? @map("authorization_operation_id") @db.VarChar(64)
+  lastAuthorizedAt         BigInt  @map("last_authorized_at")
+  lastCheckedAt            BigInt  @map("last_checked_at")
+  createdAt                BigInt  @map("created_at")
+  updatedAt                BigInt  @map("updated_at")
+  revision                 Int     @default(1)
+  deletedAt                BigInt? @map("deleted_at")
+
+  @@id([workspaceId, id])
+  @@unique([workspaceId, platformCode, platformUserId], map: "platform_account_identity")
+  @@index([workspaceId, environmentId, deletedAt], map: "platform_account_environment")
+  @@map("platform_accounts")
+}
