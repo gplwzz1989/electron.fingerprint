@@ -231,7 +231,7 @@ function installInput (node) {
   const labelId = changeLabelTarget(node, id)
   const host = hostFor(node, 'input')
   const root = createRoot(host)
-  root.render(<Input {...props} id={id} aria-labelledby={props['aria-label'] ? undefined : labelId || undefined} type={node.type || 'text'} defaultValue={node.value} defaultChecked={node.checked} data-shadcn-native="true" />)
+  root.render(<Input {...props} id={id} name={node.name || undefined} disabled={node.disabled} required={node.required} multiple={node.multiple} aria-labelledby={props['aria-label'] ? undefined : labelId || undefined} type={node.type || 'text'} defaultValue={node.value} defaultChecked={node.checked} data-shadcn-native="true" />)
   roots.set(host, root)
 }
 
