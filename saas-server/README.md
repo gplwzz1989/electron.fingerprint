@@ -58,7 +58,7 @@ SMTP 加密行为参见 [Nodemailer 官方 SMTP 文档](https://nodemailer.com/s
 
 ## 系统管理后台
 
-生产包使用精简启动配置，邮件、支付、套餐、更新目录和公开地址在 `/system-admin.html` 维护，并加密存入数据库。服务包包含 Prisma schema、同步工具和 Windows/Linux x64 引擎，启动时通过 Prisma CLI 同步表结构；平台授权脚本不进入 SaaS 包，由客户端从发布接口下载。部署后运行 `node saas-server/server/index.js --init-system-admin` 初始化默认管理员，账号为 `admin`、初始密码为 `88888888`；该命令仅在服务器本地执行。首次登录后请立即通过“修改密码”设置个人密码。也可给命令传入管理员邮箱以创建其他管理员。旧环境文件的业务配置仅在首次初始化时迁入数据库，本文前述文件字段保留兼容迁移说明；后续以后台配置为准。
+生产包使用 Linux x64 精简启动配置，邮件、支付、套餐、更新目录和公开地址在 `/system-admin.html` 维护，并加密存入数据库。服务包包含 Prisma schema、同步工具及 Debian / OpenSSL 3.0 引擎，启动时通过 Prisma CLI 同步表结构；平台授权脚本不进入 SaaS 包，由客户端从发布接口下载。部署后运行 `node saas-server/server/index.js --init-system-admin` 初始化默认管理员，账号为 `admin`、初始密码为 `88888888`；该命令仅在服务器本地执行。首次登录后请立即通过“修改密码”设置个人密码。也可给命令传入管理员邮箱以创建其他管理员。旧环境文件的业务配置仅在首次初始化时迁入数据库，本文前述文件字段保留兼容迁移说明；后续以后台配置为准。
 
 ## 当前开发与客户端
 
