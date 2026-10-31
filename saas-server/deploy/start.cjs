@@ -8,7 +8,8 @@ if (!['dev', 'test', 'prod'].includes(environment)) {
   process.exit(1)
 }
 
-const serverDirectory = path.join(__dirname, 'saas-server')
+const nestedServer = path.join(__dirname, 'saas-server')
+const serverDirectory = fs.existsSync(path.join(nestedServer, 'server/index.js')) ? nestedServer : __dirname
 if (!fs.existsSync(path.join(serverDirectory, `.env.${environment}`))) {
   console.error(`请先将 saas-server/.env.example 复制为 .env.${environment}，并填写数据库与邮件配置。`)
   process.exit(1)
