@@ -20,8 +20,8 @@ const runtime = {
   ...process.env,
   SAAS_ENV: environment,
   PRISMA_CLI_QUERY_ENGINE_TYPE: 'binary',
-  PRISMA_QUERY_ENGINE_BINARY: path.join(serverDirectory, 'prisma-cli/query-engine-debian-openssl-3.0.x'),
-  PRISMA_SCHEMA_ENGINE_BINARY: path.join(serverDirectory, 'prisma-cli/schema-engine-debian-openssl-3.0.x'),
+  PRISMA_QUERY_ENGINE_BINARY: path.join(serverDirectory, 'prisma-cli/query-engine-rhel-openssl-1.1.x'),
+  PRISMA_SCHEMA_ENGINE_BINARY: path.join(serverDirectory, 'prisma-cli/schema-engine-rhel-openssl-1.1.x'),
   PRISMA_CLI_PATH: path.join(serverDirectory, 'prisma-cli/build/index.js')
 }
 

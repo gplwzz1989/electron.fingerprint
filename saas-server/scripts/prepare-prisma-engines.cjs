@@ -5,18 +5,18 @@ const { enginesVersion } = require('@prisma/engines')
 
 async function main () {
   const engineDirectory = path.resolve(__dirname, '../node_modules/@prisma/engines')
-  const binary = path.join(engineDirectory, 'schema-engine-debian-openssl-3.0.x')
+  const binary = path.join(engineDirectory, 'schema-engine-rhel-openssl-1.1.x')
   if (!fs.existsSync(binary) || fs.statSync(binary).size < 1024 * 1024) {
     await download({
       binaries: { [BinaryType.SchemaEngineBinary]: engineDirectory },
-      binaryTargets: ['debian-openssl-3.0.x'],
+      binaryTargets: ['rhel-openssl-1.1.x'],
       version: enginesVersion,
       showProgress: true,
       failSilent: false
     })
   }
   if (!fs.existsSync(binary) || fs.statSync(binary).size < 1024 * 1024) throw new Error('未能准备 Linux x64 Prisma Schema Engine。')
-  process.stdout.write('已准备 Linux x64 Prisma Schema Engine（Debian / OpenSSL 3）。\n')
+  process.stdout.write('已准备 Linux x64 Prisma Schema Engine（RHEL 系 / OpenSSL 1.1）。\n')
 }
 
 main().catch(error => {

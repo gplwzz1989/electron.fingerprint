@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Prisma 数据库结构校验失败。' }
 if ($LASTEXITCODE -ne 0) { throw 'Prisma Client 或 Linux x64 查询引擎生成失败。' }
 & npm run prisma:prepare-linux-engine --prefix $serverRoot
 if ($LASTEXITCODE -ne 0) { throw 'Prisma Linux x64 Schema Engine 准备失败。' }
-foreach ($engine in @('node_modules/.prisma/client/query-engine-debian-openssl-3.0.x','node_modules/.prisma/client/query-engine-windows.exe','node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x','node_modules/@prisma/engines/schema-engine-windows.exe')) {
+foreach ($engine in @('node_modules/.prisma/client/query-engine-rhel-openssl-1.1.x','node_modules/.prisma/client/query-engine-windows.exe','node_modules/@prisma/engines/schema-engine-rhel-openssl-1.1.x','node_modules/@prisma/engines/schema-engine-windows.exe')) {
   $enginePath = Join-Path $serverRoot $engine
   if (!(Test-Path -LiteralPath $enginePath -PathType Leaf) -or (Get-Item -LiteralPath $enginePath).Length -lt 1MB) { throw ('Prisma 原生引擎缺失或无效：' + $engine) }
 }
@@ -78,8 +78,8 @@ foreach ($directory in @('prisma','scripts')) { New-Item -ItemType Directory -Pa
 Copy-Item -LiteralPath (Join-Path $serverRoot 'prisma/schema.prisma') -Destination (Join-Path $server 'prisma/schema.prisma') -Force
 Copy-Item -LiteralPath (Join-Path $serverRoot 'scripts/prisma-cli.cjs') -Destination (Join-Path $server 'scripts/prisma-cli.cjs') -Force
 foreach ($engine in @(
-  @{ Source = 'node_modules/.prisma/client/query-engine-debian-openssl-3.0.x'; Name = 'query-engine-debian-openssl-3.0.x' },
-  @{ Source = 'node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x'; Name = 'schema-engine-debian-openssl-3.0.x' }
+  @{ Source = 'node_modules/.prisma/client/query-engine-rhel-openssl-1.1.x'; Name = 'query-engine-rhel-openssl-1.1.x' },
+  @{ Source = 'node_modules/@prisma/engines/schema-engine-rhel-openssl-1.1.x'; Name = 'schema-engine-rhel-openssl-1.1.x' }
 )) {
   Copy-Item -LiteralPath (Join-Path $serverRoot $engine.Source) -Destination (Join-Path $server "prisma-cli/$($engine.Name)") -Force
 }
@@ -114,7 +114,7 @@ if ($files | Where-Object { $_.Extension -eq '.exe' }) { throw 'Linux x64 部署
 if ($files | Where-Object { $_.Name -like '.env.*' -and $_.Name -ne '.env.example' -or $_.Extension -in @('.pem','.key','.p12','.pfx') }) { throw '部署包中发现真实环境配置或证书，已停止打包。' }
 $commit = '未记录'; $dirty = $false
 if (Get-Command git -ErrorAction SilentlyContinue) { $revision = & git -C $serverRoot rev-parse HEAD 2>$null; if ($LASTEXITCODE -eq 0) { $commit = $revision; $dirty = [bool](& git -C $serverRoot status --porcelain -- .) } }
-@{ product='栖界 SaaS 服务端'; version=$metadata.version; sourceCommit=$commit; sourceDirty=$dirty; node='>=22'; database='MySQL'; target='Linux x64 / Debian OpenSSL 3.0'; format='单文件服务端'; dependencies=$metadata.dependencies } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $outputDirectory 'release-manifest.json') -Encoding utf8NoBOM
+@{ product='栖界 SaaS 服务端'; version=$metadata.version; sourceCommit=$commit; sourceDirty=$dirty; node='>=22'; database='MySQL'; target='Linux x64 / RHEL OpenSSL 1.1'; format='单文件服务端'; dependencies=$metadata.dependencies } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $outputDirectory 'release-manifest.json') -Encoding utf8NoBOM
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = Join-Path $outputDirectory '栖界-SaaS服务端部署包.zip'
 [IO.Compression.ZipFile]::CreateFromDirectory($payload,$archive,[IO.Compression.CompressionLevel]::Optimal,$false)
