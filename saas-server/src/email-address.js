@@ -1,8 +1,10 @@
 const { domainToASCII } = require('node:url')
 
 function normalizeEmail (value) {
-  if (typeof value !== 'string' || value.length > 254) return null
-  const parts = value.trim().split('@')
+  if (typeof value !== 'string') return null
+  const normalized = value.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim()
+  if (normalized.length > 254) return null
+  const parts = normalized.split('@')
   if (parts.length !== 2) return null
   const [local, suppliedDomain] = parts
   if (!local || local.length > 64 || !/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local) || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return null

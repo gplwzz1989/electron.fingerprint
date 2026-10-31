@@ -1,6 +1,6 @@
 {
   "name": "@qijie/saas-server",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
   "main": "src/workspace-server.js",
   "scripts": {

@@ -187,9 +187,33 @@
     } catch (error) { notify(error.message, true) } finally { busy = false; if (save) save.disabled = false }
   })
   $('#reload').addEventListener('click', async () => { if (!dirty || await window.WorkspaceDialogs.confirm({ title: '放弃未保存的修改？', description: '重新加载会丢弃尚未保存的设置。已保存的配置不受影响。', actionLabel: '重新加载', destructive: true, trigger: $('#reload') })) void load().catch(error => notify(error.message, true)) })
+  $('#login-form').addEventListener('input', event => {
+    if (event.target.name !== 'email') return
+    event.target.removeAttribute('aria-invalid')
+    if ($('#login-message').dataset.emailError === 'true') { $('#login-message').textContent = ''; delete $('#login-message').dataset.emailError }
+  })
   $('#login-form').addEventListener('submit', async event => {
-    event.preventDefault(); const button = event.submitter || event.target.querySelector('button[type="submit"]'); button.disabled = true
-    try { await api('/api/auth/login', 'POST', Object.fromEntries(new FormData(event.target))); event.target.elements.password.value = ''; await load() } catch (error) { $('#login-message').textContent = error.message; notify(error.message, true) } finally { button.disabled = false }
+    event.preventDefault()
+    const button = event.submitter || event.target.querySelector('button[type="submit"]')
+    const email = event.target.elements.email
+    email.value = email.value.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim()
+    email.removeAttribute('aria-invalid')
+    $('#login-message').textContent = ''; delete $('#login-message').dataset.emailError
+    button.disabled = true
+    try {
+      await api('/api/auth/login', 'POST', Object.fromEntries(new FormData(event.target)))
+      event.target.elements.password.value = ''
+      await load()
+    } catch (error) {
+      const message = error.message === '邮箱格式不正确。' ? '邮箱格式不正确，请检查邮箱并重试。' : error.message
+      $('#login-message').textContent = message
+      if (error.message === '邮箱格式不正确。') {
+        email.setAttribute('aria-invalid', 'true')
+        $('#login-message').dataset.emailError = 'true'
+        email.focus()
+      }
+      notify(message, true)
+    } finally { button.disabled = false }
   })
   $('#logout').addEventListener('click', async () => {
     if (dirty && !await window.ShadcnUI.confirm({ title: '退出系统管理？', description: '当前修改尚未保存，退出后将丢失这些修改。', actionLabel: '退出', destructive: true, trigger: $('#logout') })) return
