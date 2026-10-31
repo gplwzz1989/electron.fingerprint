@@ -177,9 +177,17 @@ class WorkspaceDatabase {
       await this.execute('DELETE FROM sessions WHERE user_id=? AND hash<>?', [userId, currentSessionHash])
     })
   }
-  async list (kind, workspaceId) { return (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND deleted_at IS NULL', [kind, workspaceId])).map(row => ({ ...parse(row.data), id: row.id, revision: row.revision })) }
-  async get (kind, workspaceId, id) { const row = (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND id=? AND deleted_at IS NULL', [kind, workspaceId, id]))[0]; return row ? { ...parse(row.data), id: row.id, revision: row.revision } : null }
+  async list (kind, workspaceId) {
+    if (kind === 'accounts') return await this.authAccounts.list(workspaceId)
+    return (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND deleted_at IS NULL', [kind, workspaceId])).map(row => ({ ...parse(row.data), id: row.id, revision: row.revision }))
+  }
+  async get (kind, workspaceId, id) {
+    if (kind === 'accounts') return await this.authAccounts.get(workspaceId, id)
+    const row = (await this.execute('SELECT id,data,revision FROM records WHERE kind=? AND workspace_id=? AND id=? AND deleted_at IS NULL', [kind, workspaceId, id]))[0]
+    return row ? { ...parse(row.data), id: row.id, revision: row.revision } : null
+  }
   async put (kind, workspaceId, id, value, expectedRevision) {
+    if (kind === 'accounts') return await this.authAccounts.updateSummary(workspaceId, id, value, expectedRevision)
     try {
       return await this.transaction(async () => {
         const current = (await this.execute('SELECT * FROM records WHERE kind=? AND id=? FOR UPDATE', [kind, id]))[0]
@@ -188,12 +196,14 @@ class WorkspaceDatabase {
         const revision = (current?.revision || 0) + 1
         if (current) await this.execute('UPDATE records SET data=?,revision=? WHERE kind=? AND id=? AND workspace_id=?', [JSON.stringify(value), revision, kind, id, workspaceId])
         else await this.execute('INSERT INTO records(kind,id,workspace_id,data,revision) VALUES(?,?,?,?,?)', [kind, id, workspaceId, JSON.stringify(value), revision])
-        if (kind === 'accounts') await this.execute('UPDATE auth_accounts SET auth_status=?,platform_user_name=?,platform_avatar=?,last_checked_at=?,updated_at=? WHERE workspace_id=? AND id=?', [value.status || 'valid', value.name || '', value.avatar || '', value.checkedAt || Date.now(), Date.now(), workspaceId, id])
         return { ...value, id, revision }
       })
     } catch (error) { if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK'].includes(error.code)) throw new UserError('记录被其他操作更新，请刷新后重试。', 409); throw error }
   }
-  async remove (kind, workspaceId, id) { await this.execute('UPDATE records SET deleted_at=? WHERE kind=? AND workspace_id=? AND id=?', [Date.now(), kind, workspaceId, id]) }
+  async remove (kind, workspaceId, id) {
+    if (kind === 'accounts') return await this.authAccounts.archive(workspaceId, id)
+    await this.execute('UPDATE records SET deleted_at=? WHERE kind=? AND workspace_id=? AND id=?', [Date.now(), kind, workspaceId, id])
+  }
   async fingerprints (workspaceId) { return (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND f.version=v.version WHERE f.workspace_id=? AND f.deleted_at IS NULL', [workspaceId])).map(row => ({ id: row.id, name: row.name, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at, profile: this.decodeFingerprint(row.profile) })) }
   async fingerprint (workspaceId, id, version) { const row = (await this.execute('SELECT f.*,v.profile FROM fingerprints f JOIN fingerprint_versions v ON f.id=v.fingerprint_id AND v.version=? WHERE f.workspace_id=? AND f.id=? AND f.deleted_at IS NULL', [version, workspaceId, id]))[0]; return row ? { id: row.id, name: row.name, version, profile: this.decodeFingerprint(row.profile) } : null }
   async saveFingerprint (workspaceId, userId, { id = crypto.randomUUID(), name, profile, expectedVersion = null }) {
@@ -218,8 +228,7 @@ class WorkspaceDatabase {
       const row = (await this.execute('SELECT * FROM members WHERE workspace_id=? AND user_id=? FOR UPDATE', [workspaceId, userId]))[0]
       if (!row) throw new UserError('你没有该团队的访问权限。', 403)
       const member = { ...row, scope: parse(row.scope) }; this.assertWrite(member)
-      const accountRow = (await this.execute("SELECT data FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, accountId]))[0]
-      const account = accountRow && parse(accountRow.data)
+      const account = await this.authAccounts.get(workspaceId, accountId, { lock: true })
       if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
       const environment = (await this.execute("SELECT id FROM records WHERE kind='environments' AND workspace_id=? AND id=? AND deleted_at IS NULL FOR UPDATE", [workspaceId, account.environmentId]))[0]
       if (!environment || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)

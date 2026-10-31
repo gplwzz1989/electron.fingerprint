@@ -348,9 +348,7 @@ class WorkspaceServer {
           const current = await db.membership(workspaceId, user.id); db.assertWrite(current)
           const account = await db.get('accounts', workspaceId, id)
           if (!account || !db.canAccess(current, id)) throw new UserError('账号不存在或无法访问。', 404)
-          await db.put('accounts', workspaceId, id, { ...account, status: 'invalid', checkedAt: Date.now() }, account.revision)
-          await db.execute("UPDATE auth_accounts SET auth_status='archived',updated_at=? WHERE workspace_id=? AND id=?", [Date.now(), workspaceId, id])
-          await db.remove('accounts', workspaceId, id)
+          await db.authAccounts.archive(workspaceId, id)
         }); return send({ message: '账号已删除。' })
       }
       if (resource === 'accounts' && method === 'GET' && !id) return send({ items: (await db.list('accounts', workspaceId)).filter(accessible) })

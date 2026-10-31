@@ -10,11 +10,11 @@
 | --- | --- |
 | `GET /api/platforms` | 动态平台目录及可用状态 |
 | `GET /api/platform-runtime` | 返回客户端能力协议位置，不再提供执行脚本 |
-| `POST /api/workspaces/:workspace/authorizations` | 仅接收客户端确认成功的授权结果；事务写入账号摘要与 `auth_accounts` |
+| `POST /api/workspaces/:workspace/authorizations` | 仅接收客户端确认成功的授权结果；事务写入 `auth_accounts` |
 | `POST /api/workspaces/:workspace/accounts/:id/launch` | 向一次性客户端公钥返回含账号会话的启动密文 |
 | `POST /api/workspaces/:workspace/accounts/:id/check` | 接收客户端完成的检测结果并更新账号状态 |
 
-正式账号使用 `auth_accounts` 保存身份和加密会话，账号摘要由 `records` 承载。授权期间不写任何服务端业务数据；成功保存时两个表在同一事务中更新。新库不创建授权任务、Cookie 明细或存储明细表；当前数据库已重建，不做旧会话迁移。敏感凭据使用现有 `encryption.key` 加密，不使用 MySQL 外键。
+`auth_accounts` 是媒体账号唯一数据表，保存身份、状态、环境关联和加密会话。授权期间不写任何服务端业务数据；成功保存时在该表中一次提交。新库不创建授权任务、Cookie 明细或存储明细表；当前数据库已重建，不做旧会话迁移。敏感凭据使用现有 `encryption.key` 加密，不使用 MySQL 外键。
 
 跨设备打开账号需要 0.2.6 或更新客户端。账号使用自己的独立会话目录，复用绑定环境的指纹和代理；服务器仅向一次性公钥发送 `desktop-launch-v1` 启动密文，网页端无法读到会话明文。客户端首次导航前恢复 HttpOnly Cookie 与按来源隔离的 localStorage；同一云端会话版本再次打开时沿用本机刷新后的登录态，更高版本才重新恢复。当前运行时不支持写入的分区 Cookie 明确报错，不降级为普通 Cookie。
 

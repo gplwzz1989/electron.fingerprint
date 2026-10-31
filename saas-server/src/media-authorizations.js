@@ -29,26 +29,18 @@ class MediaAuthorizations {
       const { member, environment } = await this.lockContext(workspaceId, userId, body.environmentId)
       const accountId = crypto.createHash('sha256').update(JSON.stringify([workspaceId, platform.key, verified.platformUserId])).digest('hex').slice(0, 48)
       if (body.accountId && body.accountId !== accountId) throw new UserError('原账号标识与平台身份不匹配，请重新授权。', 409)
-      let account = await this.db.get('accounts', workspaceId, accountId)
+      let account = body.accountId
+        ? await this.db.authAccounts.get(workspaceId, accountId)
+        : await this.db.authAccounts.get(workspaceId, accountId, { includeArchived: true })
       if (body.accountId && (!account || account.revision !== body.expectedRevision && account.authorizationOperationId !== body.operationId || account.platform !== platform.key || account.platformUserId !== verified.platformUserId || account.environmentId !== body.environmentId)) throw new UserError('原账号记录已变化，请重新授权。', 409)
       if (account && !this.db.canAccess(member, accountId)) throw new UserError('此账号已在团队中，请联系管理员分配权限。', 403)
       if (account?.authorizationOperationId === body.operationId && account.status === 'valid') return { account, outcome: 'valid' }
-      // 相同平台身份重新添加时恢复逻辑删除记录，保留原账号标识及历史凭据，不新建重复身份。
-      if (!account) {
-        const removed = (await this.db.execute("SELECT data,revision FROM records WHERE kind='accounts' AND workspace_id=? AND id=? AND deleted_at IS NOT NULL FOR UPDATE", [workspaceId, accountId]))[0]
-        if (removed) {
-          const metadata = typeof removed.data === 'string' ? JSON.parse(removed.data) : removed.data
-          if (metadata.platform !== platform.key || metadata.platformUserId !== verified.platformUserId || !this.db.canAccess(member, accountId)) throw new UserError('原账号记录无法恢复，请联系管理员。', 403)
-          await this.db.execute("UPDATE records SET deleted_at=NULL WHERE kind='accounts' AND workspace_id=? AND id=?", [workspaceId, accountId])
-          account = { ...metadata, id: accountId, revision: removed.revision }
-        }
-      }
-      if (account) this.assertReauthorizable(account)
+      if (account && account.status !== 'archived') this.assertReauthorizable(account)
       if (account && account.environmentId !== body.environmentId) throw new UserError('该账号已绑定其他环境，请使用原环境重新授权。', 409)
       if ((await this.db.list('accounts', workspaceId)).some(item => item.environmentId === body.environmentId && item.platform === platform.key && item.id !== accountId)) throw new UserError('此环境已绑定同平台的其他账号，请使用独立环境。', 409)
       const accountData = { platformUserId: verified.platformUserId, name: verified.name, avatar: verified.avatar || '', platform: platform.key, environmentId: body.environmentId, status: 'valid', launchUrl: verified.platform.url, origins: verified.platform.origins, authorizationOperationId: body.operationId }
       await this.db.authAccounts.write(workspaceId, accountId, accountData, verified.session)
-      const saved = await this.db.put('accounts', workspaceId, accountId, { ...accountData, platformName: platform.name, environmentName: environment.name, checkedAt: Date.now(), updatedAt: Date.now() }, account?.revision ?? null)
+      const saved = await this.db.authAccounts.get(workspaceId, accountId)
       // 受限操作成员创建的账号也需纳入其原有资源范围，保证保存后能在列表中查看；不扩大其他资源权限。
       if (!account && member.role === 'operator' && member.scope.mode === 'selected') {
         await this.db.execute('UPDATE members SET scope=? WHERE workspace_id=? AND user_id=?', [JSON.stringify({ ...member.scope, ids: [...new Set([...member.scope.ids, accountId])] }), workspaceId, userId])
