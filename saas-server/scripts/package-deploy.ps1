@@ -73,6 +73,7 @@ if ($LASTEXITCODE -ne 0) { throw '服务端或 Prisma 同步工具打包失败�
 if ($LASTEXITCODE -ne 0) { throw '服务端生成文件语法校验失败。' }
 & node --check (Join-Path $server 'prisma-cli/build/index.js')
 if ($LASTEXITCODE -ne 0) { throw 'Prisma 同步工具生成文件语法校验失败。' }
+foreach ($directory in @('prisma','scripts')) { New-Item -ItemType Directory -Path (Join-Path $server $directory) -Force | Out-Null }
 Copy-Item -LiteralPath (Join-Path $serverRoot 'prisma/schema.prisma') -Destination (Join-Path $server 'prisma/schema.prisma') -Force
 Copy-Item -LiteralPath (Join-Path $serverRoot 'scripts/prisma-cli.cjs') -Destination (Join-Path $server 'scripts/prisma-cli.cjs') -Force
 foreach ($engine in @(
