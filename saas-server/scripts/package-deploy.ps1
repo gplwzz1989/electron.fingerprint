@@ -57,6 +57,7 @@ if (Test-Path -LiteralPath $distRoot) {
     }
     foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Recurse -Force -Directory | Sort-Object { $_.FullName.Length } -Descending)) {
       if (!$item.FullName.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '产物目录路径超出固定目录。' }
+      if (!(Get-ChildItem -LiteralPath $item.FullName -Force | Select-Object -First 1)) { continue }
       [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
     }
     foreach ($item in (Get-ChildItem -LiteralPath $distRoot -Force -File)) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($item.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }
