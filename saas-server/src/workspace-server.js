@@ -59,8 +59,26 @@ function loadEnvironment (directory, environment) {
   }
 }
 
+function findPublicDirectory (explicitDir) {
+  if (explicitDir && typeof explicitDir === 'string' && explicitDir.trim()) {
+    return path.resolve(explicitDir.trim())
+  }
+  const candidates = [
+    path.join(__dirname, 'public'),
+    path.join(__dirname, '../public'),
+    path.resolve(process.cwd(), 'server/public'),
+    path.resolve(process.cwd(), 'public')
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'index.html'))) {
+      return path.resolve(candidate)
+    }
+  }
+  return path.resolve(__dirname, 'public')
+}
+
 class WorkspaceServer {
-  constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile } = {}) {
+  constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile, publicDir } = {}) {
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
     this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
     this.platformReleases = new PlatformReleaseService(this.database, path.join(dataDir, 'platform-releases'))
@@ -70,7 +88,7 @@ class WorkspaceServer {
     this.clientUpdates = new ClientUpdateService(updateConfigFile)
     this.serviceConfigFiles = { mailConfigFile, billingConfigFile, updateConfigFile }
     this.systemSettings = new SystemSettings(this.database, undefined, { SAAS_PUBLIC_URL: publicUrl, SAAS_ALLOW_PRIVATE_PROXY: String(allowPrivateProxy) })
-    this.publicDirectory = path.join(__dirname, '../public'); this.rateLimits = new Map()
+    this.publicDirectory = findPublicDirectory(publicDir || process.env.SAAS_PUBLIC_DIR); this.rateLimits = new Map()
     this.app = null; this.server = null
     this.configurationReady = this.systemSettings.initialize().then(() => this.refreshSystemSettings())
   }
@@ -421,14 +439,47 @@ class WorkspaceServer {
   }
   static (req, res, pathname) {
     if (!['GET', 'HEAD'].includes(req.method)) throw new UserError('不支持此请求方式。', 405)
-    let relative
-    try { relative = decodeURIComponent(pathname === '/' ? '/index.html' : pathname) } catch { throw new UserError('页面地址无效。', 404) }
-    const file = path.resolve(this.publicDirectory, `.${relative}`)
-    if (!file.startsWith(this.publicDirectory + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) throw new UserError('页面不存在。', 404)
-    const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' }
-    const mime = types[path.extname(file)]
+    let cleanPath
+    try { cleanPath = decodeURIComponent(pathname) } catch { throw new UserError('页面地址无效。', 404) }
+    if (cleanPath === '/' || cleanPath === '/login' || cleanPath === '/signin') cleanPath = '/index.html'
+    else if (cleanPath === '/system-admin' || cleanPath === '/admin') cleanPath = '/system-admin.html'
+
+    const sanitized = path.normalize(cleanPath).replace(/^[./\\]+/, '')
+    let target = path.resolve(this.publicDirectory, sanitized)
+    const baseDir = this.publicDirectory.endsWith(path.sep) ? this.publicDirectory : this.publicDirectory + path.sep
+    if (!target.startsWith(baseDir) && target !== this.publicDirectory) {
+      throw new UserError('页面不存在。', 404)
+    }
+
+    if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
+      if (fs.existsSync(target + '.html') && fs.statSync(target + '.html').isFile()) {
+        target = target + '.html'
+      } else {
+        throw new UserError('页面不存在。', 404)
+      }
+    } else if (!fs.statSync(target).isFile()) {
+      throw new UserError('页面不存在。', 404)
+    }
+
+    const types = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.png': 'image/png',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json; charset=utf-8',
+      '.ico': 'image/x-icon',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff'
+    }
+    const mime = types[path.extname(target)]
     if (!mime) throw new UserError('页面不存在。', 404)
-    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' }); if (req.method === 'HEAD') return res.end(); fs.createReadStream(file).pipe(res)
+    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' })
+    if (req.method === 'HEAD') return res.end()
+    fs.createReadStream(target).pipe(res)
   }
   async launchEnvelope (workspaceId, member, environment, encryption, extra = {}) {
     const db = this.database
@@ -491,4 +542,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { WorkspaceServer, validateProfile, loadEnvironment }
+module.exports = { WorkspaceServer, validateProfile, loadEnvironment, findPublicDirectory }

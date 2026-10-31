@@ -1,6 +1,6 @@
 {
   "name": "@qijie/saas-server",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "description": "栖界指纹浏览器云端协同中枢服务 (SaaS Server)",
   "main": "src/workspace-server.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "prisma:validate": "node scripts/prisma-cli.cjs validate",
     "prisma:sync": "node scripts/prisma-cli.cjs db push",
     "prisma:prepare-linux-engine": "node scripts/prepare-prisma-engines.cjs",
-    "test": "node --test test/resource-deletion.test.js test/client-authorization.test.js test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
+    "test": "node --test test/static-routes.test.js test/resource-deletion.test.js test/client-authorization.test.js test/system-settings.test.js test/desktop-sdk.test.js test/account-launch.test.js test/project-boundary.test.js test/workspace.test.js test/media-authorizations.test.js test/media-authorization-ui.test.js test/registration.test.js test/billing.test.js",
     "package:source": "pwsh -NoProfile -File scripts/package-source.ps1"
   },
   "engines": {
