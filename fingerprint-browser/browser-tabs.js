@@ -17,7 +17,7 @@ const { resolveAddress } = require('./browser-navigation')
 const STEALTH_PRELOAD_PATH = path.join(__dirname, 'stealth-preload.js')
 
 
-const HEADER_HEIGHT = 94
+const HEADER_HEIGHT = 75
 const NEW_TAB_URL = pathToFileURL(path.join(__dirname, 'new-tab.html')).href
 const DEFAULT_PROXY_TIMEOUT_MS = 10000
 const ALLOWED_PERMISSION_TYPES = new Set(['fullscreen', 'pointerLock', 'clipboard-sanitized-write'])

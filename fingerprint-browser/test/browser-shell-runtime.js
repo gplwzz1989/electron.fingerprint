@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
   assert.equal((await home.webContents.executeJavaScript('window.desktopBridge.runtime()')).ok, true)
   assert.equal(await home.webContents.executeJavaScript('typeof window.browserApi.saveProfile'), 'function')
   assert.equal(await window.webContents.executeJavaScript('typeof window.browserApi'), 'undefined')
-  assert.equal(home.getBounds().y, 94); record('固定首页完整业务桥接，外壳只暴露控制能力，内容区域正确避开顶部 94 像素')
+  assert.equal(home.getBounds().y, 75); record('固定首页完整业务桥接，外壳只暴露控制能力，内容区域正确避开顶部 75 像素')
   const apiUrl = `http://127.0.0.1:${automation.port}/api/v1/health`
   assert.equal(await home.webContents.executeJavaScript(`fetch(${JSON.stringify(apiUrl)}).then(r=>r.status)`), 200)
   record('固定 SaaS 标签访问 HTTP API 自动免填令牌')
@@ -95,7 +95,7 @@ app.whenReady().then(async () => {
   record('真实指纹环境标签保留沙箱防检测预加载与业务桥接，Cookie 与普通浏览器会话隔离')
   await assert.rejects(() => controller.navigate({ id: null, action: 'load', url: other + '/' }))
   controller.selectDashboard(); assert.equal(home.webContents.getURL(), homeUrl)
-  window.setSize(1440, 900); controller.layout(); assert.equal(home.getBounds().height, window.getContentSize()[1] - 94)
+  window.setSize(1440, 900); controller.layout(); assert.equal(home.getBounds().height, window.getContentSize()[1] - 75)
   const blankResult = await controller.openOrdinary(); const blank = controller.getTab(blankResult.tabId).view.webContents
   assert.equal(controller.snapshot().tabs.find(tab => tab.id === blankResult.tabId).url, 'about:blank')
   assert.equal(await blank.executeJavaScript('document.querySelector("input").placeholder'), '搜索或输入网址')
