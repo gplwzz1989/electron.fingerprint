@@ -1,8 +1,90 @@
-# 桌面浏览器基座
+# 桌面浏览器基座 (@qijie/desktop-base)
 
-本目录是独立的桌面应用项目，可单独放入任意 Git 仓库。无需同级业务服务、数据库、邮件配置或其他项目源码。第三方应用通过配置固定首页并调用公开桥接协议使用基座。
+本目录是独立的桌面应用项目，同时支持作为 NPM 包在第三方应用与 CLI 中快速集成。无需同级业务服务、数据库、邮件配置或其他项目源码。第三方应用通过配置固定首页并调用公开桥接协议使用基座。
 
 基座提供固定首页、多标签、普通网页与系统页面权限隔离、独立浏览环境、指纹参数执行、代理连接、本地令牌鉴权接口、自动化和签名更新。业务应用自行处理用户、登录、团队、账号授权、套餐、支付、指纹生成和业务数据库；基座不请求这些业务接口，不解析业务 Cookie。
+
+## NPM 包使用指南
+
+### 1. 安装
+
+```bash
+# 本地项目安装
+npm install @qijie/desktop-base
+
+# 或全局安装 CLI 工具
+npm install -g @qijie/desktop-base
+```
+
+### 2. 命令行 CLI 使用
+
+安装后即可直接使用 `fingerprint-browser` 或 `qijie-desktop` 命令，也支持 `npx` 免安装运行：
+
+```bash
+# 快速启动指定应用页面的浏览器基座
+npx @qijie/desktop-base --url https://your-saas-domain.com
+
+# 显式指定指纹内核运行时与运行环境
+npx @qijie/desktop-base --runtime "D:/path/to/electron-fp-build/src/out/Release" --env dev
+
+# 后台脱离终端静默启动
+npx @qijie/desktop-base --url https://your-saas-domain.com --detached
+```
+
+**常用 CLI 选项**：
+- `-u, --url <url>`：覆盖或指定浏览器基座启动的首页 URL。
+- `-r, --runtime <dir>`：指定指纹版 Electron 运行时路径（也可通过环境变量 `FP_ELECTRON_RUNTIME` 设定）。
+- `-d, --data-dir <dir>`：指定用户数据存储目录（也可通过环境变量 `FP_BROWSER_DATA_DIR` 设定）。
+- `-e, --env <env>`：指定配置环境（`prod` | `dev` | `test`）。
+- `--name <appName>`：定制窗口标题与应用名。
+- `--id <appId>`：定制独立单实例锁与应用标识。
+- `--detached`：在后台独立进程启动并释放终端。
+
+---
+
+### 3. Node.js 编程调用 (Programmatic API)
+
+在后端服务、本地调度器或自动化脚本中直接导入基座能力：
+
+```javascript
+const {
+  launch,
+  sealLaunch,
+  createLaunchRequest,
+  getDefaultProfile,
+  PROTOCOL_VERSION
+} = require('@qijie/desktop-base')
+
+// 1. 编程方式启动指纹浏览器基座
+async function main() {
+  const instance = await launch({
+    appUrl: 'https://your-workspace.com',
+    runtimeRoot: 'D:/path/to/runtime',
+    environment: 'prod',
+    // 传递给底层的额外 Chromium 参数
+    extraArgs: ['--disable-gpu-shader-disk-cache']
+  })
+
+  console.log(`浏览器基座已启动，PID: ${instance.pid}，数据目录: ${instance.dataRoot}`)
+
+  // 监听进程退出
+  instance.process.on('exit', code => {
+    console.log(`基座退出，退出码: ${code}`)
+  })
+}
+
+// 2. 服务端生成符合规范的加密启动信封 (desktop-launch-v1)
+function generateLaunchEnvelope(clientPublicKeyRequest, profileConfig) {
+  const envelope = sealLaunch(
+    profileConfig,
+    clientPublicKeyRequest,
+    { workspaceId: 'team-uuid', environmentId: 'env-uuid' }
+  )
+  return envelope
+}
+```
+
+---
 
 ## 独立启动
 

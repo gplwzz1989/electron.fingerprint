@@ -1,0 +1,24 @@
+# 编译与打包产物
+dist/
+dist.zip
+*.log
+*.sha256
+
+# 本地数据与缓存
+data/
+runtime/
+bin/ffmpeg.exe
+scratch/
+
+# 本地私有配置与密钥
+build-config.json
+client-config.json
+automation-access.json
+*.key
+*.pem
+*.pfx
+
+# 开发与测试
+test/
+.idea/
+.vscode/

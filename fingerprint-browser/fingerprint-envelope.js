@@ -23,4 +23,34 @@ function openLaunch (envelope, privateKey, expected) {
     } finally { key.fill(0) }
   } catch { throw new Error('启动配置解密或校验失败，请重新获取环境配置。') }
 }
-module.exports = { createLaunchRequest }
+function validateLaunchRequest (request) {
+  if (!request || !/^[a-f0-9]{64}$/.test(request.nonce) || typeof request.publicKey !== 'string' || request.publicKey.length > 2048) throw new Error('启动加密请求无效，请升级客户端后重试。')
+  let key
+  try { key = crypto.createPublicKey(request.publicKey) } catch { throw new Error('客户端加密公钥无效。') }
+  if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength < 2048 || key.asymmetricKeyDetails.modulusLength > 4096) throw new Error('客户端加密公钥不符合要求。')
+  if (request.protocol && request.protocol !== FORMAT) throw new Error('客户端启动协议版本不受支持。')
+  return key
+}
+
+function sealLaunch (profile, request, context = {}) {
+  const publicKey = validateLaunchRequest(request)
+  const scope = context.workspaceId || context.scope || request.scope
+  const resourceId = context.environmentId || context.resourceId || request.resourceId
+  if (request.protocol === FORMAT && (request.scope !== scope || request.resourceId !== resourceId)) throw new Error('启动请求与当前团队或环境不一致。')
+  const metadata = { format: FORMAT, scope, resourceId, nonce: request.nonce, expiresAt: Date.now() + 60000 }
+  const key = crypto.randomBytes(32); const iv = crypto.randomBytes(12)
+  try {
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv); cipher.setAAD(Buffer.from(JSON.stringify(metadata)))
+    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(profile), 'utf8'), cipher.final()])
+    const wrappedKey = crypto.publicEncrypt({ key: publicKey, oaepHash: 'sha256', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING }, key)
+    return { ...metadata, iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64'), wrappedKey: wrappedKey.toString('base64') }
+  } finally { key.fill(0) }
+}
+
+module.exports = {
+  FORMAT,
+  createLaunchRequest,
+  openLaunch,
+  sealLaunch,
+  validateLaunchRequest
+}

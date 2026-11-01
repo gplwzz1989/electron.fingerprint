@@ -3,8 +3,44 @@
   "productName": "浏览器基座",
   "version": "0.4.0",
   "private": false,
-  "description": "独立可配置的第三方桌面浏览器基座",
-  "main": "main.js",
+  "description": "独立可配置的第三方桌面浏览器基座，支持指纹注入、多环境隔离、代理网络与受控桥接协议",
+  "main": "index.js",
+  "bin": {
+    "fingerprint-browser": "./bin/cli.js",
+    "qijie-desktop": "./bin/cli.js"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./electron-main": "./main.js",
+    "./launcher": "./launcher.js",
+    "./envelope": "./fingerprint-envelope.js",
+    "./client-config": "./client-config.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/cli.js",
+    "assets",
+    "profiles",
+    "renderer",
+    "platform-automation",
+    "*.js",
+    "*.html",
+    "*.css",
+    "build-config.example.json",
+    "PROTOCOL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "fingerprint",
+    "browser",
+    "electron",
+    "stealth",
+    "automation",
+    "proxy",
+    "desktop-base"
+  ],
+  "license": "MIT",
   "scripts": {
     "start": "node scripts/start.js",
     "watch": "node scripts/watch.js",
@@ -12,7 +48,7 @@
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
     "test:client-security": "node --test test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js",
-    "test": "node --test test/platform-package-manager.test.js test/session-restore.test.js test/encrypted-launch-identity.test.js test/session-observer.test.js test/project-boundary.test.js test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js test/profile-repository.test.js test/environment-repository.test.js test/browser-tabs-popups.test.js",
+    "test": "node --test test/platform-package-manager.test.js test/session-restore.test.js test/encrypted-launch-identity.test.js test/session-observer.test.js test/project-boundary.test.js test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js test/profile-repository.test.js test/environment-repository.test.js test/browser-tabs-popups.test.js test/npm-package.test.js",
     "prepare:ffmpeg": "node scripts/ensure-ffmpeg.js",
     "test:fingerprint": "node scripts/test-fingerprint.js",
     "test:fingerprint:contexts": "node scripts/test-fingerprint.js --contexts",

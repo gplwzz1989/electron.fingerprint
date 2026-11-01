@@ -2,6 +2,7 @@
 data/
 bin/*
 !bin/.gitkeep
+!bin/cli.js
 scratch/
 build-config.json
 client-config.json
