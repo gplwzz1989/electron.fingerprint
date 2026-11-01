@@ -170,9 +170,12 @@ class TabBrowser {
       activeId: this.activeId,
       maximized: this.window?.isMaximized?.() || false,
       home: home && !home.isDestroyed() ? { url: home.getURL() || this.homeUrl, loading: home.isLoading(), canGoBack: home.navigationHistory.canGoBack(), canGoForward: home.navigationHistory.canGoForward(), error: this.homeError || '' } : {},
-      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
+      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, authType: tab.authType || null, showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : Boolean(tab.authType), saving: Boolean(tab.saving), ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
         id: tab.id,
         kind: 'managed',
+        authType: tab.authType || null,
+        showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : Boolean(tab.authType),
+        saving: Boolean(tab.saving),
         environmentId: tab.environmentId,
         profileId: tab.profile.id,
         externalReference: this.environmentRepository.get(tab.environmentId)?.externalReference,
@@ -354,7 +357,10 @@ class TabBrowser {
     tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
     const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' ? { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
     const contents = view.webContents
-    const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: '新标签页', url, error: '', loading: false, networkProxy: options.proxy }
+    const pinnedTitle = options.name ? String(options.name).trim() : null
+    const authType = options.authType || null
+    const showSaveButton = options.showSaveButton !== undefined ? Boolean(options.showSaveButton) : Boolean(authType)
+    const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: pinnedTitle || '新标签页', pinnedTitle, authType, showSaveButton, saving: false, authConfig: options.authConfig || null, url, error: '', loading: false, networkProxy: options.proxy }
     this.tabs.set(tab.id, tab)
     this.capabilityRegistry?.register(contents, kind, options)
     this.bindShortcuts(contents)
@@ -365,7 +371,7 @@ class TabBrowser {
     for (const name of ['will-navigate', 'will-redirect']) contents.on(name, (event, destination) => {
       if (!/^https?:\/\//i.test(destination) && destination !== 'about:blank') event.preventDefault()
     })
-    contents.on('page-title-updated', (_event, title) => { tab.title = title || '新标签页'; this.notify() })
+    contents.on('page-title-updated', (_event, title) => { tab.title = tab.pinnedTitle || title || '新标签页'; this.notify() })
     contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; this.notify() })
     contents.on('did-stop-loading', () => { tab.loading = false; this.notify() })
     for (const name of ['did-navigate', 'did-navigate-in-page']) contents.on(name, () => { tab.url = contents.getURL() === NEW_TAB_URL ? 'about:blank' : contents.getURL(); this.notify() })
@@ -504,7 +510,10 @@ class TabBrowser {
       additionalArguments: bridgeArguments(),
       backgroundThrottling: false
     } })
-    const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: '新标签', url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
+    const pinnedTitle = policy.name ? String(policy.name).trim() : null
+    const authType = policy.authType || null
+    const showSaveButton = policy.showSaveButton !== undefined ? Boolean(policy.showSaveButton) : Boolean(authType)
+    const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: pinnedTitle || '新标签', pinnedTitle, authType, showSaveButton, saving: false, authConfig: policy.authConfig || null, url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
     this.capabilityRegistry?.register(contents, 'managed', { capabilities: ['*'], allowedOrigins: /^https?:/.test(url) ? [new URL(url).origin] : [], ...policy })
     const restore = sessionSnapshot ? await restoreSessionSnapshot(contents, sessionSnapshot, { dataDir }) : null
@@ -571,7 +580,7 @@ class TabBrowser {
         if (!/^https?:\/\//i.test(target) && target !== 'about:blank') navigationEvent.preventDefault()
       })
     }
-    contents.on('page-title-updated', (_event, title) => { tab.title = title; this.notify() })
+    contents.on('page-title-updated', (_event, title) => { tab.title = tab.pinnedTitle || title || '新标签页'; this.notify() })
     contents.on('dom-ready', () => {
       void contents.executeJavaScript(generateStealthScript()).catch(() => {})
     })

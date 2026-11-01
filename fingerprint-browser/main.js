@@ -351,10 +351,19 @@ async function preparePlatformAuthorization (owner, input) {
   }
 
   if (!environment || !result) {
-    result = await tabBrowser.openOrdinary('about:blank', { kind: 'managed', ...policy })
-    return { tabId: result.tabId, environmentId: null }
+    result = await tabBrowser.openOrdinary('about:blank', { kind: 'managed', name: input.name, authType: 'platform', showSaveButton: input.showSaveButton !== false, authConfig: input, ...policy })
   }
-  return { tabId: result.tabId, environmentId: environment.id }
+  const tab = tabBrowser.getTab(result.tabId)
+  if (tab) {
+    tab.authType = 'platform'
+    tab.showSaveButton = input.showSaveButton !== false
+    if (input.name && typeof input.name === 'string' && input.name.trim()) {
+      tab.pinnedTitle = input.name.trim()
+      tab.title = tab.pinnedTitle
+    }
+    tab.authConfig = { ...input, type: 'platform', ownerSenderId: owner.id }
+  }
+  return { tabId: result.tabId, environmentId: environment?.id || null }
 }
 
 async function installClientUpdate () {
@@ -420,7 +429,13 @@ function registerIpc () {
       }
       desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
       const prepared = await preparePlatformAuthorization(event.sender, input)
-      return { ok: true, ...await platformRuntime.start(event.sender, { ...input, ...prepared }, desktop) }
+      const started = await platformRuntime.start(event.sender, { ...input, ...prepared }, desktop)
+      const tab = tabBrowser.getTab(prepared.tabId)
+      if (tab) {
+        tab.authConfig = { ...tab.authConfig, platformJobId: started.id }
+        tabBrowser.notify()
+      }
+      return { ok: true, ...started }
     } catch (error) { if (error instanceof ProfileValidationError) throw error; throw new ProfileValidationError('平台能力不可用，请检查客户端能力包配置。') }
   })
   for (const action of ['open', 'read', 'capture', 'close']) handle(`session:${action}`, async (event, input) => {
@@ -531,6 +546,193 @@ function registerIpc () {
   })
   handle('tabs:ordinary', async () => ({ ok: true, ...await tabBrowser.openOrdinary() }))
   handle('tabs:create-managed', async (_event, payload) => ({ ok: true, ...await tabBrowser.createManaged(payload) }))
+  handle('tabs:open-auth', async (event, payload) => {
+    if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以打开授权标签页。')
+    if (!payload || typeof payload !== 'object') throw new ProfileValidationError('请提供有效的授权标签配置。')
+    const type = payload.type === 'platform' ? 'platform' : 'custom'
+    if (type === 'platform') {
+      const prepared = await preparePlatformAuthorization(event.sender, payload)
+      platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+      sessionObserver ||= new SessionObserver(tabBrowser)
+      const desktop = {}
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async p => {
+        try { return { ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? p.id : p, operation === 'capture' ? desktop.authorizeCapture : null) } } catch (error) {
+          console.error('[平台能力调用失败]', { method, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); throw error
+        }
+      }
+      desktop.refreshIdentity = async () => {
+        const policy = desktop.authorizeCapture
+        const contents = tabBrowser.getTab(policy.tabId)?.view?.webContents
+        if (!contents || !policy.platform.identityRequest || new URL(contents.getURL()).origin !== new URL(policy.platform.url).origin) return
+        await contents.executeJavaScript('fetch(' + JSON.stringify(policy.platform.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }).then(() => true).catch(() => false)')
+      }
+      desktop.navigate = async p => { await tabBrowser.navigate({ ...p, action: 'load' }); return { ok: true } }
+      const started = await platformRuntime.start(event.sender, { ...payload, ...prepared }, desktop)
+      const tab = tabBrowser.getTab(prepared.tabId)
+      if (tab) {
+        tab.authType = 'platform'
+        tab.showSaveButton = payload.showSaveButton !== false
+        if (payload.name && typeof payload.name === 'string' && payload.name.trim()) {
+          tab.pinnedTitle = payload.name.trim()
+          tab.title = tab.pinnedTitle
+        }
+        tab.authConfig = { ...payload, type: 'platform', ownerSenderId: event.sender.id, platformJobId: started.id }
+        tabBrowser.notify()
+      }
+      return { ok: true, type: 'platform', tabId: prepared.tabId, ...started }
+    } else {
+      if (!payload.url || typeof payload.url !== 'string') throw new ProfileValidationError('请提供自定义授权的目标网址。')
+      const targetUrl = normalizeUrl(payload.url)
+      const policy = tabBrowser.capabilityRegistry.normalize({
+        capabilities: payload.capabilities ?? ['*'],
+        allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(targetUrl) ? [new URL(targetUrl).origin] : [])
+      })
+      const pinnedTitle = payload.name && typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : null
+      const showSaveButton = payload.showSaveButton !== false
+      let result
+      if (payload.environmentId) {
+        const environment = environmentRepository.get(payload.environmentId)
+        if (!environment) throw new ProfileValidationError('找不到指定的浏览器环境。')
+        result = await tabBrowser.openPage(environment, randomUUID(), targetUrl, { ...policy, name: pinnedTitle, authType: 'custom', showSaveButton, authConfig: payload })
+      } else {
+        result = await tabBrowser.openOrdinary(targetUrl, { kind: 'managed', name: pinnedTitle, authType: 'custom', showSaveButton, authConfig: payload, ...policy })
+      }
+      const tab = tabBrowser.getTab(result.tabId)
+      if (tab) {
+        tab.authType = 'custom'
+        tab.showSaveButton = showSaveButton
+        if (pinnedTitle) {
+          tab.pinnedTitle = pinnedTitle
+          tab.title = pinnedTitle
+        }
+        tab.authConfig = { ...payload, type: 'custom', ownerSenderId: event.sender.id }
+        tabBrowser.notify()
+      }
+      return { ok: true, type: 'custom', tabId: result.tabId }
+    }
+  })
+  handle('tabs:save-auth', async (event, tabId) => {
+    const id = tabId || tabBrowser.activeId
+    if (!id) throw new ProfileValidationError('未选择需要保存的标签页。')
+    const tab = tabBrowser.getTab(id)
+    if (!tab) throw new ProfileValidationError('找不到要保存的标签页。')
+    if (tab.saving) return { ok: true, saving: true }
+    tab.saving = true
+    tabBrowser.notify()
+    try {
+      const contents = tab.view?.webContents
+      if (!contents || contents.isDestroyed()) throw new ProfileValidationError('网页已关闭，无法获取授权数据。')
+      await contents.session.cookies.flushStore()
+      const currentUrl = contents.getURL()
+      let payload = null
+
+      if (tab.authType === 'custom') {
+        let cookies = []
+        try {
+          const urlObj = new URL(currentUrl)
+          const all = await contents.session.cookies.get({})
+          cookies = all.filter(c => {
+            if (!c.domain) return false
+            const d = c.domain.replace(/^\./, '')
+            return urlObj.hostname === d || urlObj.hostname.endsWith('.' + d)
+          })
+          if (!cookies.length) cookies = await contents.session.cookies.get({ url: currentUrl })
+        } catch {
+          cookies = await contents.session.cookies.get({})
+        }
+        payload = {
+          type: 'custom',
+          tabId: tab.id,
+          name: tab.pinnedTitle || tab.title,
+          url: currentUrl,
+          cookies: cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: Boolean(c.secure),
+            httpOnly: Boolean(c.httpOnly),
+            sameSite: c.sameSite || 'unspecified',
+            expirationDate: c.expirationDate
+          })),
+          timestamp: Date.now()
+        }
+      } else {
+        let storage = {}
+        let identity = null
+        let cookies = []
+        const job = sessionObserver ? [...sessionObserver.jobs.values()].find(j => j.contents === contents) : null
+
+        if (job) {
+          try {
+            const readResult = await sessionObserver.read(job.owner, { id: job.id })
+            storage = readResult.storage || job.storage || {}
+          } catch {}
+          const domains = job.origins.map(origin => { try { return new URL(origin).hostname } catch { return '' } }).filter(Boolean)
+          const allCookies = await contents.session.cookies.get({})
+          cookies = allCookies.filter(c => typeof c.domain === 'string' && domains.some(host => host === c.domain.replace(/^\./, '') || host.endsWith('.' + c.domain.replace(/^\./, ''))))
+          if (platformRuntime) {
+            try {
+              const { rpa } = await platformRuntime.load()
+              const platformKey = tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey
+              if (rpa && typeof rpa.identity === 'function') {
+                for (const res of job.responses || []) {
+                  const idn = rpa.identity(platformKey, res.body)
+                  if (idn?.platformUserId) { identity = idn; break }
+                }
+              }
+            } catch {}
+          }
+        } else {
+          try {
+            storage = await contents.executeJavaScript('try { Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])) } catch { ({}) }')
+          } catch {}
+          cookies = await contents.session.cookies.get({})
+        }
+
+        if (tab.authType === 'platform' && !identity?.platformUserId && tab.authConfig?.task?.expectedUserId) {
+          identity = { platformUserId: tab.authConfig.task.expectedUserId }
+        }
+
+        payload = {
+          type: 'platform',
+          tabId: tab.id,
+          name: tab.pinnedTitle || tab.title,
+          platformKey: tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey || null,
+          identity,
+          cookies: cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: Boolean(c.secure),
+            httpOnly: Boolean(c.httpOnly),
+            sameSite: c.sameSite || 'unspecified',
+            expirationDate: c.expirationDate
+          })),
+          storage,
+          timestamp: Date.now()
+        }
+      }
+
+      if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+        dashboardWindow.webContents.send('authorization:saved', payload)
+      }
+      if (tab.authConfig?.ownerSenderId) {
+        const sender = webContents.fromId(tab.authConfig.ownerSenderId)
+        if (sender && !sender.isDestroyed() && sender !== dashboardWindow?.webContents) {
+          sender.send('authorization:saved', payload)
+        }
+      }
+      return { ok: true, data: payload }
+    } catch (error) {
+      if (error instanceof ProfileValidationError) throw error
+      throw new ProfileValidationError('保存授权数据失败：' + (error.message || '未知错误'))
+    } finally {
+      tab.saving = false
+      tabBrowser.notify()
+    }
+  })
   handle('tabs:set-capabilities', async (_event, payload) => ({ ok: true, policy: tabBrowser.setCapabilities(payload) }))
   for (const action of ['list', 'select', 'close', 'reorder', 'navigate', 'new-page', 'devtools', 'dashboard']) {
     handle(`tabs:${action}`, async (event, payload) => {

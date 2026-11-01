@@ -65,6 +65,18 @@
     const reload = document.querySelector('[data-action="reload"]'); reload.setAttribute('aria-label', tab.loading ? '停止加载' : '刷新'); reload.title = tab.loading ? '停止加载' : '刷新'
     reload.innerHTML = tab.loading ? '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M20 9a8 8 0 1 0 0 6M20 3v6h-6"/></svg>'
     document.querySelector('.browser-chrome').classList.toggle('page-loading', Boolean(tab.loading))
+    const saveBtn = document.querySelector('[data-action="save"]')
+    if (saveBtn) {
+      const showSave = Boolean(tab && tab.id && tab.showSaveButton)
+      saveBtn.hidden = !showSave
+      if (showSave) {
+        const isSaving = Boolean(tab.saving)
+        saveBtn.disabled = isSaving
+        saveBtn.classList.toggle('loading', isSaving)
+        saveBtn.title = isSaving ? '正在保存授权中…' : '保存授权'
+        saveBtn.setAttribute('aria-label', isSaving ? '正在保存授权中' : '保存授权')
+      }
+    }
     document.querySelector('[data-action="back"]').disabled = !tab.canGoBack; document.querySelector('[data-action="forward"]').disabled = !tab.canGoForward
     document.querySelector('[data-action="maximize"]').setAttribute('aria-label', snapshot.maximized ? '还原窗口' : '最大化')
     if (changed && tab.kind === 'ordinary' && tab.url === 'about:blank') { address.focus(); address.select() }
@@ -76,6 +88,24 @@
     if (action === 'new') void call(() => bridge.create())
     else if (action === 'home') void call(() => bridge.home())
     else if (action === 'select') void call(() => bridge.select(id))
+    else if (action === 'save') {
+      const current = state.tabs.find(tab => tab.id === state.activeId)
+      if (!current || current.saving) return
+      current.saving = true
+      button.disabled = true
+      button.classList.add('loading')
+      button.title = '正在保存授权中…'
+      button.setAttribute('aria-label', '正在保存授权中')
+      void call(() => bridge.saveAuth(current.id)).finally(() => {
+        current.saving = false
+        if (state.activeId === current.id) {
+          button.disabled = false
+          button.classList.remove('loading')
+          button.title = '保存授权'
+          button.setAttribute('aria-label', '保存授权')
+        }
+      })
+    }
     else if (action === 'close') { if (pendingCloses.has(id)) return; pendingCloses.add(id); holdCloseLayout(id); void call(() => bridge.close(id)).then(result => { pendingCloses.delete(id); if (!result?.ok) releaseCloseLayout() }) }
     else if (['back', 'forward', 'reload'].includes(action)) { editing = false; const current = state.tabs.find(tab => tab.id === state.activeId) || state.home; void call(() => bridge.navigate({ id: state.activeId, action: action === 'reload' && current.loading ? 'stop' : action })) }
     else if (action === 'devtools') void call(() => bridge.devtools(state.activeId))

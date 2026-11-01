@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('browserShell', {
   navigate: payload => ipcRenderer.invoke('tabs:navigate', payload),
   windowAction: action => ipcRenderer.invoke('window:action', action),
   devtools: id => ipcRenderer.invoke('tabs:devtools', id),
+  saveAuth: id => ipcRenderer.invoke('tabs:save-auth', id),
   onState: callback => { const listener = (_event, state) => callback(state); ipcRenderer.on('tabs:changed', listener); return () => ipcRenderer.removeListener('tabs:changed', listener) },
   onFocusAddress: callback => { const listener = () => callback(); ipcRenderer.on('shell:focus-address', listener); return () => ipcRenderer.removeListener('shell:focus-address', listener) }
 })

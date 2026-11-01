@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   dashboard: () => ipcRenderer.invoke('tabs:dashboard'),
   navigate: payload => ipcRenderer.invoke('tabs:navigate', payload),
   createTab: payload => ipcRenderer.invoke('tabs:create-managed', payload),
+  openAuthTab: payload => ipcRenderer.invoke('tabs:open-auth', payload),
   setTabCapabilities: payload => ipcRenderer.invoke('tabs:set-capabilities', payload),
   requestLocalApi: payload => ipcRenderer.invoke('automation:request', payload),
   updateStatus: () => ipcRenderer.invoke('updates:status'),
@@ -44,6 +45,11 @@ contextBridge.exposeInMainWorld('desktopBridge', {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('tabs:changed', listener)
     return () => ipcRenderer.removeListener('tabs:changed', listener)
+  },
+  onAuthSaved: callback => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('authorization:saved', listener)
+    return () => ipcRenderer.removeListener('authorization:saved', listener)
   }
 })
 
@@ -53,7 +59,7 @@ if (contractArgument) {
   const contract = JSON.parse(decodeURIComponent(contractArgument.slice('--qijie-api-contract='.length)))
   const api = { hostPlatform: process.platform }
   for (const [method, channel] of Object.entries(contract.browserApi)) api[method] = payload => ipcRenderer.invoke(channel, method === 'createGroup' && typeof payload === 'string' ? { name: payload } : payload)
-  for (const [method, channel] of Object.entries({ onTabsChanged: 'tabs:changed', onProfilesChanged: 'profiles:changed', onEnvironmentsChanged: 'environments:changed', onGroupsChanged: 'groups:changed' })) {
+  for (const [method, channel] of Object.entries({ onTabsChanged: 'tabs:changed', onProfilesChanged: 'profiles:changed', onEnvironmentsChanged: 'environments:changed', onGroupsChanged: 'groups:changed', onAuthSaved: 'authorization:saved' })) {
     api[method] = callback => { if (typeof callback !== 'function') return () => {}; const listener = (_event, payload) => callback(payload); ipcRenderer.on(channel, listener); return () => ipcRenderer.removeListener(channel, listener) }
   }
   contextBridge.exposeInMainWorld('browserApi', api)
