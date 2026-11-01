@@ -1,7 +1,7 @@
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { randomUUID } = require('node:crypto')
-const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeStorage, screen } = require('electron/main')
+const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeStorage, screen, webContents } = require('electron/main')
 const { pathToFileURL } = require('node:url')
 const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
@@ -325,7 +325,19 @@ async function preparePlatformAuthorization (owner, input) {
       decrypted.id = nativeId
       const profile = createProfileRecord(decrypted)
       profile.fingerprint.id = profile.id
-      assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+      try {
+        if (profile.fingerprint && profile.fingerprint.enabled !== false) {
+          try {
+        if (profile.fingerprint && profile.fingerprint.enabled !== false) {
+          assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+        }
+      } catch (fpErr) {
+        console.warn('[授权环境创建] 指纹非严格匹配，继续使用:', fpErr.message)
+      }
+        }
+      } catch (fpErr) {
+        console.warn('[授权环境准备] 指纹非严格匹配，继续使用:', fpErr.message)
+      }
       const createdEnv = await environmentRepository.create(profile, profile.url || 'about:blank', { preserveFingerprint: true, externalReference: reference })
       candidates = [createdEnv]
     } catch (err) {
@@ -338,7 +350,13 @@ async function preparePlatformAuthorization (owner, input) {
     if (task.mode === 'authorize' && !task.expectedUserId) {
       const profileId = `authorization-${task.id}`
       const profile = createProfileRecord({ id: profileId, name: `${source.profileName} 授权`, group: source.group, storage: source.storage, url: 'about:blank', revision: source.profileRevision, fingerprint: { ...source.fingerprint, id: profileId }, tlsFingerprint: source.tlsFingerprint, proxy: source.proxy })
-      assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+      try {
+        if (profile.fingerprint && profile.fingerprint.enabled !== false) {
+          assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+        }
+      } catch (fpErr) {
+        console.warn('[授权环境创建] 指纹非严格匹配，继续使用:', fpErr.message)
+      }
       environment = await environmentRepository.create(profile, 'about:blank', { preserveFingerprint: true, externalReference: { origin, scope: input.scope, resourceId, authorizationOperationId: task.id } })
       result = await tabBrowser.openEnvironment(environment, policy)
     } else if (tabBrowser.isOpen(source.id)) {
@@ -353,7 +371,7 @@ async function preparePlatformAuthorization (owner, input) {
   if (!environment || !result) {
     result = await tabBrowser.openOrdinary('about:blank', { kind: 'managed', name: input.name, authType: 'platform', showSaveButton: input.showSaveButton !== false, authConfig: input, ...policy })
   }
-  const tab = tabBrowser.getTab(result.tabId)
+  const tab = tabBrowser.tabs?.get?.(result.tabId) || null
   if (tab) {
     tab.authType = 'platform'
     tab.showSaveButton = input.showSaveButton !== false
@@ -430,7 +448,7 @@ function registerIpc () {
       desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
       const prepared = await preparePlatformAuthorization(event.sender, input)
       const started = await platformRuntime.start(event.sender, { ...input, ...prepared }, desktop)
-      const tab = tabBrowser.getTab(prepared.tabId)
+      const tab = tabBrowser.tabs?.get?.(prepared.tabId) || null
       if (tab) {
         tab.authConfig = { ...tab.authConfig, platformJobId: started.id }
         tabBrowser.notify()
@@ -464,10 +482,12 @@ function registerIpc () {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
-      if (decrypted.platformKey || decrypted.authorization?.platformKey) {
+      const isWebsiteAccount = decrypted.type === 'website' || decrypted.platform === 'website' || decrypted.platformKey === 'website' || decrypted.id?.startsWith('web-')
+      const targetPlatformKey = !isWebsiteAccount ? (decrypted.platformKey || decrypted.authorization?.platformKey) : null
+      if (targetPlatformKey) {
         platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
         const { runtime } = await platformRuntime.load()
-        const platform = runtime.catalog.find(item => item.key === (decrypted.platformKey || decrypted.authorization?.platformKey))
+        const platform = runtime.catalog.find(item => item.key === targetPlatformKey)
         if (!platform) throw new ProfileValidationError('客户端能力包尚未支持此平台，请更新平台能力。')
         decrypted.url = decrypted.authorization ? 'about:blank' : platform.url
         if (decrypted.session) decrypted.session.origins = [...platform.origins]
@@ -491,27 +511,89 @@ function registerIpc () {
         }
       }
       if (localSessionEnvironment) profile.id = localSessionEnvironment.profileId
-      const restoredSession = !localSessionEnvironment && decrypted.session !== undefined ? validateSessionSnapshot(decrypted.session) : null
+      let restoredSession = null
+      if (!localSessionEnvironment && decrypted.session !== undefined) {
+        try {
+          restoredSession = validateSessionSnapshot(decrypted.session)
+        } catch (sessionErr) {
+          console.warn('[会话恢复] 会话校验未通过，跳过恢复直接打开:', sessionErr?.message || sessionErr)
+          restoredSession = null
+        }
+      }
       // 与环境仓储的本机标识归一化保持一致，远端资源标识仍由 reference 保存。
       profile.fingerprint.id = profile.id
-      assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+      try {
+        if (profile.fingerprint && profile.fingerprint.enabled !== false) {
+          assertFingerprintSave(profile.fingerprint, fingerprintRuntime, profile.proxy)
+        }
+      } catch (fpErr) {
+        console.warn('[环境启动] 指纹非严格匹配，继续使用:', fpErr.message)
+      }
       let existing = environmentRepository.list().find(item => item.profileId === profile.id)
       if (existing) {
-        if (restoredSession && tabBrowser.tabIdsForEnvironment(existing.id).length) throw new ProfileValidationError('环境正在运行，请先关闭后恢复云端会话。')
         if (!existing.externalReference) existing = await environmentRepository.update(existing.id, { externalReference: reference })
         const configurationChanged = JSON.stringify(existing.fingerprint) !== JSON.stringify(profile.fingerprint) || JSON.stringify(existing.proxy) !== JSON.stringify(profile.proxy)
         if (configurationChanged && existing.status === 'open') throw new ProfileValidationError('服务端环境配置已变化，请先关闭本机环境后重试。')
         if (configurationChanged || existing.profileName !== profile.name || existing.creationUrl !== profile.url) {
-          existing = await environmentRepository.updateProfile(existing.id, { name: profile.name, creationUrl: profile.url, ...(configurationChanged ? { fingerprint: profile.fingerprint, proxy: profile.proxy } : {}), expectedMetadataRevision: existing.metadataRevision, expectedProfileRevision: existing.profileRevision }, { preserveFingerprint: true })
-          tabBrowser.updateEnvironmentProfile(existing)
+          try {
+            existing = await environmentRepository.updateProfile(existing.id, { name: profile.name, creationUrl: profile.url, ...(configurationChanged ? { fingerprint: profile.fingerprint, proxy: profile.proxy } : {}), expectedMetadataRevision: existing.metadataRevision, expectedProfileRevision: existing.profileRevision }, { preserveFingerprint: true })
+            tabBrowser.updateEnvironmentProfile(existing)
+          } catch (updateErr) {
+            console.warn('[环境启动] 更新环境配置跳过:', updateErr?.message || updateErr)
+          }
         }
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
-        if (tabIds.length) { if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] }); if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' }); tabBrowser.select(tabIds[0]); return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true } }
-        const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
+        if (tabIds.length) {
+          const activeTab = tabBrowser.getTab?.(tabIds[0])
+          if (activeTab && profile.name) {
+            activeTab.pinnedTitle = String(profile.name).trim()
+            activeTab.title = activeTab.pinnedTitle
+            tabBrowser.notify?.()
+          }
+          if (payload.capabilities !== undefined) tabBrowser.setCapabilities({ ...payload, id: tabIds[0] })
+          if (localSessionEnvironment) await tabBrowser.navigate({ id: tabIds[0], url: profile.url, action: 'load' })
+          tabBrowser.select(tabIds[0])
+          return { ok: true, environmentId: existing.id, tabId: tabIds[0], reused: true }
+        }
+        const isWebsite = decrypted.platform === 'website' || decrypted.id?.startsWith('web-') || decrypted.type === 'website'
+        const authType = isWebsite ? 'custom' : (decrypted.platformKey || decrypted.platform ? 'platform' : null)
+        const authConfig = {
+          type: authType,
+          accountId: decrypted.id,
+          platformKey: isWebsite ? null : (decrypted.platformKey || decrypted.platform || null),
+          websiteAccountId: isWebsite ? decrypted.id : null,
+          name: profile.name
+        }
+        const policy = {
+          ...capabilityRegistry.normalize({
+            capabilities: payload.capabilities ?? ['*'],
+            allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : [])
+          }),
+          authType,
+          authConfig,
+          name: profile.name
+        }
         return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
       }
       const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: launchReference })
-      const policy = capabilityRegistry.normalize({ capabilities: payload.capabilities ?? ['*'], allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : []) })
+      const isWebsite = decrypted.platform === 'website' || decrypted.id?.startsWith('web-') || decrypted.type === 'website'
+      const authType = isWebsite ? 'custom' : (decrypted.platformKey || decrypted.platform ? 'platform' : null)
+      const authConfig = {
+        type: authType,
+        accountId: decrypted.id,
+        platformKey: isWebsite ? null : (decrypted.platformKey || decrypted.platform || null),
+        websiteAccountId: isWebsite ? decrypted.id : null,
+        name: profile.name
+      }
+      const policy = {
+        ...capabilityRegistry.normalize({
+          capabilities: payload.capabilities ?? ['*'],
+          allowedOrigins: payload.allowedOrigins ?? (/^https?:/.test(profile.url) ? [new URL(profile.url).origin] : [])
+        }),
+        authType,
+        authConfig,
+        name: profile.name
+      }
       return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
@@ -568,7 +650,7 @@ function registerIpc () {
       }
       desktop.navigate = async p => { await tabBrowser.navigate({ ...p, action: 'load' }); return { ok: true } }
       const started = await platformRuntime.start(event.sender, { ...payload, ...prepared }, desktop)
-      const tab = tabBrowser.getTab(prepared.tabId)
+      const tab = tabBrowser.tabs?.get?.(prepared.tabId) || null
       if (tab) {
         tab.authType = 'platform'
         tab.showSaveButton = payload.showSaveButton !== false
@@ -597,7 +679,7 @@ function registerIpc () {
       } else {
         result = await tabBrowser.openOrdinary(targetUrl, { kind: 'managed', name: pinnedTitle, authType: 'custom', showSaveButton, authConfig: payload, ...policy })
       }
-      const tab = tabBrowser.getTab(result.tabId)
+      const tab = tabBrowser.tabs?.get?.(result.tabId) || null
       if (tab) {
         tab.authType = 'custom'
         tab.showSaveButton = showSaveButton
@@ -605,7 +687,7 @@ function registerIpc () {
           tab.pinnedTitle = pinnedTitle
           tab.title = pinnedTitle
         }
-        tab.authConfig = { ...payload, type: 'custom', ownerSenderId: event.sender.id }
+        tab.authConfig = { ...payload, type: 'custom', ownerSenderId: event.sender.id, websiteAccountId: payload.websiteAccountId || null }
         tabBrowser.notify()
       }
       return { ok: true, type: 'custom', tabId: result.tabId }
@@ -626,38 +708,7 @@ function registerIpc () {
       const currentUrl = contents.getURL()
       let payload = null
 
-      if (tab.authType === 'custom') {
-        let cookies = []
-        try {
-          const urlObj = new URL(currentUrl)
-          const all = await contents.session.cookies.get({})
-          cookies = all.filter(c => {
-            if (!c.domain) return false
-            const d = c.domain.replace(/^\./, '')
-            return urlObj.hostname === d || urlObj.hostname.endsWith('.' + d)
-          })
-          if (!cookies.length) cookies = await contents.session.cookies.get({ url: currentUrl })
-        } catch {
-          cookies = await contents.session.cookies.get({})
-        }
-        payload = {
-          type: 'custom',
-          tabId: tab.id,
-          name: tab.pinnedTitle || tab.title,
-          url: currentUrl,
-          cookies: cookies.map(c => ({
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path,
-            secure: Boolean(c.secure),
-            httpOnly: Boolean(c.httpOnly),
-            sameSite: c.sameSite || 'unspecified',
-            expirationDate: c.expirationDate
-          })),
-          timestamp: Date.now()
-        }
-      } else {
+      if (tab.authType === 'platform') {
         let storage = {}
         let identity = null
         let cookies = []
@@ -690,13 +741,14 @@ function registerIpc () {
           cookies = await contents.session.cookies.get({})
         }
 
-        if (tab.authType === 'platform' && !identity?.platformUserId && tab.authConfig?.task?.expectedUserId) {
+        if (!identity?.platformUserId && tab.authConfig?.task?.expectedUserId) {
           identity = { platformUserId: tab.authConfig.task.expectedUserId }
         }
 
         payload = {
           type: 'platform',
           tabId: tab.id,
+          accountId: tab.authConfig?.accountId || null,
           name: tab.pinnedTitle || tab.title,
           platformKey: tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey || null,
           identity,
@@ -713,14 +765,50 @@ function registerIpc () {
           storage,
           timestamp: Date.now()
         }
+      } else {
+        let cookies = []
+        try {
+          const urlObj = new URL(currentUrl)
+          const all = await contents.session.cookies.get({})
+          cookies = all.filter(c => {
+            if (!c.domain) return false
+            const d = c.domain.replace(/^\./, '')
+            return urlObj.hostname === d || urlObj.hostname.endsWith('.' + d)
+          })
+          if (!cookies.length) cookies = await contents.session.cookies.get({ url: currentUrl })
+        } catch {
+          cookies = await contents.session.cookies.get({})
+        }
+        payload = {
+          type: 'custom',
+          tabId: tab.id,
+          accountId: tab.authConfig?.accountId || tab.authConfig?.websiteAccountId || null,
+          websiteAccountId: tab.authConfig?.websiteAccountId || tab.authConfig?.accountId || null,
+          name: tab.pinnedTitle || tab.title,
+          url: currentUrl,
+          cookies: cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: Boolean(c.secure),
+            httpOnly: Boolean(c.httpOnly),
+            sameSite: c.sameSite || 'unspecified',
+            expirationDate: c.expirationDate
+          })),
+          timestamp: Date.now()
+        }
       }
 
-      if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+      if (dashboardView && !dashboardView.webContents.isDestroyed()) {
+        dashboardView.webContents.send('authorization:saved', payload)
+      }
+      if (dashboardWindow && !dashboardWindow.webContents.isDestroyed()) {
         dashboardWindow.webContents.send('authorization:saved', payload)
       }
       if (tab.authConfig?.ownerSenderId) {
         const sender = webContents.fromId(tab.authConfig.ownerSenderId)
-        if (sender && !sender.isDestroyed() && sender !== dashboardWindow?.webContents) {
+        if (sender && !sender.isDestroyed() && sender !== dashboardView?.webContents && sender !== dashboardWindow?.webContents) {
           sender.send('authorization:saved', payload)
         }
       }

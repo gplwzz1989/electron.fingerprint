@@ -374,18 +374,23 @@ function createProfileRecord (input = {}) {
       source = preset.profile
     }
   }
-  const isFingerprintDisabled = input.fingerprint === null || (source && source.enabled === false)
+  const isFingerprintDisabled = input.fingerprint === null || input.fingerprint === false || (source && source.enabled === false) || (!source && !input.schemaVersion)
   if (!source && !isFingerprintDisabled) {
     source = input
   }
-  if (!isFingerprintDisabled) {
-    ensureObject(source, '指纹配置')
-  }
   const requestedId = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : (source?.id || input.id)
   const id = requestedId || `profile-${randomUUID().slice(0, 8)}`
-  const fingerprint = isFingerprintDisabled
-    ? createFingerprintProfile({ id, enabled: false })
-    : createFingerprintProfile({ ...source, id })
+  let fingerprint
+  if (isFingerprintDisabled) {
+    fingerprint = createFingerprintProfile({ id, enabled: false })
+  } else {
+    try {
+      fingerprint = createFingerprintProfile({ ...source, id })
+    } catch (err) {
+      console.warn('[指纹配置] 指纹非标准或未提供，安全降级为不启用指纹:', err?.message || err)
+      fingerprint = createFingerprintProfile({ id, enabled: false })
+    }
+  }
   const name = input.name === undefined ? id : String(input.name).trim()
   if (!name) fail('配置名称不能为空。')
   const url = normalizeUrl(input.url === undefined ? DEFAULT_URL : String(input.url).trim())

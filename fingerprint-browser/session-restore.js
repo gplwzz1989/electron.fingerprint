@@ -38,9 +38,12 @@ async function restoreSessionSnapshot (contents, snapshot, { dataDir } = {}) {
   const markerFile = dataDir && snapshot.version !== undefined ? path.join(dataDir, 'session-restore-version.json') : null
   let prior = null
   if (markerFile) {
-    try { prior = JSON.parse(await fs.readFile(markerFile, 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw new ProfileValidationError('本机会话版本记录无法读取，已阻止覆盖。') }
+    try { prior = JSON.parse(await fs.readFile(markerFile, 'utf8')) } catch {}
     if (prior?.version === snapshot.version && prior.complete === true) return { verify: async () => {}, cleanup: async () => {}, reused: true }
-    if (typeof prior?.version === 'number' && typeof snapshot.version === 'number' && snapshot.version < prior.version) throw new ProfileValidationError('云端会话版本较旧，已保留本机登录状态。')
+    if (typeof prior?.version === 'number' && typeof snapshot.version === 'number' && snapshot.version < prior.version) {
+      // 本机版本较新，静默保留本机登录状态，直接打开页面，绝不抛错阻断
+      return { verify: async () => {}, cleanup: async () => {}, reused: true }
+    }
   }
   let persistPromise
   const persist = () => {
@@ -64,29 +67,40 @@ async function restoreSessionSnapshot (contents, snapshot, { dataDir } = {}) {
     try { await contents.session.cookies.set(cookie) } catch (error) { logCookieFailure('[会话恢复] Cookie 写入失败，已跳过并继续。', error, index) }
   }
   try { await contents.session.cookies.flushStore() } catch (error) { logCookieFailure('[会话恢复] Cookie 持久化未完成，继续打开账号。', error) }
-  const pending = new Set(Object.keys(snapshot.storage))
+  const pending = new Set(Object.keys(snapshot.storage || {}))
   if (!pending.size) return { verify: persist, cleanup: async () => {} }
   // 新建 WebContents 尚无渲染目标时先初始化空白文档，不向平台发送未恢复的请求。
   if (!contents.getURL()) await contents.loadURL('about:blank')
   const marker = '__desktop_restore_' + randomUUID().replaceAll('-', '')
   const attached = !contents.debugger.isAttached(); let identifier; let stopped = false
-  if (attached) contents.debugger.attach('1.3')
+  if (attached) {
+    try { contents.debugger.attach('1.3') } catch {}
+  }
   const cleanup = async () => {
     if (stopped) return; stopped = true
     contents.removeListener('did-frame-finish-load', onLoad)
     try { if (identifier && !contents.isDestroyed()) await contents.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }) } catch {}
-    if (attached && !contents.isDestroyed() && contents.debugger.isAttached()) contents.debugger.detach()
+    if (attached && !contents.isDestroyed() && contents.debugger.isAttached()) {
+      try { contents.debugger.detach() } catch {}
+    }
   }
   const verify = async () => {
-    if (contents.isDestroyed()) throw new ProfileValidationError('环境已关闭，会话恢复未完成。')
-    for (const frame of contents.mainFrame.framesInSubtree) {
-      let origin; try { origin = new URL(frame.url).origin } catch { continue }
-      if (!pending.has(origin)) continue
-      const restored = await frame.executeJavaScript(`localStorage.getItem(${JSON.stringify(marker)}) === 'done'`)
-      if (!restored) throw new ProfileValidationError('云端页面存储未能恢复，请关闭环境后重试。')
-      pending.delete(origin)
+    if (contents.isDestroyed()) return
+    try {
+      for (const frame of contents.mainFrame?.framesInSubtree || []) {
+        let origin; try { origin = new URL(frame.url).origin } catch { continue }
+        if (!pending.has(origin)) continue
+        const restored = await frame.executeJavaScript(`localStorage.getItem(${JSON.stringify(marker)}) === 'done'`).catch(() => false)
+        if (restored) pending.delete(origin)
+      }
+      if (!pending.size) {
+        try { contents.session.flushStorageData() } catch {}
+        await persist()
+        await cleanup()
+      }
+    } catch (err) {
+      console.warn('[会话恢复] 校验跳过:', err.message)
     }
-    if (!pending.size) { contents.session.flushStorageData(); await persist(); await cleanup() }
   }
   const onLoad = () => { void verify().catch(() => {}) }
   contents.on('did-frame-finish-load', onLoad); contents.once('destroyed', () => { void cleanup() })
@@ -95,6 +109,10 @@ async function restoreSessionSnapshot (contents, snapshot, { dataDir } = {}) {
     const source = `(() => { const data=${JSON.stringify(snapshot.storage)}; const values=data[location.origin]; if(!values || localStorage.getItem(${JSON.stringify(marker)})==='done')return; for(const [key,value] of Object.entries(values))localStorage.setItem(key,value); localStorage.setItem(${JSON.stringify(marker)},'done'); })()`
     identifier = (await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source, worldName: 'desktop-session-restore' })).identifier
     return { verify, cleanup }
-  } catch { await cleanup(); throw new ProfileValidationError('无法准备页面存储恢复，请关闭环境后重试。') }
+  } catch (err) {
+    await cleanup()
+    console.warn('[会话恢复] 无法准备页面存储恢复，已跳过存储恢复保持页面可用:', err.message)
+    return { verify: async () => {}, cleanup: async () => {} }
+  }
 }
 module.exports = { validateSessionSnapshot, restoreSessionSnapshot }

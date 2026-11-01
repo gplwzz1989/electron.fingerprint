@@ -67,8 +67,23 @@
     document.querySelector('.browser-chrome').classList.toggle('page-loading', Boolean(tab.loading))
     const saveBtn = document.querySelector('[data-action="save"]')
     if (saveBtn) {
-      const showSave = Boolean(tab && tab.id && tab.showSaveButton)
+      const isHome = !snapshot.activeId || !tab || !tab.id || tab.kind === 'home'
+      let isAppUrl = false
+      if (tab?.url) {
+        try {
+          if (snapshot.home?.url) {
+            const tUrl = new URL(tab.url)
+            const hUrl = new URL(snapshot.home.url)
+            if (tUrl.origin === hUrl.origin) isAppUrl = true
+          }
+          if (/^https?:\/\/(qijie\.xinmeitool\.com|127\.0\.0\.1|localhost)(:\d+)?/i.test(tab.url)) {
+            isAppUrl = true
+          }
+        } catch {}
+      }
+      const showSave = Boolean(!isHome && !isAppUrl && tab.url && tab.url !== 'about:blank' && tab.showSaveButton)
       saveBtn.hidden = !showSave
+      saveBtn.style.display = showSave ? 'flex' : 'none'
       if (showSave) {
         const isSaving = Boolean(tab.saving)
         saveBtn.disabled = isSaving

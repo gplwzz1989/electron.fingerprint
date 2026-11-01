@@ -170,11 +170,11 @@ class TabBrowser {
       activeId: this.activeId,
       maximized: this.window?.isMaximized?.() || false,
       home: home && !home.isDestroyed() ? { url: home.getURL() || this.homeUrl, loading: home.isLoading(), canGoBack: home.navigationHistory.canGoBack(), canGoForward: home.navigationHistory.canGoForward(), error: this.homeError || '' } : {},
-      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, authType: tab.authType || null, showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : Boolean(tab.authType), saving: Boolean(tab.saving), ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
+      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, authType: tab.authType || null, showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : true, saving: Boolean(tab.saving), ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
         id: tab.id,
         kind: 'managed',
         authType: tab.authType || null,
-        showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : Boolean(tab.authType),
+        showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : true,
         saving: Boolean(tab.saving),
         environmentId: tab.environmentId,
         profileId: tab.profile.id,
@@ -209,6 +209,10 @@ class TabBrowser {
       tab.profile.name = environment.profileName
       tab.profile.url = environment.creationUrl
       tab.profile.revision = environment.profileRevision
+      if (environment.profileName) {
+        tab.pinnedTitle = String(environment.profileName).trim()
+        tab.title = tab.pinnedTitle
+      }
       if (environment.fingerprint) {
         tab.profile.fingerprint = structuredClone(environment.fingerprint)
       }
@@ -359,7 +363,7 @@ class TabBrowser {
     const contents = view.webContents
     const pinnedTitle = options.name ? String(options.name).trim() : null
     const authType = options.authType || null
-    const showSaveButton = options.showSaveButton !== undefined ? Boolean(options.showSaveButton) : Boolean(authType)
+    const showSaveButton = options.showSaveButton !== undefined ? Boolean(options.showSaveButton) : true
     const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: pinnedTitle || '新标签页', pinnedTitle, authType, showSaveButton, saving: false, authConfig: options.authConfig || null, url, error: '', loading: false, networkProxy: options.proxy }
     this.tabs.set(tab.id, tab)
     this.capabilityRegistry?.register(contents, kind, options)
@@ -512,11 +516,18 @@ class TabBrowser {
     } })
     const pinnedTitle = policy.name ? String(policy.name).trim() : null
     const authType = policy.authType || null
-    const showSaveButton = policy.showSaveButton !== undefined ? Boolean(policy.showSaveButton) : Boolean(authType)
+    const showSaveButton = policy.showSaveButton !== undefined ? Boolean(policy.showSaveButton) : true
     const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: pinnedTitle || '新标签', pinnedTitle, authType, showSaveButton, saving: false, authConfig: policy.authConfig || null, url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
     this.capabilityRegistry?.register(contents, 'managed', { capabilities: ['*'], allowedOrigins: /^https?:/.test(url) ? [new URL(url).origin] : [], ...policy })
-    const restore = sessionSnapshot ? await restoreSessionSnapshot(contents, sessionSnapshot, { dataDir }) : null
+    let restore = null
+    if (sessionSnapshot) {
+      try {
+        restore = await restoreSessionSnapshot(contents, sessionSnapshot, { dataDir })
+      } catch (err) {
+        console.warn('[会话恢复] 初始化恢复失败，跳过恢复直接打开:', err?.message || err)
+      }
+    }
     this.bindShortcuts(contents)
     if (typeof contents.setBackgroundThrottling === 'function') {
       contents.setBackgroundThrottling(false)
@@ -614,14 +625,23 @@ class TabBrowser {
     this.select(tabId)
     try {
       await loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
-      if (restore) await restore.verify()
+      if (restore) await restore.verify().catch(e => console.warn('[会话恢复] 存储验证跳过:', e?.message || e))
       if (this.xGrokAutomation) {
         this.xGrokAutomation.onEnvironmentOpened(environment, tabId, url)
       }
     } catch (error) {
-      if (restore) await restore.cleanup()
+      if (restore) await restore.cleanup().catch(() => {})
       console.error('[加载标签网页]', error)
       tab.preserveLastUrl = false
+      if (!this.tabs.has(tabId) || tab.closing || tab.closed || tab.closePromise || contents?.isDestroyed?.()) {
+        if (tab.closePromise) {
+          try { await tab.closePromise } catch {}
+        }
+        return { tabId, warning: '', closed: true }
+      }
+      if (error?.code === 'ERR_ABORTED' || error?.errno === -3) {
+        return { tabId, warning: '' }
+      }
       if (this.tabs.has(tabId)) {
         tab.error = '网页加载失败，请检查网址和网络连接。'
         this.notify()
@@ -661,8 +681,10 @@ class TabBrowser {
   }
 
   async close (id) {
-    const tab = this.getTab(id)
+    const tab = this.tabs.get(id)
+    if (!tab) return { ok: true, closed: true }
     if (tab.closePromise) return await tab.closePromise
+    tab.closing = true
     const contents = tab.view?.webContents
     tab.closePromise = (async () => {
       if (contents && !contents.isDestroyed()) {
@@ -711,6 +733,7 @@ class TabBrowser {
     try {
       return await tab.closePromise
     } finally {
+      tab.closed = true
       tab.closePromise = null
     }
   }
