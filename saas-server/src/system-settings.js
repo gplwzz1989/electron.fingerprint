@@ -43,30 +43,45 @@ const fields = [
 class SystemSettings {
   constructor (database, configFile, defaults = {}) { this.db = database; this.configFile = configFile; this.defaults = defaults }
   async initialize () {
-    if (await this.db.client.systemSetting.findUnique({ where: { id: 1 } })) return
-    const config = { ...readServerConfig(this.configFile), ...this.defaults }
-    const values = Object.fromEntries(fields.map(field => [field.key, config[field.key] ?? (field.type === 'boolean' ? 'false' : field.type === 'plans' ? [] : '')]))
-    values.SMTP_PORT ||= '465'
-    values.SMTP_HOST ||= 'smtp.qq.com'
-    values.SMTP_SECURE = config.SMTP_SECURE ?? 'true'
-    values.CLIENT_UPDATES_DIR ||= 'client-updates'
-    if (values.SAAS_PUBLIC_URL) {
-      const origin = new URL(values.SAAS_PUBLIC_URL).origin
-      values.WECHAT_PAY_NOTIFY_URL ||= origin + '/api/payments/wechat/notify'
-      values.ALIPAY_NOTIFY_URL ||= origin + '/api/payments/alipay/notify'
+    const existing = await this.db.client.systemSetting.findUnique({ where: { id: 1 } })
+    if (!existing) {
+      const config = { ...readServerConfig(this.configFile), ...this.defaults }
+      const values = Object.fromEntries(fields.map(field => [field.key, config[field.key] ?? (field.type === 'boolean' ? 'false' : field.type === 'plans' ? [] : '')]))
+      values.SMTP_PORT ||= '465'
+      values.SMTP_HOST ||= 'smtp.qq.com'
+      values.SMTP_SECURE = config.SMTP_SECURE ?? 'true'
+      values.CLIENT_UPDATES_DIR ||= 'client-updates'
+      if (values.SAAS_PUBLIC_URL) {
+        const origin = new URL(values.SAAS_PUBLIC_URL).origin
+        values.WECHAT_PAY_NOTIFY_URL ||= origin + '/api/payments/wechat/notify'
+        values.ALIPAY_NOTIFY_URL ||= origin + '/api/payments/alipay/notify'
+      }
+      // 首次启动迁移旧文件配置；之后只读取数据库，清空的字段不会被文件重新覆盖。
+      const directory = path.dirname(this.configFile || process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`))
+      for (const [key, legacy] of Object.entries({ WECHAT_PAY_PRIVATE_KEY: 'WECHAT_PAY_PRIVATE_KEY_PATH', WECHAT_PAY_PLATFORM_CERT: 'WECHAT_PAY_PLATFORM_CERT_PATH', ALIPAY_PRIVATE_KEY: 'ALIPAY_PRIVATE_KEY_PATH', ALIPAY_PUBLIC_KEY: 'ALIPAY_PUBLIC_KEY_PATH' })) {
+        if (!values[key] && config[legacy]) values[key] = fs.readFileSync(path.resolve(directory, config[legacy]), 'utf8')
+      }
+      if (config.BILLING_PLANS_FILE) values.BILLING_PLANS = JSON.parse(fs.readFileSync(path.resolve(directory, config.BILLING_PLANS_FILE), 'utf8')).plans
+      await this.db.client.systemSetting.create({ data: { id: 1, valueCiphertext: this.db.encrypt(JSON.stringify(values)), revision: 1, updatedAt: toBigInt(Date.now()), updatedBy: null } })
     }
-    // 首次启动迁移旧文件配置；之后只读取数据库，清空的字段不会被文件重新覆盖。
-    const directory = path.dirname(this.configFile || process.env.SAAS_CONFIG_FILE || path.join(__dirname, `../.env.${process.env.SAAS_ENV || 'dev'}`))
-    for (const [key, legacy] of Object.entries({ WECHAT_PAY_PRIVATE_KEY: 'WECHAT_PAY_PRIVATE_KEY_PATH', WECHAT_PAY_PLATFORM_CERT: 'WECHAT_PAY_PLATFORM_CERT_PATH', ALIPAY_PRIVATE_KEY: 'ALIPAY_PRIVATE_KEY_PATH', ALIPAY_PUBLIC_KEY: 'ALIPAY_PUBLIC_KEY_PATH' })) {
-      if (!values[key] && config[legacy]) values[key] = fs.readFileSync(path.resolve(directory, config[legacy]), 'utf8')
+    await this.ensureDefaultAdmin()
+  }
+  async ensureDefaultAdmin () {
+    const defaultUser = await this.db.userByEmail(DEFAULT_ADMIN_EMAIL)
+    if (!defaultUser) {
+      await this.provisionAdmin(DEFAULT_ADMIN_ACCOUNT)
     }
-    if (config.BILLING_PLANS_FILE) values.BILLING_PLANS = JSON.parse(fs.readFileSync(path.resolve(directory, config.BILLING_PLANS_FILE), 'utf8')).plans
-    await this.db.client.systemSetting.create({ data: { id: 1, valueCiphertext: this.db.encrypt(JSON.stringify(values)), revision: 1, updatedAt: toBigInt(Date.now()), updatedBy: null } })
   }
   async read () {
     const row = await this.db.client.systemSetting.findUnique({ where: { id: 1 } })
     if (!row) throw new UserError('系统配置尚未初始化。', 503)
-    return { values: JSON.parse(this.db.decrypt(row.valueCiphertext)), revision: row.revision, updatedAt: toNumber(row.updatedAt) }
+    let values
+    try {
+      values = JSON.parse(this.db.decrypt(row.valueCiphertext))
+    } catch (error) {
+      throw new UserError(error.message || '系统配置无法解密，请检查数据加密密钥 encryption.key。', 500)
+    }
+    return { values, revision: row.revision, updatedAt: toNumber(row.updatedAt) }
   }
   async isAdmin (userId) { return Boolean(await this.db.client.systemAdministrator.findUnique({ where: { userId } })) }
   async assertAdmin (userId) { if (!await this.isAdmin(userId)) throw new UserError('此操作仅允许系统管理员执行。', 403) }
@@ -150,4 +165,4 @@ class SystemSettings {
   }
 }
 
-module.exports = { SystemSettings, DEFAULT_ADMIN_ACCOUNT, DEFAULT_ADMIN_EMAIL }
+module.exports = { SystemSettings, DEFAULT_ADMIN_ACCOUNT, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD }

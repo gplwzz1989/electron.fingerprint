@@ -44,4 +44,11 @@ test('账号打开校验会话恢复能力，使用账号独立资源与专用�
   assert.equal((await window.workspaceBridge.launch(payload)).tabId, 'isolated-account-tab')
   assert.equal(prepared[0].resourceId, payload.accountId)
   assert.equal(calls.at(-1), '/api/workspaces/isolated-workspace/accounts/isolated-account/launch')
+
+  // 未绑定环境的账号打开：environmentId 为空时不报环境标识无效
+  const unboundPayload = { workspaceId: 'isolated-workspace', environmentId: '', accountId: 'unbound-account' }
+  const unboundResult = await window.workspaceBridge.launch(unboundPayload)
+  assert.equal(unboundResult.ok, true, unboundResult.error)
+  assert.equal(prepared.at(-1).resourceId, 'unbound-account')
+  assert.equal(calls.at(-1), '/api/workspaces/isolated-workspace/accounts/unbound-account/launch')
 })

@@ -59,7 +59,7 @@ class SessionObserver {
     const cleanup = () => { void this.close(owner, id).catch(() => {}) }
     contents.once('destroyed', cleanup); owner.once('destroyed', cleanup)
     job.ownerNavigation = (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) cleanup() }
-    owner.on('did-start-navigation', job.ownerNavigation)
+    if (!input.persistAcrossNavigation) owner.on('did-start-navigation', job.ownerNavigation)
     job.cleanup = cleanup
     job.timer = setTimeout(cleanup, 15 * 60 * 1000); job.timer.unref()
     try { await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: 262144 }); this.get(owner, id); return { id } } catch (error) { await this.close(owner, id); throw error }

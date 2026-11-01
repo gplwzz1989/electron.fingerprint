@@ -45,9 +45,7 @@ class PlatformRuntime {
     const platform = runtime.catalog.find(item => item.key === request.platformKey)
     if (!platform) throw new ProfileValidationError('客户端能力包不支持此平台。')
     if (typeof input.tabId !== 'string' || !input.tabId) throw new ProfileValidationError('授权环境标签无效。')
-    if ([...this.jobs.values()].some(job => job.owner === owner && !job.done)) throw new ProfileValidationError('已有平台任务正在执行，请先完成或取消。')
-    if (owner.isDestroyed() || owner.getURL() !== ownerUrl) throw new ProfileValidationError('调用页面已关闭或变化。')
-    if (this.jobs.size >= 32 || [...this.jobs.values()].some(job => job.owner === owner && !job.done)) throw new ProfileValidationError('平台任务较多，请稍后重试。')
+    if (this.jobs.size >= 32) throw new ProfileValidationError('平台任务较多，请稍后重试。')
     const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
     const task = { id: request.id, expiresAt: Date.now() + 15 * 60000, publicKey: keys.publicKey, mode: request.mode, platform }
     desktop.authorizeCapture = { platform, tabId: input.tabId, packageVersion: manifest.version, mode: request.mode, expectedUserId: request.expectedUserId || '' }
@@ -58,7 +56,8 @@ class PlatformRuntime {
     const navigate = (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) cancel() }
     const cleanup = () => { clearTimeout(job.timer); owner.removeListener('destroyed', cancel); owner.removeListener('did-start-navigation', navigate) }
     job.cleanup = cleanup
-    owner.once('destroyed', cancel); owner.on('did-start-navigation', navigate)
+    owner.once('destroyed', cancel)
+    if (!input.persistAcrossNavigation) owner.on('did-start-navigation', navigate)
     job.timer = setTimeout(cancel, 15 * 60000); job.timer.unref()
     job.promise = Promise.resolve().then(() => runtime.run({ desktop, rpa, task, tabId: input.tabId, signal: controller.signal, onProgress: message => { job.message = String(message).slice(0, 500) } })).then(result => { job.result = this.decryptCapture(result, keys.privateKey, request.id) }).catch(error => { if (!controller.signal.aborted) console.error('[平台任务失败]', { code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); job.error = controller.signal.aborted ? '已取消平台任务。' : '平台授权未完成，请检查登录窗口后重试。' }).finally(() => { job.done = true; clearTimeout(job.timer); job.timer = setTimeout(cancel, 60000); job.timer.unref() })
     return { id, version: manifest.version, tabId: input.tabId, environmentId: input.environmentId }

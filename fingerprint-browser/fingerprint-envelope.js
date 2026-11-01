@@ -18,7 +18,7 @@ function openLaunch (envelope, privateKey, expected) {
       const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
       decipher.setAAD(Buffer.from(JSON.stringify({ format, scope, resourceId, nonce, expiresAt }))); decipher.setAuthTag(tag)
       const profile = JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8'))
-      if (profile.id !== resourceId || !profile.fingerprint) throw new Error()
+      if (profile.id !== resourceId) throw new Error()
       return profile
     } finally { key.fill(0) }
   } catch { throw new Error('启动配置解密或校验失败，请重新获取环境配置。') }

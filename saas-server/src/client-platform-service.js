@@ -10,6 +10,6 @@ function verifyClientResult (task, payload) {
   if (typeof definition.url !== 'string' || !Array.isArray(definition.origins) || !definition.origins.length || definition.origins.length > 8 || definition.origins.some(origin => { const url = new URL(origin); return url.protocol !== 'https:' || url.origin !== origin }) || !definition.origins.includes(new URL(definition.url).origin)) throw new Error('客户端平台来源无效。')
   if (!Array.isArray(payload.cookies) || !payload.cookies.length || payload.cookies.some(cookie => typeof cookie.domain !== 'string' || !definition.origins.some(origin => { const host = new URL(origin).hostname; const domain = cookie.domain.replace(/^\./, ''); return host === domain || host.endsWith('.' + domain) }))) throw new Error('客户端平台会话来源不匹配。')
   if (Object.keys(payload.storage || {}).some(origin => !definition.origins.includes(origin))) throw new Error('客户端存储来源不匹配。')
-  return { ...identity, platform: definition, packageVersion: payload.packageVersion, session: { cookies: payload.cookies, storage: payload.storage || {} } }
+  return { outcome: 'valid', ...identity, platform: definition, packageVersion: payload.packageVersion, session: { cookies: payload.cookies, storage: payload.storage || {} } }
 }
 module.exports = { catalog, verifyClientResult }

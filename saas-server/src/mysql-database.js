@@ -242,7 +242,13 @@ class WorkspaceDatabase {
     } catch (error) { if (['P2002', 'P2034'].includes(error.code)) throw new UserError('指纹被其他操作更新，请刷新后重试。', 409); throw error }
   }
   encrypt (text) { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv); return Buffer.concat([iv, cipher.update(text), cipher.final(), cipher.getAuthTag()]).toString('base64') }
-  decrypt (value) { const bytes = Buffer.from(value, 'base64'); const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, bytes.subarray(0, 12)); decipher.setAuthTag(bytes.subarray(-16)); return Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]).toString('utf8') }
+  decrypt (value) {
+    try {
+      const bytes = Buffer.from(value, 'base64'); const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, bytes.subarray(0, 12)); decipher.setAuthTag(bytes.subarray(-16)); return Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]).toString('utf8')
+    } catch {
+      throw new UserError('服务端数据加密密钥（encryption.key）不匹配或已损坏，无法解密数据库持久化数据。请恢复原 encryption.key 或检查 SAAS_DATA_DIR 路径。', 500)
+    }
+  }
   async readAccountSession (workspaceId, userId, accountId) {
     return await this.transaction(async () => {
       const row = await this.client.member.findUnique({ where: { workspaceId_userId: { workspaceId, userId } } })
@@ -250,8 +256,6 @@ class WorkspaceDatabase {
       const member = normalize(row); this.assertWrite(member)
       const account = await this.authAccounts.get(workspaceId, accountId, { lock: true })
       if (!account || !this.canAccess(member, accountId)) throw new UserError('账号不存在或无法访问。', 404)
-      const environment = await this.client.record.findUnique({ where: { kind_id: { kind: 'environments', id: account.environmentId } } })
-      if (!environment || environment.workspaceId !== workspaceId || environment.deletedAt !== null || !this.canAccess(member, environment.id)) throw new UserError('账号环境不存在或无法访问。', 403)
       const snapshot = await this.authAccounts.read(workspaceId, accountId)
       if (!snapshot) throw new UserError('账号会话尚未保存，请重新授权。', 409)
       return snapshot

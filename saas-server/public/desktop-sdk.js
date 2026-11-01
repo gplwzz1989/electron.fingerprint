@@ -9,7 +9,8 @@
     launch: async payload => {
       let request
       try {
-        if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId) || !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new Error('环境标识无效。')
+        if (!payload || !/^[a-zA-Z0-9-]+$/.test(payload.workspaceId)) throw new Error('环境标识无效。')
+        if (!payload.accountId && !/^[a-zA-Z0-9-]+$/.test(payload.environmentId)) throw new Error('环境标识无效。')
         if (payload.accountId !== undefined && !/^[a-zA-Z0-9-]+$/.test(payload.accountId)) throw new Error('账号标识无效。')
         if (payload.accountId && !desktop.capabilities?.includes('session-restore-v1')) throw new Error('请更新并重启客户端后打开账号，当前客户端不支持跨设备会话恢复。')
         const healthResponse = await fetch('/api/health', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) })
@@ -30,6 +31,13 @@
       } catch (error) { return { ok: false, error: error.name === 'Error' ? error.message : '环境启动失败，请检查网络后重试。' } }
     },
     tabs: async () => mapTabs(await desktop.tabs()),
-    onTabsChanged: callback => desktop.onTabsChanged(snapshot => callback(mapTabs(snapshot)))
+    onTabsChanged: callback => desktop.onTabsChanged(snapshot => callback(mapTabs(snapshot))),
+    onTaskCompleted: callback => {
+      if (!desktop.onTaskCompleted) return () => {}
+      return desktop.onTaskCompleted(envelope => {
+        console.log('%c[Desktop Push 收到任务推送]', 'color: #10b981; font-weight: bold; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;', envelope)
+        callback(envelope)
+      })
+    }
   }
 })()

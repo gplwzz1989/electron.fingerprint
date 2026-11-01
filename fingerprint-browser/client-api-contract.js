@@ -9,12 +9,13 @@ const browserApi = {
 }
 const desktopBridge = {
   platformStatus: 'platform:status', startPlatformTask: 'platform:start', pollPlatformTask: 'platform:poll', cancelPlatformTask: 'platform:cancel',
+  executeTask: 'task:execute', queryTask: 'task:query', cancelTask: 'task:cancel',
   observeSession: 'session:open', readSession: 'session:read', captureSession: 'session:capture', closeSession: 'session:close', runtime: 'application:runtime', prepareLaunch: 'application:prepare-launch', launchEncrypted: 'application:launch-encrypted', tabs: 'tabs:list', selectTab: 'tabs:select', closeTab: 'tabs:close', dashboard: 'tabs:dashboard', navigate: 'tabs:navigate', createTab: 'tabs:create-managed', setTabCapabilities: 'tabs:set-capabilities', requestLocalApi: 'automation:request', updateStatus: 'updates:status', checkUpdates: 'updates:check', installUpdate: 'updates:install'
 }
 const bridgeContract = { browserApi, desktopBridge }
 const businessChannels = new Set([...Object.values(browserApi), ...Object.values(desktopBridge)])
 const shellChannels = new Set(['tabs:list', 'tabs:select', 'tabs:close', 'tabs:reorder', 'tabs:navigate', 'tabs:dashboard', 'tabs:ordinary', 'tabs:devtools', 'window:action'])
 const managementChannels = new Set(['tabs:create-managed', 'tabs:set-capabilities', 'updates:install'])
-const capabilityGroups = new Set(['application', 'workspace', 'presets', 'profiles', 'environments', 'groups', 'tabs', 'proxy', 'actions', 'tls', 'x-grok', 'automation'])
+const capabilityGroups = new Set(['application', 'workspace', 'presets', 'profiles', 'environments', 'groups', 'tabs', 'proxy', 'actions', 'tls', 'x-grok', 'automation', 'task'])
 const bridgeArguments = () => ['--qijie-api-contract=' + encodeURIComponent(JSON.stringify(bridgeContract))]
 module.exports = { bridgeContract, businessChannels, shellChannels, managementChannels, capabilityGroups, bridgeArguments }

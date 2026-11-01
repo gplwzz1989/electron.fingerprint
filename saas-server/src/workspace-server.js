@@ -77,11 +77,34 @@ function findPublicDirectory (explicitDir) {
   return path.resolve(__dirname, 'public')
 }
 
+function findDataDirectory (explicitDir) {
+  if (explicitDir && typeof explicitDir === 'string' && explicitDir.trim()) {
+    return path.resolve(explicitDir.trim())
+  }
+  const candidates = [
+    path.resolve(process.cwd(), 'data/workspace'),
+    path.join(__dirname, '../data/workspace'),
+    path.join(__dirname, 'workspace')
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'encryption.key'))) {
+      return path.resolve(candidate)
+    }
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return path.resolve(candidate)
+    }
+  }
+  return path.resolve(process.cwd(), 'data/workspace')
+}
+
 class WorkspaceServer {
-  constructor ({ port = 8088, host = '127.0.0.1', dataDir = path.join(__dirname, '../data/workspace'), publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile, publicDir } = {}) {
+  constructor ({ port = 8088, host = '127.0.0.1', dataDir, publicUrl = '', allowPrivateProxy = false, platformService = null, databaseName, mailConfigFile, billingConfigFile, updateConfigFile, publicDir } = {}) {
+    const resolvedDataDir = findDataDirectory(dataDir || process.env.SAAS_DATA_DIR)
     this.port = port; this.host = host; this.publicUrl = publicUrl; this.allowPrivateProxy = allowPrivateProxy
-    this.database = new WorkspaceDatabase(dataDir, { databaseName }); this.platformService = platformService
-    this.platformReleases = new PlatformReleaseService(this.database, path.join(dataDir, 'platform-releases'))
+    this.database = new WorkspaceDatabase(resolvedDataDir, { databaseName }); this.platformService = platformService
+    this.platformReleases = new PlatformReleaseService(this.database, path.join(resolvedDataDir, 'platform-releases'))
     this.mediaAuthorizations = new MediaAuthorizations(this.database)
     this.registrationMailer = new RegistrationMailer(this.database, mailConfigFile)
     this.billing = new BillingService(this.database, billingConfigFile)
@@ -380,8 +403,13 @@ class WorkspaceServer {
         const account = await getRecord('accounts')
         const platform = (this.platformService?.catalog || clientPlatforms).find(item => item.key === account.platform)
         if (!platform) throw new UserError('此账号的平台服务尚未配置。', 503)
-        const environment = await db.get('environments', workspaceId, account.environmentId)
-        if (!environment || !db.canAccess(member, environment.id)) throw new UserError('账号绑定的浏览器环境不存在或无法访问。', 403)
+        let environment = null
+        if (account.environmentId) {
+          try {
+            const found = await db.get('environments', workspaceId, account.environmentId)
+            if (found && db.canAccess(member, found.id)) environment = found
+          } catch {}
+        }
         const body = await this.body(req)
         if (action === 'launch') {
           if (account.status !== 'valid') throw new UserError('账号授权已失效，请先重新授权。', 409)
@@ -398,9 +426,15 @@ class WorkspaceServer {
           const currentAccount = await db.get('accounts', workspaceId, account.id)
           if (currentAccount.status !== 'valid') throw new UserError('账号授权已失效，请先重新授权。', 409)
           const currentMember = await db.membership(workspaceId, user.id)
-          const currentEnvironment = await db.get('environments', workspaceId, currentAccount.environmentId)
+          let currentEnvironment = null
+          if (currentAccount.environmentId) {
+            try {
+              const found = await db.get('environments', workspaceId, currentAccount.environmentId)
+              if (found && db.canAccess(currentMember, found.id)) currentEnvironment = found
+            } catch {}
+          }
           const session = { format: 'desktop-session-v1', origins: snapshot.origins?.length ? snapshot.origins : platform.origins || currentAccount.origins || [], cookies: snapshot.cookies, storage: snapshot.storage, version: snapshot.sessionVersion }
-          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url || currentAccount.launchUrl || currentEnvironment.startUrl, ...(!this.platformService ? { platformKey: currentAccount.platform } : {}), session, localSessionSource: { resourceId: currentEnvironment.id, operationId: currentAccount.authorizationOperationId } })
+          return await this.launchEnvelope(workspaceId, currentMember, currentEnvironment, body, { id: account.id, name: currentAccount.name, url: platform.url || currentAccount.launchUrl || currentEnvironment?.startUrl, ...(!this.platformService ? { platformKey: currentAccount.platform } : {}), session, localSessionSource: currentEnvironment ? { resourceId: currentEnvironment.id, operationId: currentAccount.authorizationOperationId } : null })
         })
         return send({ envelope })
       }
@@ -484,19 +518,20 @@ class WorkspaceServer {
   async launchEnvelope (workspaceId, member, environment, encryption, extra = {}) {
     const db = this.database
     try { validateLaunchRequest(encryption) } catch (error) { throw new UserError(error.message) }
-    if (encryption.protocol === 'desktop-launch-v1' && (encryption.scope !== workspaceId || encryption.resourceId !== (extra.id || environment.id))) throw new UserError('启动请求与当前团队或账号环境不一致。')
-    const fingerprint = db.decodeFingerprint(environment.fingerprint)
+    if (encryption.protocol === 'desktop-launch-v1' && (encryption.scope !== workspaceId || encryption.resourceId !== (extra.id || environment?.id))) throw new UserError('启动请求与当前团队或账号环境不一致。')
+    const fingerprint = environment ? db.decodeFingerprint(environment.fingerprint) : null
     await this.billing.withCapacity(workspaceId, 'environments', async () => {}, false)
     let proxy = { mode: 'direct', server: '', username: '', password: '' }
-    if (environment.proxyId) {
+    if (environment?.proxyId) {
       const item = await db.get('proxies', workspaceId, environment.proxyId)
       if (!item || !db.canAccess(member, item.id)) throw new UserError('环境代理已失效，启动已阻止。', 409)
       const credentials = JSON.parse(db.decrypt(item.credential)); const result = await checkProxy({ ...item, ...credentials }, { allowPrivate: this.allowPrivateProxy })
-      if (result.timezone !== fingerprint.locale.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
+      if (result.timezone !== fingerprint?.locale?.timezone && !environment.timezoneAcknowledged) throw new UserError('出口时区已变化，请重新确认环境网络。', 409)
       const host = item.host.includes(':') ? `[${item.host}]` : item.host
       proxy = { mode: item.protocol, server: `${item.protocol}://${host}:${item.port}`, ...credentials }
     }
-    return sealLaunch({ id: environment.id, name: environment.name, url: environment.startUrl, fingerprint, proxy, ...extra }, encryption, { workspaceId, environmentId: extra.id || environment.id })
+    const envId = extra.id || environment?.id
+    return sealLaunch({ id: envId, name: extra.name || environment?.name || '平台账号', url: extra.url || environment?.startUrl || 'about:blank', fingerprint, proxy, ...extra }, encryption, { workspaceId, environmentId: envId })
   }
   async start () {
     await this.database.ready
@@ -516,7 +551,7 @@ class WorkspaceServer {
 if (require.main === module) {
   if (!process.env.SAAS_ENV && process.argv[2] === '--init-system-admin') process.env.SAAS_ENV = 'prod'
   loadEnvironment(path.join(__dirname, '..'), process.env.SAAS_ENV || 'dev')
-  const server = new WorkspaceServer({ port: Number(process.env.PORT || 8088), host: process.env.HOST || '127.0.0.1', dataDir: process.env.SAAS_DATA_DIR || path.join(__dirname, '../data/workspace'), publicUrl: process.env.SAAS_PUBLIC_URL || '', allowPrivateProxy: process.env.SAAS_ALLOW_PRIVATE_PROXY === 'true', platformService: null })
+  const server = new WorkspaceServer({ port: Number(process.env.PORT || 8088), host: process.env.HOST || '127.0.0.1', dataDir: process.env.SAAS_DATA_DIR, publicUrl: process.env.SAAS_PUBLIC_URL || '', allowPrivateProxy: process.env.SAAS_ALLOW_PRIVATE_PROXY === 'true', platformService: null })
   if (process.argv[2] === '--init-system-admin') {
     void server.configurationReady.then(async () => {
       const result = await server.systemSettings.provisionAdmin(process.argv[3])
@@ -542,4 +577,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { WorkspaceServer, validateProfile, loadEnvironment, findPublicDirectory }
+module.exports = { WorkspaceServer, validateProfile, loadEnvironment, findPublicDirectory, findDataDirectory }

@@ -102,7 +102,7 @@
     for (const field of fields) {
       const label = field.closest('.field')
       label?.querySelector('.field-error')?.remove(); field.removeAttribute('aria-invalid')
-      if (field.checkValidity()) continue
+      if (field.checkValidity() || (field.name === 'email' && field.value.trim().toLowerCase() === 'admin')) continue
       const title = label?.querySelector('span')?.textContent.replace(/\s*\*$/, '') || '此项'
       const message = field.validity.valueMissing ? `请填写${title}。` : field.type === 'email' ? '请填写完整、有效的邮箱地址。' : field.name === 'verificationCode' ? '请输入六位数字验证码。' : field.validity.tooShort ? `密码至少需要 ${field.minLength} 个字符。` : '请检查输入内容。'
       field.setAttribute('aria-invalid', 'true')
@@ -373,7 +373,8 @@
       find('.signin-form').noValidate = true
       assignAction('登录', 'signin', true)
       find('.signin-form [data-operation="signin"]').type = 'submit'
-      find('.signin-form input[type="email"]').required = true
+      const emailField = find('.signin-form input[type="email"]')
+      if (emailField) { emailField.required = true; emailField.placeholder = '输入账户邮箱或 admin' }
       find('.signin-form input[type="password"]').required = true
       find('.signin-form').insertAdjacentHTML('beforeend', '<p class="auth-switch"><button type="button" data-operation="show-register">没有账户？注册</button></p>')
     }

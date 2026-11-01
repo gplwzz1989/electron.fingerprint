@@ -374,13 +374,18 @@ function createProfileRecord (input = {}) {
       source = preset.profile
     }
   }
-  if (!source) {
+  const isFingerprintDisabled = input.fingerprint === null || (source && source.enabled === false)
+  if (!source && !isFingerprintDisabled) {
     source = input
   }
-  ensureObject(source, '指纹配置')
-  const requestedId = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : source.id
+  if (!isFingerprintDisabled) {
+    ensureObject(source, '指纹配置')
+  }
+  const requestedId = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : (source?.id || input.id)
   const id = requestedId || `profile-${randomUUID().slice(0, 8)}`
-  const fingerprint = createFingerprintProfile({ ...source, id })
+  const fingerprint = isFingerprintDisabled
+    ? createFingerprintProfile({ id, enabled: false })
+    : createFingerprintProfile({ ...source, id })
   const name = input.name === undefined ? id : String(input.name).trim()
   if (!name) fail('配置名称不能为空。')
   const url = normalizeUrl(input.url === undefined ? DEFAULT_URL : String(input.url).trim())

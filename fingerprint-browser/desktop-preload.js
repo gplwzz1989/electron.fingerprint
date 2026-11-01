@@ -9,6 +9,14 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   startPlatformTask: payload => ipcRenderer.invoke('platform:start', payload),
   pollPlatformTask: payload => ipcRenderer.invoke('platform:poll', payload),
   cancelPlatformTask: payload => ipcRenderer.invoke('platform:cancel', payload),
+  executeTask: payload => ipcRenderer.invoke('task:execute', payload),
+  queryTask: payload => ipcRenderer.invoke('task:query', payload),
+  cancelTask: payload => ipcRenderer.invoke('task:cancel', payload),
+  onTaskCompleted: callback => {
+    const listener = (_event, envelope) => callback(envelope)
+    ipcRenderer.on('task:completed', listener)
+    return () => ipcRenderer.removeListener('task:completed', listener)
+  },
   observeSession: payload => ipcRenderer.invoke('session:open', payload),
   readSession: payload => ipcRenderer.invoke('session:read', payload),
   captureSession: payload => ipcRenderer.invoke('session:capture', payload),

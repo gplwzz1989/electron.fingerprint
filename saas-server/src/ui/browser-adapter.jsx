@@ -460,6 +460,7 @@ function createImperative (tag, options = {}) {
     const items = options.items || []
     for (const item of items) { const option = document.createElement('option'); option.value = item.value; option.textContent = item.label; source.append(option) }
     source.value = String(value)
+    control = source
     function SelectHost () {
       const [selected, setSelected] = React.useState(String(value))
       setSelectedValue = setSelected
@@ -480,10 +481,12 @@ function createImperative (tag, options = {}) {
       return <Checkbox checked={selected} onCheckedChange={next => { checked = next === true; setSelected(checked); source.checked = checked; dispatch(source, 'input'); dispatch(source, 'change') }} disabled={props.disabled} aria-label={options.label || ''} data-shadcn-native="true" ref={node => { control = node }} />
     }
     source = document.createElement('input'); source.type = 'checkbox'; source.className = 'shadcn-control-source-checkbox'; source.setAttribute('aria-hidden', 'true'); source.tabIndex = -1; source.checked = checked
+    control = source
     renderInto(host, <CheckboxHost />); host.append(source)
   } else if (tag === 'radio') {
     const sourceNode = document.createElement('input'); sourceNode.type = 'radio'; sourceNode.className = 'shadcn-control-source-radio'; sourceNode.setAttribute('aria-hidden', 'true'); sourceNode.tabIndex = -1
     source = sourceNode
+    control = sourceNode
     const radioValue = String(options.value ?? 'on')
     renderInto(host, <RadioGroup value={checked ? radioValue : ''}><RadioGroupItem value={radioValue} disabled={props.disabled} aria-label={options.label || ''} data-shadcn-native="true" ref={node => { control = node }} /></RadioGroup>); host.append(source)
   } else if (tag === 'button') {
@@ -492,7 +495,8 @@ function createImperative (tag, options = {}) {
     renderInto(host, <InputHost props={{ type: options.type || 'text', ...props, defaultValue: value }} refValue={node => { control = node }} />)
   }
 
-  function actual () { return control || host.querySelector('[data-shadcn-owned]') || host.querySelector('input,textarea,button') }
+  const nativeQuery = HTMLElement.prototype.querySelector
+  function actual () { return control || nativeQuery.call(host, '[data-shadcn-owned]') || nativeQuery.call(host, 'input,textarea,button,select') }
   for (const key of ['value', 'checked', 'disabled', 'type', 'id', 'name', 'title', 'placeholder', 'required', 'min', 'max', 'step', 'accept', 'autocomplete', 'spellcheck', 'files', 'form', 'textContent', 'innerHTML', 'className', 'classList']) {
     Object.defineProperty(host, key, {
       configurable: true,
@@ -509,8 +513,8 @@ function createImperative (tag, options = {}) {
   Object.defineProperty(host, 'dataset', { configurable: true, get () { return new Proxy({}, { get: (_, key) => source && ['checkbox', 'radio', 'select'].includes(tag) ? source.dataset[key] : actual()?.dataset?.[key], set: (_, key, value) => { if (actual() && !source) actual().dataset[key] = value; if (source) source.dataset[key] = value; return true } }) } })
   Object.defineProperty(host, 'setAttribute', { value: (name, val) => { actual()?.setAttribute(name, val); source?.setAttribute(name, val) } })
   Object.defineProperty(host, 'getAttribute', { value: name => actual()?.getAttribute(name) ?? source?.getAttribute(name) })
-  for (const method of ['addEventListener', 'removeEventListener', 'append', 'appendChild', 'focus', 'click', 'remove', 'closest', 'querySelector', 'querySelectorAll']) {
-    Object.defineProperty(host, method, { configurable: true, value: (...args) => actual()?.[method]?.(...args) })
+  for (const method of ['focus', 'blur', 'click']) {
+    Object.defineProperty(host, method, { configurable: true, value: (...args) => (actual() || host)[method]?.(...args) })
   }
   return host
 }
