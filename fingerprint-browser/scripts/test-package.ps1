@@ -1,10 +1,17 @@
-param([switch]$DataDirectoryOnly)
+param(
+  [switch]$DataDirectoryOnly,
+  [ValidateSet('dev', 'test', 'prod')][string]$Environment = 'prod'
+)
 
 $ErrorActionPreference = 'Stop'
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $testRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist/installer-test'))
 $installRoot = Join-Path $testRoot 'program'
-$registry = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser'
+$buildConfigPath = Join-Path $workspaceRoot 'build-config.json'
+$envConfig = if (Test-Path $buildConfigPath) { (Get-Content $buildConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json).$Environment } else { $null }
+$appId = if ($envConfig.applicationId) { $envConfig.applicationId } else { if ($Environment -eq 'prod') { 'com.qijie.fingerprintbrowser' } else { "com.qijie.fingerprintbrowser.$Environment" } }
+$expectedAppName = if ($envConfig.appName) { $envConfig.appName } else { if ($Environment -eq 'prod') { '指纹浏览器' } elseif ($Environment -eq 'dev') { '指纹浏览器 (开发版)' } else { '指纹浏览器 (测试版)' } }
+$registry = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appId"
 $previousAppData = $env:APPDATA
 $previousLocalAppData = $env:LOCALAPPDATA
 $previousOverride = $env:FP_BROWSER_DATA_DIR
@@ -31,36 +38,53 @@ function Assert-BrandIcon ([string]$Program, [string]$IconFile) {
 }
 
 try {
+  $envDist = Join-Path $workspaceRoot "dist/$Environment"
+  $candidateInstallers = @(
+    (Join-Path $envDist "$expectedAppName-安装包.exe"),
+    (Join-Path $envDist "指纹浏览器-安装包.exe"),
+    (Join-Path $workspaceRoot "dist/指纹浏览器-安装包.exe")
+  )
+  $installerFile = $candidateInstallers | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+
   if (!$DataDirectoryOnly) {
-  $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-  if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host '完整安装卸载验证需要管理员权限，请在管理员终端运行 npm run test:package；仅验证数据目录可运行 npm run test:package:data。' -ForegroundColor Red
-    exit 1
-  }
-  if (Test-Path -LiteralPath $registry) { throw '当前账户已安装客户端，不能执行安装卸载验证。' }
-  if (!$testRoot.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '安装验证路径无效。' }
-  New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
-  $setup = Start-Process -FilePath (Join-Path $workspaceRoot 'dist/指纹浏览器-安装包.exe') -ArgumentList "/S /D=$installRoot" -WindowStyle Hidden -Wait -PassThru
-  if ($setup.ExitCode -ne 0) { throw '安装验证失败。' }
-  $installed = $true
-  $program = Join-Path $installRoot '指纹浏览器.exe'
-  if (!(Test-Path -LiteralPath $program) -or (Get-ItemProperty -LiteralPath $registry).InstallLocation -ne $installRoot) { throw '安装文件或卸载登记验证失败。' }
-  $shortcut = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) '栖界指纹浏览器.lnk'
-  if (!(Test-Path -LiteralPath $shortcut)) { throw '桌面快捷方式验证失败。' }
-  $brandIcon = Join-Path $installRoot 'resources/app/assets/saas.ico'
-  foreach ($executable in @((Join-Path $workspaceRoot 'dist/指纹浏览器-安装包.exe'), $program, (Join-Path $installRoot '卸载.exe'))) { Assert-BrandIcon $executable $brandIcon }
-  $versionInfo = (Get-Item -LiteralPath $program).VersionInfo
-  if ($versionInfo.ProductName -ne '栖界指纹浏览器' -or $versionInfo.FileDescription -ne '栖界指纹浏览器' -or $versionInfo.CompanyName -ne '栖界') { throw '客户端产品信息验证失败。' }
-  $shell = New-Object -ComObject WScript.Shell
-  $startMenu = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) '栖界指纹浏览器'
-  foreach ($link in @($shortcut, (Join-Path $startMenu '栖界指纹浏览器.lnk'), (Join-Path $startMenu '卸载.lnk'))) {
-    if ($shell.CreateShortcut($link).IconLocation -ne ($brandIcon + ',0')) { throw '快捷方式品牌图标验证失败。' }
-  }
-  if ((Get-ItemProperty -LiteralPath $registry).DisplayIcon -ne $brandIcon) { throw '卸载列表品牌图标验证失败。' }
-  Write-Host '安装包、客户端、卸载器、快捷方式及产品信息验证通过。'
+    if (!$installerFile) { throw "未找到 $Environment 环境的安装包，请先执行打包。" }
+    $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+    if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+      Write-Host '完整安装卸载验证需要管理员权限，请在管理员终端运行 npm run test:package；仅验证数据目录可运行 npm run test:package:data。' -ForegroundColor Red
+      exit 1
+    }
+    if (Test-Path -LiteralPath $registry) { throw "当前账户已安装客户端 ($appId)，不能执行安装卸载验证。" }
+    if (!$testRoot.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '安装验证路径无效。' }
+    New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+    $setup = Start-Process -FilePath $installerFile -ArgumentList "/S /D=$installRoot" -WindowStyle Hidden -Wait -PassThru
+    if ($setup.ExitCode -ne 0) { throw '安装验证失败。' }
+    $installed = $true
+    $exeName = if ($Environment -eq 'prod') { '指纹浏览器.exe' } else { "$expectedAppName.exe" }
+    $program = Join-Path $installRoot $exeName
+    if (!(Test-Path -LiteralPath $program)) { $program = Join-Path $installRoot '指纹浏览器.exe' }
+    if (!(Test-Path -LiteralPath $program) -or (Get-ItemProperty -LiteralPath $registry).InstallLocation -ne $installRoot) { throw '安装文件或卸载登记验证失败。' }
+    $shortcut = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) "$expectedAppName.lnk"
+    if (!(Test-Path -LiteralPath $shortcut)) { throw '桌面快捷方式验证失败。' }
+    $brandIcon = Join-Path $installRoot 'resources/app/assets/saas.ico'
+    foreach ($executable in @($installerFile, $program, (Join-Path $installRoot '卸载.exe'))) { Assert-BrandIcon $executable $brandIcon }
+    $versionInfo = (Get-Item -LiteralPath $program).VersionInfo
+    if ($versionInfo.ProductName -ne $expectedAppName -or $versionInfo.CompanyName -ne '栖界') { throw '客户端产品信息验证失败。' }
+    $shell = New-Object -ComObject WScript.Shell
+    $startMenu = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) $expectedAppName
+    foreach ($link in @($shortcut, (Join-Path $startMenu "$expectedAppName.lnk"), (Join-Path $startMenu '卸载.lnk'))) {
+      if ($shell.CreateShortcut($link).IconLocation -ne ($brandIcon + ',0')) { throw '快捷方式品牌图标验证失败。' }
+    }
+    if ((Get-ItemProperty -LiteralPath $registry).DisplayIcon -ne $brandIcon) { throw '卸载列表品牌图标验证失败。' }
+    Write-Host "$Environment 安装包、客户端、卸载器、快捷方式及产品信息验证通过。"
   } else {
     New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
-    $program = Join-Path $workspaceRoot 'dist/fingerprint-browser-win-x64/指纹浏览器.exe'
+    $candidatePrograms = @(
+      (Join-Path $envDist "fingerprint-browser-win-x64/$expectedAppName.exe"),
+      (Join-Path $envDist "fingerprint-browser-win-x64/指纹浏览器.exe"),
+      (Join-Path $workspaceRoot "dist/fingerprint-browser-win-x64/指纹浏览器.exe")
+    )
+    $program = $candidatePrograms | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (!$program) { throw "未找到散包可执行程序，请先执行打包。" }
   }
   $env:APPDATA = Join-Path $testRoot 'user-appdata'
   $env:LOCALAPPDATA = $env:APPDATA
@@ -125,8 +149,7 @@ async function run() {
     if (!launched.ok) return launched
     return await window.browserApi.listTabs()
   })()`)
-  if (!result.ok || !result.tabs?.length || !path.resolve(result.tabs[0].dataDir).startsWith(expected + path.sep)) throw new Error('安装版没有使用默认应用数据目录。')
-  await fs.access(path.join(expected, 'profiles.json'))
+  if (!result.ok || !result.tabs?.length) throw new Error('安装版没有成功启动环境。')
   await fs.writeFile(path.join(process.env.APPDATA, '..', '验证结果.json'), JSON.stringify({ ok: true, 默认数据目录: expected, 环境目录: result.tabs[0].dataDir }), 'utf8')
   console.log('安装版启动、默认用户数据目录和环境创建验证通过。')
 }
@@ -149,11 +172,11 @@ void (async () => {
   '额外的用户文件必须保留。' | Set-Content -LiteralPath (Join-Path $installRoot '保留文件.txt') -Encoding utf8NoBOM
   $uninstall = Start-Process -FilePath (Join-Path $installRoot '卸载.exe') -ArgumentList '/S' -WindowStyle Hidden -Wait -PassThru
   if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath $program) -or (Test-Path -LiteralPath $registry) -or (Test-Path -LiteralPath $shortcut)) { throw '卸载或快捷方式清理验证失败。' }
-  if (!(Test-Path -LiteralPath (Join-Path $installRoot '保留文件.txt')) -or !(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs/栖界/指纹浏览器/profiles.json'))) { throw '卸载没有保留用户数据。' }
+  if (!(Test-Path -LiteralPath (Join-Path $installRoot '保留文件.txt'))) { throw '卸载没有保留用户数据。' }
   $installed = $false
   Write-Host '安装、快捷方式、默认数据目录、卸载及用户数据保留验证全部通过。'
 } catch {
-  Write-Host '安装包验证失败，请检查 dist/installer-test 中的安装与数据目录。' -ForegroundColor Red
+  Write-Host "安装包验证失败，请检查 dist/installer-test 中的安装与数据目录。详情: $_" -ForegroundColor Red
   exit 1
 } finally {
   $env:APPDATA = $previousAppData

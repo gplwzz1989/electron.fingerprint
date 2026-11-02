@@ -34,9 +34,11 @@ function getClientConfig ({ packaged = false, env = process.env, directory = __d
   if (updates.enabled) {
     try { if (crypto.createPublicKey(updates.publicKey).asymmetricKeyType !== 'ed25519') throw new Error(); updates.url = updateUrl(updates.url, environment) } catch { throw new Error('更新地址或验签公钥配置无效，请检查打包配置。') }
   }
-  const applicationId = config.applicationId || 'com.qijie.fingerprintbrowser'
-  const appName = config.appName || '浏览器基座'
-  if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*){2,}$/.test(applicationId) || !/^[\p{L}\p{N} _.-]{1,60}$/u.test(appName)) throw new Error('应用标识或名称无效，请检查打包配置。')
+  const defaultApplicationId = environment === 'prod' ? 'com.qijie.fingerprintbrowser' : `com.qijie.fingerprintbrowser.${environment}`
+  const defaultAppName = environment === 'prod' ? '指纹浏览器' : (environment === 'dev' ? '指纹浏览器 (开发版)' : '指纹浏览器 (测试版)')
+  const applicationId = config.applicationId || defaultApplicationId
+  const appName = config.appName || defaultAppName
+  if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*){2,}$/.test(applicationId) || !/^[\p{L}\p{N} _().-]{1,60}$/u.test(appName)) throw new Error('应用标识或名称无效，请检查打包配置。')
   let platformManifestUrl = (!packaged && env.FP_PLATFORM_MANIFEST_URL) || config.platformManifestUrl || new URL('/api/platform-releases/manifest.json', appUrl).href
   if (platformManifestUrl) { try { platformManifestUrl = updateUrl(platformManifestUrl, environment) } catch { throw new Error('平台能力发布源地址无效，请使用独立 HTTPS 清单地址。') } }
   return { appUrl, environment, updates, applicationId, appName, platformManifestUrl }

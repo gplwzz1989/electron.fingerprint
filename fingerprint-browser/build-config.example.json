@@ -1,24 +1,24 @@
 {
   "dev": {
+    "appName": "指纹浏览器 (开发版)",
+    "applicationId": "com.example.desktopbase.dev",
     "appUrl": "http://127.0.0.1:8088/",
-    "appName": "浏览器基座",
-    "applicationId": "com.example.desktopbase",
     "updateUrl": "",
     "updatePublicKey": "",
     "updatesEnabled": false
   },
   "test": {
-    "appUrl": "",
-    "appName": "浏览器基座",
-    "applicationId": "com.example.desktopbase",
+    "appName": "指纹浏览器 (测试版)",
+    "applicationId": "com.example.desktopbase.test",
+    "appUrl": "https://test.example.com",
     "updateUrl": "",
     "updatePublicKey": "",
     "updatesEnabled": false
   },
   "prod": {
-    "appUrl": "https://qijie.xinmeitool.com",
-    "appName": "浏览器基座",
+    "appName": "指纹浏览器",
     "applicationId": "com.example.desktopbase",
+    "appUrl": "https://qijie.xinmeitool.com",
     "updateUrl": "https://qijie.xinmeitool.com/api/client-updates/prod/win32/x64.json",
     "updatePublicKey": "",
     "updatesEnabled": false

@@ -11,6 +11,9 @@ Var AutoUpdate
 !ifndef APP_NAME
 !define APP_NAME "浏览器基座"
 !endif
+!ifndef EXE_NAME
+!define EXE_NAME "指纹浏览器.exe"
+!endif
 !ifndef APP_KEY
 !define APP_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.qijie.fingerprintbrowser"
 !endif
@@ -30,8 +33,8 @@ VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "栖界"
 
 !define MUI_ABORTWARNING
-!define MUI_FINISHPAGE_RUN "$INSTDIR\指纹浏览器.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "启动栖界指纹浏览器"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE_NAME}"
+!define MUI_FINISHPAGE_RUN_TEXT "启动${APP_NAME}"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -61,17 +64,17 @@ Function .onInit
     Abort
   ${EndIf}
   app_check:
-    nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq 指纹浏览器.exe" /NH /FO CSV'
+    nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq ${EXE_NAME}" /NH /FO CSV'
     Pop $0
     Pop $1
-    ${StrStr} $2 $1 "指纹浏览器.exe"
+    ${StrStr} $2 $1 "${EXE_NAME}"
     ${If} $2 != ""
       ${If} $AutoUpdate == "1"
         MessageBox MB_ICONEXCLAMATION "仍有其他栖界客户端正在运行。请关闭后重新执行更新。"
         SetErrorLevel 1
         Abort
       ${EndIf}
-      MessageBox MB_ICONEXCLAMATION "检测到浏览器基座仍在运行，请先正常关闭客户端后重新安装。"
+      MessageBox MB_ICONEXCLAMATION "检测到${APP_NAME}仍在运行，请先正常关闭客户端后重新安装。"
       Abort
     ${EndIf}
     Goto app_check_done
@@ -84,8 +87,8 @@ Section "安装客户端"
   File /r "${PAYLOAD_DIR}\*.*"
   WriteUninstaller "$INSTDIR\卸载.exe"
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\指纹浏览器.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
-  CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\指纹浏览器.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\resources\app\assets\saas.ico"
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\resources\app\assets\saas.ico"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\卸载.lnk" "$INSTDIR\卸载.exe" "" "$INSTDIR\resources\app\assets\saas.ico"
   WriteRegStr HKLM "${APP_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKLM "${APP_KEY}" "DisplayVersion" "${APP_VERSION}"
@@ -97,7 +100,7 @@ Section "安装客户端"
   WriteRegDWORD HKLM "${APP_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${APP_KEY}" "NoRepair" 1
   ${If} $AutoUpdate == "1"
-    ExecShell "open" "$WINDIR\explorer.exe" '"$INSTDIR\指纹浏览器.exe"'
+    ExecShell "open" "$WINDIR\explorer.exe" '"$INSTDIR\${EXE_NAME}"'
   ${EndIf}
 SectionEnd
 

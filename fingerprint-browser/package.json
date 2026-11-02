@@ -44,7 +44,10 @@
   "scripts": {
     "start": "node scripts/start.js",
     "watch": "node scripts/watch.js",
-    "package": "pwsh -NoProfile -File scripts/package.ps1",
+    "package": "pwsh -NoProfile -File scripts/package.ps1 -Environment prod",
+    "package:dev": "pwsh -NoProfile -File scripts/package.ps1 -Environment dev",
+    "package:test": "pwsh -NoProfile -File scripts/package.ps1 -Environment test",
+    "package:prod": "pwsh -NoProfile -File scripts/package.ps1 -Environment prod",
     "test:package": "pwsh -NoProfile -File scripts/test-package.ps1",
     "test:package:data": "pwsh -NoProfile -File scripts/test-package.ps1 -DataDirectoryOnly",
     "test:client-security": "node --test test/client-config.test.js test/client-updater.test.js test/fingerprint-envelope.test.js test/tab-capabilities.test.js test/browser-navigation.test.js test/tab-strip-layout.test.js test/automation-server.test.js",

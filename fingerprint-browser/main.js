@@ -78,9 +78,14 @@ app.on('web-contents-created', (_event, contents) => {
 
 try {
   clientConfig = getClientConfig({ packaged: app.isPackaged })
-  if (!process.env.FP_BROWSER_DATA_DIR && clientConfig.applicationId !== 'com.qijie.fingerprintbrowser') initialDataRoot = path.join(app.getPath('appData'), clientConfig.applicationId)
+  if (!process.env.FP_BROWSER_DATA_DIR) {
+    if (clientConfig.applicationId !== 'com.qijie.fingerprintbrowser') {
+      initialDataRoot = path.join(app.getPath('appData'), clientConfig.applicationId)
+    } else if (clientConfig.environment !== 'prod') {
+      initialDataRoot = path.join(initialDataRoot, clientConfig.environment)
+    }
+  }
   app.setName(clientConfig.appName)
-  if (!process.env.FP_BROWSER_DATA_DIR && clientConfig.environment !== 'prod') initialDataRoot = path.join(initialDataRoot, clientConfig.environment)
   app.setPath('userData', initialDataRoot)
   app.setPath('sessionData', initialDataRoot)
 } catch {
@@ -112,7 +117,9 @@ function notifyBusiness (channel) {
   }
 }
 
-const APPLICATION_ID = clientConfig.applicationId + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
+const APPLICATION_ID = clientConfig.applicationId.endsWith(`.${clientConfig.environment}`)
+  ? clientConfig.applicationId
+  : clientConfig.applicationId + (clientConfig?.environment && clientConfig.environment !== 'prod' ? `.${clientConfig.environment}` : '')
 const APPLICATION_ICON = process.platform === 'win32'
   ? path.join(__dirname, 'assets', 'saas.ico')
   : path.join(__dirname, 'assets', 'saas.png')
@@ -573,7 +580,23 @@ function registerIpc () {
           authConfig,
           name: profile.name
         }
-        return { ok: true, environmentId: existing.id, ...await tabBrowser.reopen(existing.id, policy, restoredSession) }
+        const reopenResult = await tabBrowser.reopen(existing.id, policy, restoredSession)
+        if (reopenResult.tabId && (authConfig.accountId || authConfig.websiteAccountId)) {
+          const tab = tabBrowser.getTab(reopenResult.tabId)
+          if (tab?.view?.webContents) {
+            const contents = tab.view.webContents
+            let timer = null
+            const debounceSave = () => {
+              clearTimeout(timer)
+              timer = setTimeout(() => {
+                if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
+              }, 2500)
+            }
+            contents.on('did-finish-load', debounceSave)
+            try { contents.session?.cookies?.on('changed', debounceSave) } catch {}
+          }
+        }
+        return { ok: true, environmentId: existing.id, ...reopenResult }
       }
       const environment = await environmentRepository.create(profile, profile.url, { preserveFingerprint: true, externalReference: launchReference })
       const isWebsite = decrypted.platform === 'website' || decrypted.id?.startsWith('web-') || decrypted.type === 'website'
@@ -594,7 +617,23 @@ function registerIpc () {
         authConfig,
         name: profile.name
       }
-      return { ok: true, environmentId: environment.id, ...await tabBrowser.openEnvironment(environment, policy, restoredSession) }
+      const openResult = await tabBrowser.openEnvironment(environment, policy, restoredSession)
+      if (openResult.tabId && (authConfig.accountId || authConfig.websiteAccountId)) {
+        const tab = tabBrowser.getTab(openResult.tabId)
+        if (tab?.view?.webContents) {
+          const contents = tab.view.webContents
+          let timer = null
+          const debounceSave = () => {
+            clearTimeout(timer)
+            timer = setTimeout(() => {
+              if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
+            }, 2500)
+          }
+          contents.on('did-finish-load', debounceSave)
+          try { contents.session?.cookies?.on('changed', debounceSave) } catch {}
+        }
+      }
+      return { ok: true, environmentId: environment.id, ...openResult }
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
@@ -693,17 +732,17 @@ function registerIpc () {
       return { ok: true, type: 'custom', tabId: result.tabId }
     }
   })
-  handle('tabs:save-auth', async (event, tabId) => {
+  async function saveTabAuth (tabId) {
     const id = tabId || tabBrowser.activeId
-    if (!id) throw new ProfileValidationError('未选择需要保存的标签页。')
+    if (!id) return null
     const tab = tabBrowser.getTab(id)
-    if (!tab) throw new ProfileValidationError('找不到要保存的标签页。')
+    if (!tab) return null
     if (tab.saving) return { ok: true, saving: true }
     tab.saving = true
     tabBrowser.notify()
     try {
       const contents = tab.view?.webContents
-      if (!contents || contents.isDestroyed()) throw new ProfileValidationError('网页已关闭，无法获取授权数据。')
+      if (!contents || contents.isDestroyed()) return null
       await contents.session.cookies.flushStore()
       const currentUrl = contents.getURL()
       let payload = null
@@ -814,12 +853,19 @@ function registerIpc () {
       }
       return { ok: true, data: payload }
     } catch (error) {
-      if (error instanceof ProfileValidationError) throw error
-      throw new ProfileValidationError('保存授权数据失败：' + (error.message || '未知错误'))
+      return null
     } finally {
       tab.saving = false
       tabBrowser.notify()
     }
+  }
+
+  handle('tabs:save-auth', async (event, tabId) => {
+    const id = tabId || tabBrowser.activeId
+    if (!id) throw new ProfileValidationError('未选择需要保存的标签页。')
+    const result = await saveTabAuth(id)
+    if (!result) throw new ProfileValidationError('保存授权数据失败：网页已关闭或未找到。')
+    return result
   })
   handle('tabs:set-capabilities', async (_event, payload) => ({ ok: true, policy: tabBrowser.setCapabilities(payload) }))
   for (const action of ['list', 'select', 'close', 'reorder', 'navigate', 'new-page', 'devtools', 'dashboard']) {
@@ -830,6 +876,10 @@ function registerIpc () {
         if (action === 'select') tabBrowser.select(payload)
         if (action === 'reorder') tabBrowser.reorder(payload)
         if (action === 'close') {
+          const tab = tabBrowser.getTab(payload)
+          if (tab && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+            await saveTabAuth(payload).catch(() => {})
+          }
           await tabBrowser.close(payload)
           notifyBusiness('environments:changed')
         }
@@ -1406,7 +1456,11 @@ async function start () {
             outcome: polled.result?.outcome || 'valid',
             tabId: prepared.tabId,
             environmentId: prepared.environmentId,
-            result: polled.result
+            accountId: taskInput.task?.accountId || null,
+            result: {
+              ...(polled.result || {}),
+              accountId: taskInput.task?.accountId || null
+            }
           }
         }
       }

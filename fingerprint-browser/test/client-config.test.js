@@ -31,3 +31,30 @@ test('开发环境读取打包配置；test 和 prod 缺少地址时拒绝启动
   fs.writeFileSync(path.join(directory, 'client-config.json'), JSON.stringify({ environment: 'prod', appUrl: 'https://workspace.example/', updatesEnabled: true, updateUrl: 'https://updates.example/prod.json', updatePublicKey: publicKey.export({ type: 'spki', format: 'pem' }) }))
   assert.equal(getClientConfig({ directory, packaged: true, env: {} }).updates.enabled, true)
 })
+
+test('多环境独立属性推导：dev、test 与 prod 具有独立默认应用名与包标识，支持中文及括号', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qijie-client-config-env-'))
+  fs.writeFileSync(path.join(directory, 'client-config.json'), JSON.stringify({
+    environment: 'dev',
+    appUrl: 'http://127.0.0.1:8088/'
+  }))
+  const devConfig = getClientConfig({ directory, packaged: true, env: {} })
+  assert.equal(devConfig.appName, '指纹浏览器 (开发版)')
+  assert.equal(devConfig.applicationId, 'com.qijie.fingerprintbrowser.dev')
+
+  fs.writeFileSync(path.join(directory, 'client-config.json'), JSON.stringify({
+    environment: 'test',
+    appUrl: 'https://test.workspace.example/'
+  }))
+  const testConfig = getClientConfig({ directory, packaged: true, env: {} })
+  assert.equal(testConfig.appName, '指纹浏览器 (测试版)')
+  assert.equal(testConfig.applicationId, 'com.qijie.fingerprintbrowser.test')
+
+  fs.writeFileSync(path.join(directory, 'client-config.json'), JSON.stringify({
+    environment: 'prod',
+    appUrl: 'https://workspace.example/'
+  }))
+  const prodConfig = getClientConfig({ directory, packaged: true, env: {} })
+  assert.equal(prodConfig.appName, '指纹浏览器')
+  assert.equal(prodConfig.applicationId, 'com.qijie.fingerprintbrowser')
+})
