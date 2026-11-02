@@ -484,6 +484,93 @@ function registerIpc () {
     const response = await fetch(target, { method, redirect: 'error', headers: { Authorization: `Bearer ${automationServer.token}`, 'Content-Type': 'application/json' }, ...(['GET', 'HEAD'].includes(method) ? {} : { body: JSON.stringify(payload.body || {}) }), signal: AbortSignal.timeout(60000) })
     return { ok: true, status: response.status, data: await response.json() }
   })
+  function attachAccountSessionObserver (tabId, authConfig) {
+    if (!tabId || (!authConfig?.accountId && !authConfig?.websiteAccountId)) return
+    const tab = tabBrowser.getTab(tabId)
+    if (!tab?.view?.webContents) return
+    const contents = tab.view.webContents
+    let debounceTimer = null
+    let maxWaitTimer = null
+    const MAX_WAIT_MS = 5000
+    const DEBOUNCE_MS = 2000
+
+    const triggerSave = () => {
+      clearTimeout(debounceTimer)
+      clearTimeout(maxWaitTimer)
+      debounceTimer = null
+      maxWaitTimer = null
+      if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
+    }
+
+    const scheduleSave = () => {
+      if (contents.isDestroyed()) return
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(triggerSave, DEBOUNCE_MS)
+      if (!maxWaitTimer) {
+        maxWaitTimer = setTimeout(triggerSave, MAX_WAIT_MS)
+      }
+    }
+
+    contents.on('did-finish-load', () => {
+      setTimeout(() => {
+        if (!contents.isDestroyed()) triggerSave()
+      }, 1500)
+    })
+
+    try {
+      contents.session?.cookies?.on('changed', scheduleSave)
+    } catch {}
+
+    const platformKey = authConfig.platformKey || authConfig.task?.platformKey
+    if (authConfig.type === 'platform' && platformKey) {
+      void (async () => {
+        try {
+          platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+          const { runtime, rpa } = await platformRuntime.load()
+          const platformDef = runtime?.catalog?.find?.(item => item.key === platformKey)
+          const responsePaths = platformDef?.responsePaths || (platformDef?.responsePath ? [platformDef.responsePath] : [])
+          if (responsePaths.length && !contents.debugger.isAttached()) {
+            contents.debugger.attach('1.3')
+            await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: 262144 })
+            const pendingRequests = new Map()
+            const onDebuggerMessage = async (_ev, method, data) => {
+              if (contents.isDestroyed()) return
+              try {
+                if (method === 'Network.responseReceived' && responsePaths.some(p => {
+                  try { return new URL(data.response.url).pathname.includes(p) } catch { return false }
+                })) {
+                  pendingRequests.set(data.requestId, { url: data.response.url, status: data.response.status })
+                } else if (method === 'Network.loadingFailed') {
+                  pendingRequests.delete(data.requestId)
+                } else if (method === 'Network.loadingFinished' && pendingRequests.has(data.requestId)) {
+                  const reqInfo = pendingRequests.get(data.requestId)
+                  pendingRequests.delete(data.requestId)
+                  if (reqInfo && reqInfo.status >= 200 && reqInfo.status < 300) {
+                    const result = await contents.debugger.sendCommand('Network.getResponseBody', { requestId: data.requestId })
+                    const body = JSON.parse(result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body)
+                    const idn = rpa?.identity?.(platformKey, body)
+                    if (idn?.platformUserId) {
+                      tab.authConfig = { ...(tab.authConfig || {}), detectedIdentity: idn }
+                      triggerSave()
+                    }
+                  }
+                }
+              } catch {}
+            }
+            contents.debugger.on('message', onDebuggerMessage)
+            contents.once('destroyed', () => {
+              try {
+                if (contents.debugger.isAttached()) contents.debugger.detach()
+              } catch {}
+            })
+          }
+        } catch (e) {
+          console.warn('[平台会话主动观察启动提示]', e?.message || e)
+        }
+      })()
+    }
+  }
+
   handle('application:prepare-launch', async (event, payload) => ({ ok: true, ...encryptedLaunchRequests.prepare(event.sender, payload) }))
   handle('application:launch-encrypted', async (event, payload) => {
     try {
@@ -581,20 +668,8 @@ function registerIpc () {
           name: profile.name
         }
         const reopenResult = await tabBrowser.reopen(existing.id, policy, restoredSession)
-        if (reopenResult.tabId && (authConfig.accountId || authConfig.websiteAccountId)) {
-          const tab = tabBrowser.getTab(reopenResult.tabId)
-          if (tab?.view?.webContents) {
-            const contents = tab.view.webContents
-            let timer = null
-            const debounceSave = () => {
-              clearTimeout(timer)
-              timer = setTimeout(() => {
-                if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
-              }, 2500)
-            }
-            contents.on('did-finish-load', debounceSave)
-            try { contents.session?.cookies?.on('changed', debounceSave) } catch {}
-          }
+        if (reopenResult.tabId) {
+          attachAccountSessionObserver(reopenResult.tabId, authConfig)
         }
         return { ok: true, environmentId: existing.id, ...reopenResult }
       }
@@ -618,20 +693,8 @@ function registerIpc () {
         name: profile.name
       }
       const openResult = await tabBrowser.openEnvironment(environment, policy, restoredSession)
-      if (openResult.tabId && (authConfig.accountId || authConfig.websiteAccountId)) {
-        const tab = tabBrowser.getTab(openResult.tabId)
-        if (tab?.view?.webContents) {
-          const contents = tab.view.webContents
-          let timer = null
-          const debounceSave = () => {
-            clearTimeout(timer)
-            timer = setTimeout(() => {
-              if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
-            }, 2500)
-          }
-          contents.on('did-finish-load', debounceSave)
-          try { contents.session?.cookies?.on('changed', debounceSave) } catch {}
-        }
+      if (openResult.tabId) {
+        attachAccountSessionObserver(openResult.tabId, authConfig)
       }
       return { ok: true, environmentId: environment.id, ...openResult }
     } catch (error) {
@@ -775,11 +838,29 @@ function registerIpc () {
           }
         } else {
           try {
-            storage = await contents.executeJavaScript('try { Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])) } catch { ({}) }')
+            const raw = await contents.executeJavaScript('try { Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])) } catch { ({}) }')
+            let pageOrigin = ''
+            try {
+              const u = new URL(currentUrl)
+              if (u.protocol === 'http:' || u.protocol === 'https:') pageOrigin = u.origin
+            } catch {}
+            if (pageOrigin && raw && typeof raw === 'object' && Object.keys(raw).length > 0) {
+              const stringMap = {}
+              for (const [k, v] of Object.entries(raw)) {
+                if (typeof v === 'string') stringMap[k] = v
+                else if (v !== null && v !== undefined) stringMap[k] = String(v)
+              }
+              storage = { [pageOrigin]: stringMap }
+            } else if (raw && typeof raw === 'object') {
+              storage = raw
+            }
           } catch {}
           cookies = await contents.session.cookies.get({})
         }
 
+        if (!identity?.platformUserId && tab.authConfig?.detectedIdentity) {
+          identity = tab.authConfig.detectedIdentity
+        }
         if (!identity?.platformUserId && tab.authConfig?.task?.expectedUserId) {
           identity = { platformUserId: tab.authConfig.task.expectedUserId }
         }
@@ -790,6 +871,7 @@ function registerIpc () {
           accountId: tab.authConfig?.accountId || null,
           name: tab.pinnedTitle || tab.title,
           platformKey: tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey || null,
+          url: currentUrl,
           identity,
           cookies: cookies.map(c => ({
             name: c.name,
