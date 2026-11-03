@@ -7,15 +7,8 @@
 
 function generateStealthScript () {
   return `(function () {
-  if (typeof window === 'undefined' || window.__stealth_protection_active__) return
-  try {
-    Object.defineProperty(window, '__stealth_protection_active__', {
-      value: true,
-      enumerable: false,
-      configurable: false,
-      writable: false
-    })
-  } catch (_) {}
+  // 基于已伪装特性做幂等防重入，严禁在 window 上挂载任何私有标记属性，杜绝被第三方风控遍历探测
+  if (typeof window === 'undefined' || (window.chrome && typeof window.chrome.csi === 'function')) return
 
   // 1. 原生函数 toString 拦截与闭包阻断器 (Native Code Cloaking)
   const toStringMap = new WeakMap()

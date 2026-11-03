@@ -162,3 +162,18 @@ ninja.bat -C out\Release -j 4 electron
 - 实现修改后，针对受影响能力验证开启、关闭、无配置及相关跨会话/跨线程行为；协议变化还须验证生产方与消费方兼容。复用现有验证入口，禁止为了验证而全量编译。
 - 构建验收必须区分“受影响源码的必要重编”与“最终产物重新链接”；不能承诺改头文件完全不重编，也不能因正常链接而清理缓存。
 - 若预演显示依赖扩散超出设计预期，先收窄接口、包含关系、GN 依赖或修改位置，再预演；不能把无关大范围重编视为组件化的必然成本。
+
+## 客户端 JSAPI 暴露安全隔离与防第三方平台风控探测铁律（强制）
+
+### 适用背景与风控根因
+第三方媒体平台（小红书、抖音、快手、微信公众平台、X/Twitter 等）的风控安全 SDK（如 web-protect、security-sdk 等）在页面初始化时，会通过 `Object.getOwnPropertyNames(window)`、`Object.keys(window)` 及 `Reflect.ownKeys(window)` 全面遍历全局对象，与标准 Chrome 原生白名单进行 Diff 差集比对，或探测包含 `bridge`、`api`、`stealth` 等关键词的特征属性。一旦发现非标私有属性，即刻判定为自动化/外挂/指纹异常环境。
+
+### 硬性防守规范
+1. **页面信任域与特权 API 严格隔离**：
+   - 客户端私有桥接与通信契约（`window.desktopBridge`、`window.browserApi` 等）**严格仅允许在受信任的 SaaS 业务页面（如 `dashboardView`、系统配置的 `appUrl` 控制台）与本地宿主 Shell（`browser-shell.html`）中注入**。
+   - 所有在指纹环境或普通标签中打开的第三方外部网站，**严禁传入 `--qijie-api-contract` 等私有契约参数，严禁注入任何内部 JSAPI、桥接对象或私有全局变量**。普通网页标签（`openPage`）默认不继承任何系统级桥接参数。
+2. **守护脚本全局零痕迹（Zero-Footprint）规范**：
+   - 防检测及指纹守护脚本（如 `stealth-preload.js`、`stealth-engine.js`）严禁在 `window` 对象上直接挂载任何特征标识（包括不可枚举属性、Symbol 或任何形如 `__stealth_xxx__` 的私有变量）。
+   - 内部防重入与幂等逻辑必须保存在局部闭包作用域或通过已有标准原生对象特性进行判断，保证第三方页面通过 `Object.getOwnPropertyNames(window)`、`Reflect.ownKeys(window)` 扫描时与原生干净 Chrome 保持完全一致，杜绝任何属性 Diff 差集。
+3. **页面内定制能力的隔离通道规范**：
+   - 若第三方页面确有由客户端注入的定制 UI、浮标或自动化操作通信需求，必须通过 Chromium 的 **Isolated World（独立世界）** 或无全局属性污染的 **DOM 隐蔽事件通道** 进行隔离通信，绝不允许在主世界（Main World）的 `window` 对象上挂载任何私有全局属性。

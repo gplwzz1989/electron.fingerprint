@@ -175,6 +175,8 @@ async function run () {
     if (!fingerprint.browser.userAgent) assert.equal(signals.userAgent.includes('Electron/'), false, '默认 User-Agent 不应暴露 Electron 版本。')
     assert.equal(contents.session.storagePath, tab.dataDir, '实际会话数据路径不符合标签目录。')
     assert.equal(await contents.executeJavaScript('typeof window.browserApi'), 'undefined', '远程页面不应暴露应用通信接口。')
+    assert.equal(await contents.executeJavaScript('typeof window.desktopBridge'), 'undefined', '远程页面不应暴露桌面桥接接口。')
+    assert.equal(await contents.executeJavaScript('typeof window.__stealth_protection_active__'), 'undefined', '远程页面不应暴露防检测私有标记。')
     assert.equal(await contents.executeJavaScript('typeof require'), 'undefined', '远程页面不应启用 Node.js。')
     const diskProfile = JSON.parse(await fs.readFile(path.join(tab.dataDir, 'fingerprint.json'), 'utf8'))
     assert.equal(diskProfile.fingerprint.locale.language, signals.language, '标签独立指纹快照未保存。')

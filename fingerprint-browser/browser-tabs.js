@@ -513,7 +513,7 @@ class TabBrowser {
       nodeIntegration: false,
       sandbox: true,
       preload: STEALTH_PRELOAD_PATH,
-      additionalArguments: bridgeArguments(),
+      // 第三方环境标签严禁传入桌面私有业务契约参数，避免向不受信的第三方页面暴露客户端 JSAPI
       backgroundThrottling: false
     } })
     const pinnedTitle = policy.name ? String(policy.name).trim() : null

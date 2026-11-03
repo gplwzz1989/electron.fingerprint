@@ -343,4 +343,38 @@ test('Google 登录与 BotGuard 防护对抗测试套件', async (t) => {
     assert.equal(iframeFocus.hidden, false)
     assert.equal(iframeFocus.hasFocus, true)
   })
+
+  await t.test('8. 全局 window 零私有污染验证 (防第三方风控扫描 window 属性)', () => {
+    const { evalInContext, contextObj } = createMockBrowserContext()
+    const script = generateStealthScript()
+    evalInContext(script)
+
+    // 验证防检测脚本未在 window 上留下私有标记
+    const checkResult = evalInContext(`
+      (function() {
+        const ownProps = Object.getOwnPropertyNames(window);
+        const ownSymbols = Object.getOwnPropertySymbols(window);
+        const allKeys = Reflect.ownKeys(window);
+        const hasStealthProp = ownProps.some(k => k.includes('stealth')) || allKeys.some(k => String(k).includes('stealth'));
+        const hasBridgeProp = ownProps.some(k => k.includes('bridge') || k.includes('Bridge'));
+        const hasApiProp = ownProps.some(k => k === 'browserApi' || k === 'desktopBridge');
+        return {
+          stealthActiveFlag: typeof window.__stealth_protection_active__,
+          hasStealthProp,
+          hasBridgeProp,
+          hasApiProp
+        };
+      })()
+    `)
+
+    assert.equal(checkResult.stealthActiveFlag, 'undefined', '不得在 window 上挂载 __stealth_protection_active__ 属性')
+    assert.equal(checkResult.hasStealthProp, false, 'window 自有属性中不得包含 stealth 关键词')
+    assert.equal(checkResult.hasBridgeProp, false, '第三方页面 window 中不得包含 bridge 属性')
+    assert.equal(checkResult.hasApiProp, false, '第三方页面 window 中不得暴露私有 API')
+
+    // 验证幂等执行：再次执行脚本不抛错，且属性依然纯净
+    assert.doesNotThrow(() => {
+      evalInContext(script)
+    })
+  })
 })

@@ -7,15 +7,8 @@ const { webFrame } = require('electron')
 
 // 预编译的主世界防检测脚本内容
 const STEALTH_SCRIPT = `(function () {
-  if (typeof window === 'undefined' || window.__stealth_protection_active__) return
-  try {
-    Object.defineProperty(window, '__stealth_protection_active__', {
-      value: true,
-      enumerable: false,
-      configurable: false,
-      writable: false
-    })
-  } catch (_) {}
+  // 基于已伪装特性做幂等防重入，严禁在 window 上挂载任何私有标记属性，杜绝被第三方风控遍历探测
+  if (typeof window === 'undefined' || (window.chrome && typeof window.chrome.csi === 'function')) return
 
   // 1. 原生函数 toString 拦截与闭包阻断器 (Native Code Cloaking)
   const toStringMap = new WeakMap()
@@ -424,18 +417,4 @@ try {
   console.error('[Stealth Preload Error]', error)
 }
 
-// 只有主进程明确创建的系统标签才传入业务契约；普通网页和弹窗不继承此参数。
-;(function () {
-  const argument = process.argv.find(value => value.startsWith('--qijie-api-contract='))
-  if (!argument) return
-  const { contextBridge, ipcRenderer } = require('electron')
-  const contract = JSON.parse(decodeURIComponent(argument.slice('--qijie-api-contract='.length)))
-  for (const [group, methods] of Object.entries(contract)) {
-    const api = group === 'browserApi' ? { hostPlatform: process.platform } : { shellVersion: 2, protocolVersion: 1 }
-    for (const [method, channel] of Object.entries(methods)) api[method] = payload => ipcRenderer.invoke(channel, method === 'createGroup' && typeof payload === 'string' ? { name: payload } : payload)
-    for (const [method, channel] of Object.entries({ onTabsChanged: 'tabs:changed', onProfilesChanged: 'profiles:changed', onEnvironmentsChanged: 'environments:changed', onGroupsChanged: 'groups:changed' })) {
-      api[method] = callback => { if (typeof callback !== 'function') return () => {}; const listener = (_event, payload) => callback(payload?.data !== undefined ? payload.data : payload); ipcRenderer.on(channel, listener); return () => ipcRenderer.removeListener(channel, listener) }
-    }
-    contextBridge.exposeInMainWorld(group, api)
-  }
-})()
+// 第三方网页与 OAuth 弹窗严禁暴露任何客户端私有 JSAPI（如 browserApi、desktopBridge 等），保持全局 window 与原生标准 Chrome 绝对一致，杜绝被第三方平台风控脚本遍历识别为异常环境。
