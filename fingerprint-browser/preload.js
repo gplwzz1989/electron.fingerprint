@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld('browserApi', {
     return () => ipcRenderer.removeListener('media:count-changed', listener)
   },
   onTabsChanged: callback => {
-    const listener = (_event, snapshot) => callback(snapshot)
+    const listener = (_event, snapshot) => callback(snapshot?.data !== undefined ? snapshot.data : snapshot)
     ipcRenderer.on('tabs:changed', listener)
     return () => ipcRenderer.removeListener('tabs:changed', listener)
   },

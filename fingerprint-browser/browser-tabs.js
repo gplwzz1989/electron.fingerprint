@@ -11,6 +11,7 @@ const { createSocks5Proxy } = require('./socks5-proxy')
 const { describeFingerprintProtection } = require('./fingerprint-protection')
 const { generateStealthScript } = require('./stealth-engine')
 const { bridgeArguments } = require('./client-api-contract')
+const { createEventEnvelope } = require('./protocol-envelope')
 const { pathToFileURL } = require('node:url')
 const { resolveAddress } = require('./browser-navigation')
 
@@ -226,12 +227,13 @@ class TabBrowser {
   notify () {
     if (this.window && !this.window.isDestroyed()) {
       const snapshot = this.snapshot()
-      this.window.webContents.send('tabs:changed', snapshot)
-      if (this.dashboardView && !this.dashboardView.webContents.isDestroyed()) this.dashboardView.webContents.send('tabs:changed', snapshot)
+      const envelope = createEventEnvelope('tabs:changed', snapshot, 'tabBrowser')
+      this.window.webContents.send('tabs:changed', envelope)
+      if (this.dashboardView && !this.dashboardView.webContents.isDestroyed()) this.dashboardView.webContents.send('tabs:changed', envelope)
       for (const tab of this.tabs.values()) {
         if (tab.kind === 'ordinary' || !this.capabilityRegistry) continue
         const sender = tab.view.webContents
-        try { this.capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, 'tabs:list'); sender.send('tabs:changed', snapshot) } catch {}
+        try { this.capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, 'tabs:list'); sender.send('tabs:changed', envelope) } catch {}
       }
     }
   }

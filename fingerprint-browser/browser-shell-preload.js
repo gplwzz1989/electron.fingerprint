@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('browserShell', {
-  state: () => ipcRenderer.invoke('tabs:list'),
+  state: () => ipcRenderer.invoke('tabs:list').then(res => res?.data || res),
   create: () => ipcRenderer.invoke('tabs:ordinary'),
   select: id => ipcRenderer.invoke('tabs:select', id),
   close: id => ipcRenderer.invoke('tabs:close', id),
@@ -10,6 +10,6 @@ contextBridge.exposeInMainWorld('browserShell', {
   windowAction: action => ipcRenderer.invoke('window:action', action),
   devtools: id => ipcRenderer.invoke('tabs:devtools', id),
   saveAuth: id => ipcRenderer.invoke('tabs:save-auth', id),
-  onState: callback => { const listener = (_event, state) => callback(state); ipcRenderer.on('tabs:changed', listener); return () => ipcRenderer.removeListener('tabs:changed', listener) },
+  onState: callback => { const listener = (_event, state) => callback(state?.data || state); ipcRenderer.on('tabs:changed', listener); return () => ipcRenderer.removeListener('tabs:changed', listener) },
   onFocusAddress: callback => { const listener = () => callback(); ipcRenderer.on('shell:focus-address', listener); return () => ipcRenderer.removeListener('shell:focus-address', listener) }
 })

@@ -10,6 +10,7 @@ test('固定首页绑定具体 WebContents 与页面，普通标签访问相同�
   const registry = new TabCapabilities(); const url = 'https://workspace.example/'
   const home = contents(url + '#accounts'); registry.register(home, 'home', { pinnedUrl: url })
   registry.assert(caller(home), 'profiles:list'); registry.assert(caller(home), 'automation:request')
+  registry.assert(caller(home), 'system:get-runtime'); registry.assert(caller(home), 'system:check-updates')
   const ordinary = contents(url); registry.register(ordinary, 'ordinary')
   assert.throws(() => registry.assert(caller(ordinary), 'profiles:list'))
   assert.throws(() => registry.update(ordinary, { capabilities: ['*'], allowedOrigins: ['https://workspace.example'] }))
@@ -41,6 +42,7 @@ test('本机外壳只持有浏览器控制能力，未知能力和非法来源�
   const registry = new TabCapabilities(); const shell = contents('file:///app/browser-shell.html')
   registry.register(shell, 'shell', { pinnedUrl: shell.mainFrame.url })
   registry.assert(caller(shell), 'window:action'); registry.assert(caller(shell), 'tabs:ordinary')
+  registry.assert(caller(shell), 'system:control-window')
   assert.throws(() => registry.assert(caller(shell), 'profiles:list'))
   assert.throws(() => registry.normalize({ capabilities: ['unknown'] }))
   assert.throws(() => registry.normalize({ allowedOrigins: ['https://platform.example/creator'] }))

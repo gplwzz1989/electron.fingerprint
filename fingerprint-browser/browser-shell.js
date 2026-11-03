@@ -40,15 +40,17 @@
   const symbols = { home: '<path d="m3 10 9-7 9 7v11H3V10Z M9 21v-7h6v7"/>', ordinary: '<rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 8h18M7 6h.1M10 6h.1"/>', managed: '<path d="M6 19c2-3 1-7 2-10a4.3 4.3 0 0 1 8 .1c1 3 0 7-1 10M3 16c1-2 0-5 1-8a8.5 8.5 0 0 1 16 0c1 3 .5 6 0 9M11 21c2-4 1-8 1-11"/>' }
   function showError (message) { const node = document.getElementById('error'); clearTimeout(errorTimer); node.textContent = message || '操作未完成，请重试。'; node.hidden = false; errorTimer = setTimeout(() => { node.hidden = true }, 6000) }
   async function call (operation) { try { const result = await operation(); if (!result?.ok) showError(result?.error); return result } catch { showError('客户端操作未完成，请重试。') } }
-  function render (snapshot) {
-    if (draggingId) { pendingState = snapshot; return }
-    const oldTab = state.tabs.find(entry => entry.id === state.activeId) || state.home
-    const changed = state.activeId !== snapshot.activeId; state = snapshot
+  function render (rawSnapshot) {
+    if (draggingId) { pendingState = rawSnapshot; return }
+    const snapshot = (rawSnapshot && typeof rawSnapshot === 'object') ? (rawSnapshot.data || rawSnapshot) : { tabs: [], home: {} }
+    const rawTabs = Array.isArray(snapshot.tabs) ? snapshot.tabs : []
+    const oldTab = (Array.isArray(state.tabs) ? state.tabs : []).find(entry => entry.id === state.activeId) || state.home
+    const changed = state.activeId !== snapshot.activeId; state = { ...snapshot, tabs: rawTabs }
     if (changed) editing = false
     list.replaceChildren()
     pinned.replaceChildren()
     const home = { ...snapshot.home, id: null, title: '首页', kind: 'home' }
-    for (const tab of [home, ...snapshot.tabs]) {
+    for (const tab of [home, ...rawTabs]) {
       const item = document.createElement('div'); item.className = `tab${tab.id === snapshot.activeId ? ' active' : ''}${tab.loading ? ' loading' : ''}${tab.error ? ' error' : ''}`; item.setAttribute('role', 'tab'); item.setAttribute('aria-selected', String(tab.id === snapshot.activeId))
       item.dataset.id = tab.id || ''; item.draggable = Boolean(tab.id)
       const select = document.createElement('button'); select.className = 'tab-select'; select.type = 'button'; select.innerHTML = `<svg viewBox="0 0 24 24">${symbols[tab.kind] || symbols.managed}</svg>`; select.dataset.action = tab.id ? 'select' : 'home'; if (tab.id) select.dataset.id = tab.id
@@ -57,7 +59,7 @@
       if (tab.id) list.append(item); else pinned.append(item)
     }
     updateLayout()
-    const tab = snapshot.tabs.find(entry => entry.id === snapshot.activeId) || home
+    const tab = rawTabs.find(entry => entry.id === snapshot.activeId) || home
     if (tab.error && (changed || oldTab?.error !== tab.error)) showError(tab.error)
     address.readOnly = !snapshot.activeId; address.setAttribute('aria-label', address.readOnly ? '固定首页地址（只读）' : '网页地址'); document.getElementById('readonly-label').hidden = !address.readOnly
     if (!editing) address.value = tab.url === 'about:blank' && tab.kind === 'ordinary' ? '' : tab.url || ''
@@ -154,5 +156,5 @@
   list.addEventListener('keydown', event => { const item = event.target.closest('.tab'); if (!item || !event.altKey || !event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); const index = state.tabs.findIndex(tab => tab.id === item.dataset.id); const target = Math.max(0, Math.min(state.tabs.length - 1, index + (event.key === 'ArrowLeft' ? -1 : 1))); void call(() => bridge.reorder({ id: item.dataset.id, index: target })) })
   new ResizeObserver(updateLayout).observe(document.querySelector('.tab-row'))
   list.addEventListener('mouseleave', () => { if (frozenLayout) { clearTimeout(closeResizeTimer); closeResizeTimer = setTimeout(releaseCloseLayout, 150) } })
-  void call(() => bridge.state()).then(result => { if (result?.ok) render(result) })
+  void call(() => bridge.state()).then(result => { if (result?.ok) render(result?.data || result) })
 })()

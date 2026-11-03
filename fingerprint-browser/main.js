@@ -5,6 +5,12 @@ const { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, safeS
 const { pathToFileURL } = require('node:url')
 const { TabCapabilities } = require('./tab-capabilities')
 const { bridgeArguments } = require('./client-api-contract')
+const {
+  ensureObjectRequest,
+  createResponseEnvelope,
+  createErrorEnvelope,
+  createEventEnvelope
+} = require('./protocol-envelope')
 const capabilityRegistry = new TabCapabilities()
 const { SessionObserver } = require('./session-observer')
 const { validateSessionSnapshot } = require('./session-restore')
@@ -110,10 +116,11 @@ let creatorHub = null
 let quitting = false
 let startup = Promise.resolve()
 
-function notifyBusiness (channel) {
+function notifyBusiness (channel, data = {}) {
+  const payload = createEventEnvelope(channel, data, 'main')
   const targets = [dashboardView?.webContents, ...[...(tabBrowser?.tabs.values() || [])].filter(tab => tab.kind === 'managed').map(tab => tab.view.webContents)].filter(Boolean)
   for (const sender of targets) {
-    try { capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, channel.replace(':changed', ':list')); sender.send(channel) } catch {}
+    try { capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, channel.replace(':changed', ':list')); sender.send(channel, payload) } catch {}
   }
 }
 
@@ -418,20 +425,195 @@ function registerIpc () {
   handle('application:runtime', async event => {
     try { assertTrusted(event); return { ok: true, platform: process.platform, chromiumVersion: process.versions.chrome, environment: clientConfig.environment, protocolVersion: 1, appName: clientConfig.appName } } catch { return { ok: false, error: '当前页面无权访问本机能力。' } }
   })
+  handle('system:get-runtime', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'system.getRuntime')
+      return createResponseEnvelope(true, {
+        platform: process.platform,
+        chromiumVersion: process.versions.chrome,
+        environment: clientConfig.environment,
+        appName: clientConfig.appName,
+        protocolVersion: 2,
+        shellVersion: 2
+      }, 'SUCCESS', '获取系统运行时信息成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'SYS_RUNTIME_ERROR', err.message || '当前页面无权访问本机能力。', null, req?.traceId)
+    }
+  })
+  handle('system:control-window', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'system.controlWindow')
+      const action = req?.action
+      if (action === 'minimize') dashboardWindow?.minimize()
+      else if (action === 'maximize') {
+        if (dashboardWindow?.isMaximized()) dashboardWindow.unmaximize()
+        else dashboardWindow?.maximize()
+      }
+      else if (action === 'restore') dashboardWindow?.restore()
+      else if (action === 'exit') dashboardWindow?.close()
+      else {
+        const err = new Error('无效的窗口控制动作。')
+        err.code = 'INVALID_WINDOW_ACTION'
+        throw err
+      }
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '窗口操作成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'SYS_WINDOW_ERROR', err.message || '窗口操作失败。', null, req?.traceId)
+    }
+  })
+  handle('system:get-update-status', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'system.getUpdateStatus')
+      return createResponseEnvelope(true, clientUpdater.snapshot(), 'SUCCESS', '获取更新状态成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'SYS_UPDATE_STATUS_ERROR', err.message || '获取更新状态失败。', null, req?.traceId)
+    }
+  })
+  handle('system:check-updates', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'system.checkUpdates')
+      const result = await clientUpdater.check()
+      return createResponseEnvelope(true, result, 'SUCCESS', '检查更新完成', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'SYS_UPDATE_CHECK_ERROR', err.message || '检查客户端更新失败。', null, req?.traceId)
+    }
+  })
+  handle('system:install-update', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'system.installUpdate')
+      const installRes = await installClientUpdate()
+      if (!installRes?.ok) {
+        return createErrorEnvelope('SYS_UPDATE_INSTALL_FAILED', installRes?.error || '安装更新失败。', null, req?.traceId)
+      }
+      return createResponseEnvelope(true, undefined, 'SUCCESS', installRes?.cancelled ? '更新安装已取消' : '准备开始安装更新', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'SYS_UPDATE_INSTALL_ERROR', err.message || '触发安装更新失败。', null, req?.traceId)
+    }
+  })
   handle('task:execute', async (event, payload) => {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用异步任务。')
     if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
     return await taskGateway.execute(payload, event.sender)
+  })
+  handle('tasks:execute-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tasks.execute')
+      if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用异步任务。')
+      if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
+      return await taskGateway.execute(req, event.sender)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TASK_EXECUTE_ERROR', err.message || '调用异步任务失败。', null, req?.traceId)
+    }
   })
   handle('task:query', async (event, payload) => {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以查询异步任务。')
     if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
     return await taskGateway.query(payload)
   })
+  handle('tasks:query-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tasks.query')
+      if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以查询异步任务。')
+      if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
+      return await taskGateway.query(req)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TASK_QUERY_ERROR', err.message || '查询异步任务失败。', null, req?.traceId)
+    }
+  })
   handle('task:cancel', async (event, payload) => {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以取消异步任务。')
     if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
     return await taskGateway.cancel(payload)
+  })
+  handle('tasks:cancel-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tasks.cancel')
+      if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以取消异步任务。')
+      if (!taskGateway) throw new ProfileValidationError('任务网关尚未初始化完成。')
+      const result = await taskGateway.cancel(req)
+      return createResponseEnvelope(true, result, 'SUCCESS', '取消异步任务成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TASK_CANCEL_ERROR', err.message || '取消异步任务失败。', null, req?.traceId)
+    }
+  })
+  handle('platform:get-status-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'platform.getStatus')
+      platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+      const { manifest } = await platformRuntime.load()
+      return createResponseEnvelope(true, {
+        version: manifest.version,
+        protocol: 'platform-runtime-v3',
+        update: platformPackages?.state
+      }, 'SUCCESS', '获取平台能力状态成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'PLATFORM_STATUS_ERROR', err.message || '获取平台能力状态失败。', null, req?.traceId)
+    }
+  })
+  handle('platform:start-auth-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'platform.startAuth')
+      if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
+      const input = {
+        platformKey: req.platformKey,
+        environmentId: req.environmentId,
+        accountId: req.accountId,
+        mode: req.mode || 'login',
+        task: req
+      }
+      platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+      sessionObserver ||= new SessionObserver(tabBrowser)
+      const desktop = {}
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) {
+        desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) })
+      }
+      desktop.refreshIdentity = async () => {
+        const policy = desktop.authorizeCapture
+        const contents = tabBrowser.getTab(policy.tabId)?.view?.webContents
+        if (!contents || !policy.platform.identityRequest || new URL(contents.getURL()).origin !== new URL(policy.platform.url).origin) return
+        await contents.executeJavaScript('fetch(' + JSON.stringify(policy.platform.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }).then(() => true).catch(() => false)')
+      }
+      desktop.navigate = async payload => { await tabBrowser.navigate({ ...payload, action: 'load' }); return { ok: true } }
+      const prepared = await preparePlatformAuthorization(event.sender, input)
+      const started = await platformRuntime.start(event.sender, { ...input, ...prepared }, desktop)
+      const tab = tabBrowser.tabs?.get?.(prepared.tabId) || null
+      if (tab) {
+        tab.authConfig = { ...tab.authConfig, platformJobId: started.id }
+        tabBrowser.notify()
+      }
+      return {
+        ok: true,
+        taskId: started.id,
+        type: 'platform:authorize',
+        status: 'running',
+        createdAt: Date.now(),
+        data: started
+      }
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'PLATFORM_AUTH_START_ERROR', err.message || '启动平台授权失败。', null, req?.traceId)
+    }
+  })
+  handle('platform:cancel-auth-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'platform.cancelAuth')
+      if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
+      platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+      const res = await platformRuntime.poll(event.sender, req?.taskId, true)
+      return createResponseEnvelope(true, res, 'SUCCESS', '取消平台授权成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'PLATFORM_AUTH_CANCEL_ERROR', err.message || '取消平台授权失败。', null, req?.traceId)
+    }
   })
   for (const action of ['status', 'start', 'poll', 'cancel']) handle(`platform:${action}`, async (event, input) => {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
@@ -571,8 +753,32 @@ function registerIpc () {
     }
   }
 
+  handle('environments:prepare-launch-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.prepareLaunch')
+      const prep = encryptedLaunchRequests.prepare(event.sender, req)
+      return createResponseEnvelope(true, prep, 'SUCCESS', '生成启动准备参数成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_PREPARE_LAUNCH_ERROR', err.message || '生成启动准备参数失败。', null, req?.traceId)
+    }
+  })
+  handle('environments:launch-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.launch')
+      const raw = await executeLaunchEncrypted(event, req)
+      if (!raw?.ok) {
+        return createErrorEnvelope('ENV_LAUNCH_FAILED', raw?.error || '环境启动失败。', null, req?.traceId)
+      }
+      const { ok, error, ...data } = raw
+      return createResponseEnvelope(true, data, 'SUCCESS', '环境启动成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_LAUNCH_ERROR', err.message || '环境启动失败。', null, req?.traceId)
+    }
+  })
   handle('application:prepare-launch', async (event, payload) => ({ ok: true, ...encryptedLaunchRequests.prepare(event.sender, payload) }))
-  handle('application:launch-encrypted', async (event, payload) => {
+  async function executeLaunchEncrypted (event, payload) {
     try {
       assertTrusted(event)
       const { profile: decrypted, reference } = encryptedLaunchRequests.consume(event.sender, payload)
@@ -700,7 +906,8 @@ function registerIpc () {
     } catch (error) {
       return { ok: false, error: error instanceof ProfileValidationError ? error.message : '环境启动失败，请检查网络与本机运行时后重试。' }
     }
-  })
+  }
+  handle('application:launch-encrypted', async (event, payload) => executeLaunchEncrypted(event, payload))
   handle('window:action', async (_event, action) => {
     if (action === 'minimize') dashboardWindow.minimize()
     else if (action === 'maximize') { if (dashboardWindow.isMaximized()) dashboardWindow.unmaximize(); else dashboardWindow.maximize() }
@@ -950,6 +1157,115 @@ function registerIpc () {
     return result
   })
   handle('tabs:set-capabilities', async (_event, payload) => ({ ok: true, policy: tabBrowser.setCapabilities(payload) }))
+  handle('tabs:list-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.list')
+      const snapshot = tabBrowser.snapshot()
+      return createResponseEnvelope(true, snapshot, 'SUCCESS', '获取标签页列表成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_LIST_ERROR', err.message || '获取标签页列表失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:select-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.select')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供标签标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      tabBrowser.select(req.id)
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '切换标签页成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_SELECT_ERROR', err.message || '切换标签页失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:close-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.close')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供标签标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      const tab = tabBrowser.getTab(req.id)
+      if (tab && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+        await saveTabAuth(req.id).catch(() => {})
+      }
+      await tabBrowser.close(req.id)
+      notifyBusiness('environments:changed')
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '关闭标签页成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_CLOSE_ERROR', err.message || '关闭标签页失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:navigate-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.navigate')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供标签标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      if (!req?.url || typeof req.url !== 'string') {
+        const err = new Error('必须提供目标地址 url。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      await tabBrowser.navigate({ id: req.id, url: req.url, action: req.action || 'load' })
+      notifyBusiness('environments:changed')
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '导航成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_NAVIGATE_ERROR', err.message || '导航失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:create-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.create')
+      let res
+      if (req?.managed) {
+        res = await tabBrowser.createManaged(req)
+      } else {
+        res = await tabBrowser.openOrdinary(req?.url)
+      }
+      return createResponseEnvelope(true, { tabId: res.tabId }, 'SUCCESS', '创建标签页成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_CREATE_ERROR', err.message || '创建标签页失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:open-devtools', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.openDevTools')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供标签标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      tabBrowser.openDevTools(req.id)
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '打开开发者工具成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_DEVTOOLS_ERROR', err.message || '打开开发者工具失败。', null, req?.traceId)
+    }
+  })
+  handle('tabs:dashboard-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'tabs.dashboard')
+      if (!dashboardWindow || dashboardWindow.isDestroyed()) await createDashboard()
+      tabBrowser.selectDashboard()
+      dashboardWindow?.show()
+      dashboardWindow?.focus()
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '返回工作台成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'TABS_DASHBOARD_ERROR', err.message || '返回工作台失败。', null, req?.traceId)
+    }
+  })
   for (const action of ['list', 'select', 'close', 'reorder', 'navigate', 'new-page', 'devtools', 'dashboard']) {
     handle(`tabs:${action}`, async (event, payload) => {
       try {
@@ -1188,6 +1504,98 @@ function registerIpc () {
       return { ok: true, environment, environments: environmentRepository.list(), ...tabBrowser.snapshot() }
     } catch (error) {
       return errorResult('编辑浏览器环境', error, '编辑浏览器环境失败，请刷新后重试。')
+    }
+  })
+
+  handle('environments:list-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.list')
+      let list = environmentRepository.list()
+      if (req?.groupId) {
+        list = list.filter(item => item.group === req.groupId)
+      }
+      return createResponseEnvelope(true, list, 'SUCCESS', '读取浏览器环境成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_LIST_ERROR', err.message || '读取浏览器环境失败。', null, req?.traceId)
+    }
+  })
+  handle('environments:close-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.close')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供环境标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      await tabBrowser.closeEnvironment(req.id)
+      notifyBusiness('environments:changed')
+      return createResponseEnvelope(true, undefined, 'SUCCESS', '关闭浏览器环境成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_CLOSE_ERROR', err.message || '关闭浏览器环境失败。', null, req?.traceId)
+    }
+  })
+  handle('environments:remove-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.remove')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供环境标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      if (tabBrowser.isOpen(req.id)) {
+        const err = new Error('请先关闭正在使用的浏览器环境。')
+        err.code = 'ENV_STILL_OPEN'
+        throw err
+      }
+      const removal = await environmentRepository.remove(req.id)
+      notifyBusiness('environments:changed')
+      return createResponseEnvelope(true, { deletionPending: removal.pending }, 'SUCCESS', '删除浏览器环境成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_REMOVE_ERROR', err.message || '删除浏览器环境失败。', null, req?.traceId)
+    }
+  })
+  handle('environments:update-v2', async (event, req) => {
+    try {
+      assertTrusted(event)
+      ensureObjectRequest(req, 'environments.update')
+      if (!req?.id || typeof req.id !== 'string') {
+        const err = new Error('必须提供环境标识 id。')
+        err.code = 'PARAM_INVALID'
+        throw err
+      }
+      const payload = { id: req.id, ...(req.changes || {}) }
+      const hasGroup = Object.hasOwn(payload || {}, 'group')
+      const group = payload?.group === undefined || payload?.group === null ? '' : String(payload.group).trim()
+      if (hasGroup && group !== DEFAULT_GROUP_NAME && !groupRepository.getByName(group)) {
+        const err = new Error('要设置的业务分组不存在，请先创建分组。')
+        err.code = 'GROUP_NOT_FOUND'
+        throw err
+      }
+      const update = {
+        expectedMetadataRevision: payload?.metadataRevision,
+        expectedProfileRevision: payload?.profileRevision
+      }
+      if (Object.hasOwn(payload || {}, 'group')) update.group = group
+      for (const key of ['name', 'creationUrl', 'proxy', 'fingerprint', 'tlsFingerprint']) {
+        if (Object.hasOwn(payload || {}, key)) update[key] = payload[key]
+      }
+      if (Object.hasOwn(update, 'fingerprint')) {
+        const options = {
+          tlsFingerprint: update.tlsFingerprint,
+          allowCrossVersion: Boolean(update.tlsFingerprint?.emulationMode === 'cross-version')
+        }
+        assertFingerprintSave(update.fingerprint, fingerprintRuntime, update.proxy, options)
+      }
+      if (Object.hasOwn(update, 'tlsFingerprint')) assertTLSFingerprintRuntimeVersion(update.tlsFingerprint, fingerprintRuntime.chromiumVersion)
+      const environment = await environmentRepository.updateProfile(payload?.id, update)
+      tabBrowser.updateEnvironmentProfile(environment)
+      notifyBusiness('environments:changed')
+      return createResponseEnvelope(true, environment, 'SUCCESS', '编辑浏览器环境成功', req?.traceId)
+    } catch (err) {
+      return createErrorEnvelope(err.code || 'ENV_UPDATE_ERROR', err.message || '编辑浏览器环境失败。', null, req?.traceId)
     }
   })
 
@@ -1571,7 +1979,7 @@ async function start () {
       const result = await dialog.showMessageBox(dashboardWindow, { type: 'info', title: '新版本已准备好', message: `客户端 ${clientUpdater.state.version} 已下载并通过签名和文件校验。`, buttons: ['稍后安装', '查看安装'], defaultId: 0, cancelId: 0 })
       if (result.response === 1) await installClientUpdate()
     } })
-    clientUpdater.on('changed', state => { if (dashboardView && !dashboardView.webContents.isDestroyed()) dashboardView.webContents.send('updates:changed', state) })
+    clientUpdater.on('changed', state => { if (dashboardView && !dashboardView.webContents.isDestroyed()) dashboardView.webContents.send('updates:changed', createEventEnvelope('updates:changed', state, 'updater')) })
     await createDashboard()
     clientUpdater.start()
     if (recovered) {
