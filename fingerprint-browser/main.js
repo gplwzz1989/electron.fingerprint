@@ -673,19 +673,54 @@ function registerIpc () {
     const contents = tab.view.webContents
     let debounceTimer = null
     let maxWaitTimer = null
+    let cleanedUp = false
+    let onDebuggerMessage = null
     const MAX_WAIT_MS = 5000
     const DEBOUNCE_MS = 2000
 
-    const triggerSave = () => {
+    const cleanup = () => {
+      if (cleanedUp) return
+      cleanedUp = true
       clearTimeout(debounceTimer)
       clearTimeout(maxWaitTimer)
       debounceTimer = null
       maxWaitTimer = null
-      if (!contents.isDestroyed()) void saveTabAuth(tab.id).catch(() => {})
+      try {
+        contents.session?.cookies?.removeListener?.('changed', scheduleSave)
+      } catch {}
+      try {
+        contents.removeListener?.('did-finish-load', onFinishLoad)
+      } catch {}
+      try {
+        if (onDebuggerMessage) contents.debugger?.removeListener?.('message', onDebuggerMessage)
+        if (contents.debugger?.isAttached?.()) contents.debugger.detach()
+      } catch {}
+    }
+
+    const triggerSave = async () => {
+      clearTimeout(debounceTimer)
+      clearTimeout(maxWaitTimer)
+      debounceTimer = null
+      maxWaitTimer = null
+      if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
+      try {
+        const result = await saveTabAuth(tab.id)
+        const hasCredentials = result?.ok && !result.saving && (
+          (Array.isArray(result.data?.cookies) && result.data.cookies.length > 0) ||
+          (result.data?.storage && Object.keys(result.data.storage).length > 0)
+        )
+        // 成功提取并推送会话凭证后，在当前打开的 Tab 生命周期内只触发一次，避免重复 Push
+        if (hasCredentials) {
+          tab.hasPushedAuthUpdate = true
+          cleanup()
+        }
+      } catch (err) {
+        console.warn('[自动更新Push失败]', err?.message || err)
+      }
     }
 
     const scheduleSave = () => {
-      if (contents.isDestroyed()) return
+      if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
       clearTimeout(debounceTimer)
       debounceTimer = setTimeout(triggerSave, DEBOUNCE_MS)
       if (!maxWaitTimer) {
@@ -693,30 +728,36 @@ function registerIpc () {
       }
     }
 
-    contents.on('did-finish-load', () => {
+    const onFinishLoad = () => {
+      if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
       setTimeout(() => {
-        if (!contents.isDestroyed()) triggerSave()
+        if (!tab.hasPushedAuthUpdate && !contents.isDestroyed()) void triggerSave()
       }, 1500)
-    })
+    }
+
+    contents.on('did-finish-load', onFinishLoad)
 
     try {
       contents.session?.cookies?.on('changed', scheduleSave)
     } catch {}
 
+    contents.once('destroyed', cleanup)
+
     const platformKey = authConfig.platformKey || authConfig.task?.platformKey
     if (authConfig.type === 'platform' && platformKey) {
       void (async () => {
         try {
+          if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
           platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
           const { runtime, rpa } = await platformRuntime.load()
           const platformDef = runtime?.catalog?.find?.(item => item.key === platformKey)
           const responsePaths = platformDef?.responsePaths || (platformDef?.responsePath ? [platformDef.responsePath] : [])
-          if (responsePaths.length && !contents.debugger.isAttached()) {
+          if (responsePaths.length && !contents.debugger.isAttached() && !tab.hasPushedAuthUpdate && !contents.isDestroyed()) {
             contents.debugger.attach('1.3')
             await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: 262144 })
             const pendingRequests = new Map()
-            const onDebuggerMessage = async (_ev, method, data) => {
-              if (contents.isDestroyed()) return
+            onDebuggerMessage = async (_ev, method, data) => {
+              if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
               try {
                 if (method === 'Network.responseReceived' && responsePaths.some(p => {
                   try { return new URL(data.response.url).pathname.includes(p) } catch { return false }
@@ -733,18 +774,13 @@ function registerIpc () {
                     const idn = rpa?.identity?.(platformKey, body)
                     if (idn?.platformUserId) {
                       tab.authConfig = { ...(tab.authConfig || {}), detectedIdentity: idn }
-                      triggerSave()
+                      void triggerSave()
                     }
                   }
                 }
               } catch {}
             }
             contents.debugger.on('message', onDebuggerMessage)
-            contents.once('destroyed', () => {
-              try {
-                if (contents.debugger.isAttached()) contents.debugger.detach()
-              } catch {}
-            })
           }
         } catch (e) {
           console.warn('[平台会话主动观察启动提示]', e?.message || e)
@@ -1192,7 +1228,8 @@ function registerIpc () {
         throw err
       }
       const tab = tabBrowser.getTab(req.id)
-      if (tab && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+      if (tab && !tab.hasPushedAuthUpdate && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+        tab.hasPushedAuthUpdate = true
         await saveTabAuth(req.id).catch(() => {})
       }
       await tabBrowser.close(req.id)
@@ -1275,7 +1312,8 @@ function registerIpc () {
         if (action === 'reorder') tabBrowser.reorder(payload)
         if (action === 'close') {
           const tab = tabBrowser.getTab(payload)
-          if (tab && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+          if (tab && !tab.hasPushedAuthUpdate && (tab.authType === 'platform' || tab.authType === 'custom') && (tab.authConfig?.accountId || tab.authConfig?.websiteAccountId)) {
+            tab.hasPushedAuthUpdate = true
             await saveTabAuth(payload).catch(() => {})
           }
           await tabBrowser.close(payload)
