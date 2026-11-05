@@ -112,6 +112,18 @@ async function applyProxyConfig (profileSession, proxy, targetUrl) {
   }
 }
 
+function isOAuthAuthorizationUrl (value) {
+  try {
+    const url = new URL(value)
+    if (!/^https?:$/.test(url.protocol)) return false
+    // 按授权端点及标准参数识别，普通 window.open 或窗口尺寸不能作为 OAuth 依据。
+    const hasClient = url.searchParams.has('client_id') || url.searchParams.has('appid') || url.searchParams.has('app_id')
+    return hasClient && (/(?:^|\/)(?:oauth2?|authorize|authorization|qrconnect)(?:\/|$)/i.test(url.pathname) || (url.searchParams.has('redirect_uri') && url.searchParams.has('response_type')))
+  } catch {
+    return false
+  }
+}
+
 class TabBrowser {
   constructor (dataRoot, environmentRepository, options = {}) {
     this.dataRoot = dataRoot
@@ -280,6 +292,55 @@ class TabBrowser {
     })
   }
 
+  bindAccountWindowOpen (tab) {
+    const contents = tab.view.webContents
+    tab.popups = new Set()
+    contents.setWindowOpenHandler(({ url }) => {
+      const isHttpOrBlank = /^https?:\/\//i.test(url) || url === 'about:blank'
+      if (!isHttpOrBlank) return { action: 'deny' }
+      if (isOAuthAuthorizationUrl(url)) {
+        return {
+          action: 'allow',
+          createWindow: (options) => {
+            const popup = new BrowserWindow({
+              ...options,
+              autoHideMenuBar: true,
+              webPreferences: {
+                ...options?.webPreferences,
+                session: contents.session,
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                additionalArguments: [],
+                preload: tab.profile || tab.ownerEnvironmentId ? STEALTH_PRELOAD_PATH : undefined,
+                backgroundThrottling: false
+              }
+            })
+            if (typeof popup.webContents.setBackgroundThrottling === 'function') {
+              popup.webContents.setBackgroundThrottling(false)
+            }
+            tab.popups.add(popup)
+            popup.once('closed', () => {
+              tab.popups.delete(popup)
+            })
+            for (const event of ['will-navigate', 'will-redirect']) popup.webContents.on(event, (navigationEvent, target) => {
+              if (!/^https?:\/\//i.test(target) && target !== 'about:blank') navigationEvent.preventDefault()
+            })
+            popup.webContents.on('dom-ready', () => {
+              if (tab.profile || tab.ownerEnvironmentId) void popup.webContents.executeJavaScript(generateStealthScript()).catch(() => {})
+            })
+            popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+            return popup.webContents
+          }
+        }
+      }
+      if (url !== 'about:blank') {
+        void contents.loadURL(url).catch(() => { tab.error = '网页加载失败，请检查网址和网络后刷新。'; this.notify() })
+      }
+      return { action: 'deny' }
+    })
+  }
+
   bindShortcuts (contents) {
     contents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown') return
@@ -394,7 +455,8 @@ class TabBrowser {
     this.tabs.set(tab.id, tab)
     this.capabilityRegistry?.register(contents, kind, options)
     this.bindShortcuts(contents)
-    contents.setWindowOpenHandler(details => {
+    if (kind === 'managed' || options.ownerEnvironmentId) this.bindAccountWindowOpen(tab)
+    else contents.setWindowOpenHandler(details => {
       if (/^https?:\/\//i.test(details.url) || details.url === 'about:blank') void this.openOrdinary(details.url, { session: tabSession, proxy: options.proxy, ownerEnvironmentId: options.ownerEnvironmentId }).catch(() => {})
       return { action: 'deny' }
     })
@@ -559,60 +621,7 @@ class TabBrowser {
     if (typeof contents.setBackgroundThrottling === 'function') {
       contents.setBackgroundThrottling(false)
     }
-    contents.setWindowOpenHandler(({ url, disposition }) => {
-      const isHttpOrBlank = /^https?:\/\//i.test(url) || url === 'about:blank'
-      if (this.dashboardView) {
-        if (isHttpOrBlank) void this.openOrdinary(url, { session: tabSession, proxy: snapshot.proxy, ownerEnvironmentId: environment.id }).catch(() => {})
-        return { action: 'deny' }
-      }
-      switch (disposition) {
-        case 'new-window': {
-          if (!isHttpOrBlank) return { action: 'deny' }
-          return {
-            action: 'allow',
-            createWindow: (options) => {
-              const popup = new BrowserWindow({
-                ...options,
-                autoHideMenuBar: true,
-                webPreferences: {
-                  ...options?.webPreferences,
-                  preload: STEALTH_PRELOAD_PATH,
-                  backgroundThrottling: false
-                }
-              })
-              if (typeof popup.webContents.setBackgroundThrottling === 'function') {
-                popup.webContents.setBackgroundThrottling(false)
-              }
-              tab.popups.add(popup)
-              popup.once('closed', () => {
-                tab.popups.delete(popup)
-              })
-              popup.webContents.on('will-navigate', (event, target) => {
-                if (!/^https?:\/\//i.test(target) && target !== 'about:blank') {
-                  event.preventDefault()
-                }
-              })
-              popup.webContents.on('dom-ready', () => {
-                void popup.webContents.executeJavaScript(generateStealthScript()).catch(() => {})
-              })
-              popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-              return popup.webContents
-            }
-          }
-        }
-        case 'default':
-        case 'other':
-        case 'foreground-tab':
-        case 'background-tab': {
-          if (isHttpOrBlank && url !== 'about:blank') {
-            void contents.loadURL(url)
-          }
-          return { action: 'deny' }
-        }
-        default:
-          return { action: 'deny' }
-      }
-    })
+    this.bindAccountWindowOpen(tab)
     for (const event of ['will-navigate', 'will-redirect']) {
       contents.on(event, (navigationEvent, target) => {
         if (!/^https?:\/\//i.test(target) && target !== 'about:blank') navigationEvent.preventDefault()

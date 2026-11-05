@@ -212,6 +212,38 @@ async function run () {
   assert.equal(linkResponse.action, 'deny', '非弹窗打开应当返回 deny 阻止弹出新窗口')
   assert.equal(contents.loadedUrls.includes('https://x.com/explore'), true, '非弹窗打开应转为在当前标签页就地加载')
 
+  // 有首页外壳时也必须当前页导航，不能退回创建普通标签的历史分支。
+  tabBrowser.dashboardView = {}
+  const count = tabBrowser.tabs.size
+  for (const disposition of ['foreground-tab', 'background-tab', 'new-window', 'default', 'other']) {
+    const url = 'https://x.com/explore?mode=' + disposition
+    assert.equal(contents.windowOpenHandler({ url, disposition }).action, 'deny')
+    assert.equal(contents.loadedUrls.at(-1), url, '普通链接和脚本新窗口都在当前标签导航')
+    assert.equal(tabBrowser.tabs.size, count, '账号内链接不得增加标签')
+  }
+  assert.equal(contents.windowOpenHandler({ url: 'about:blank', disposition: 'new-window' }).action, 'deny', '空白窗口不能视为 OAuth')
+  assert.equal(contents.windowOpenHandler({ url: 'https://example.com/news?client_id=test', disposition: 'new-window' }).action, 'deny', '普通地址不能冒充 OAuth 弹窗')
+  assert.equal(contents.windowOpenHandler({ url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=test&redirect_uri=https://x.com&response_type=code', disposition: 'foreground-tab' }).action, 'allow', 'OAuth 的 target=_blank 也应允许弹窗')
+  tabBrowser.dashboardView = null
+
+  // 未绑定环境的平台授权、其他网站账号和受控账号标签使用同一窗口规则。
+  for (const authType of ['platform', 'custom', null]) {
+    const result = await tabBrowser.openOrdinary('https://example.com', { kind: 'managed', session: mockSessionInstance, authType })
+    const account = tabBrowser.getTab(result.tabId)
+    const page = account.view.webContents
+    const total = tabBrowser.tabs.size
+    assert.equal(page.windowOpenHandler({ url: 'https://example.com/account', disposition: 'foreground-tab' }).action, 'deny')
+    assert.equal(page.loadedUrls.at(-1), 'https://example.com/account')
+    assert.equal(tabBrowser.tabs.size, total)
+    const response = page.windowOpenHandler({ url: 'https://appleid.apple.com/auth/authorize?client_id=test', disposition: 'new-window' })
+    assert.equal(response.action, 'allow')
+    const popupContents = new MockWebContents()
+    response.createWindow({ webContents: popupContents })
+    assert.equal([...account.popups][0].options.webPreferences.session, page.session, 'OAuth 必须沿用所属账号的会话')
+    await tabBrowser.close(result.tabId)
+    assert.equal(account.popups.size, 0, '账号关闭时关闭 OAuth 弹窗')
+  }
+
   // 6. 再次创建一个弹窗，验证标签页关闭时会级联销毁所有弹窗
   const secondOauth = contents.windowOpenHandler({
     url: 'https://appleid.apple.com/auth/authorize?client_id=test2',
