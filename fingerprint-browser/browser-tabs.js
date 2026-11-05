@@ -174,9 +174,11 @@ class TabBrowser {
       activeId: this.activeId,
       maximized: this.window?.isMaximized?.() || false,
       home: home && !home.isDestroyed() ? { url: home.getURL() || this.homeUrl, loading: home.isLoading(), canGoBack: home.navigationHistory.canGoBack(), canGoForward: home.navigationHistory.canGoForward(), error: this.homeError || '' } : {},
-      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, authType: tab.authType || null, showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : true, saving: Boolean(tab.saving), ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
+      tabs: [...this.tabs.values()].map(tab => !tab.profile ? ({ id: tab.id, kind: tab.kind, hasFingerprint: Boolean(tab.hasFingerprint), favicon: tab.favicon || '', authType: tab.authType || null, showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : true, saving: Boolean(tab.saving), ownerEnvironmentId: tab.ownerEnvironmentId, profileId: tab.ownerEnvironmentId ? this.environmentRepository.get(tab.ownerEnvironmentId)?.profileId : undefined, title: tab.title, url: tab.url, loading: tab.loading, error: tab.error, canGoBack: tab.view.webContents.navigationHistory.canGoBack(), canGoForward: tab.view.webContents.navigationHistory.canGoForward() }) : ({
         id: tab.id,
         kind: 'managed',
+        hasFingerprint: Boolean(tab.hasFingerprint),
+        favicon: tab.favicon || '',
         authType: tab.authType || null,
         showSaveButton: tab.showSaveButton !== undefined ? Boolean(tab.showSaveButton) : true,
         saving: Boolean(tab.saving),
@@ -262,6 +264,20 @@ class TabBrowser {
     contents.on('did-start-loading', () => { this.homeError = '' })
     contents.on('did-fail-load', (_event, code, _description, _url, main) => { if (main && code !== -3) { this.homeError = 'SaaS 页面无法加载，请检查服务地址或网络后刷新。'; this.notify() } })
     this.layout()
+  }
+
+  trackTabIcon (tab) {
+    const contents = tab.view.webContents
+    tab.favicon = ''
+    contents.on('page-favicon-updated', (_event, icons) => {
+      tab.favicon = Array.isArray(icons) ? icons.find(icon => typeof icon === 'string' && /^(https?:\/\/|data:image\/)/i.test(icon)) || '' : ''
+      this.notify()
+    })
+    contents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (!isMainFrame || isInPlace) return
+      tab.favicon = ''
+      this.notify()
+    })
   }
 
   bindShortcuts (contents) {
@@ -373,6 +389,8 @@ class TabBrowser {
     const authType = options.authType || null
     const showSaveButton = options.showSaveButton !== undefined ? Boolean(options.showSaveButton) : true
     const tab = { id: randomUUID(), kind, ownerEnvironmentId: options.ownerEnvironmentId, view, title: pinnedTitle || '新标签页', pinnedTitle, authType, showSaveButton, saving: false, authConfig: options.authConfig || null, url, error: '', loading: false, networkProxy: options.proxy }
+    tab.hasFingerprint = [...this.tabs.values()].some(entry => entry.view.webContents.session === tabSession && entry.hasFingerprint)
+    this.trackTabIcon(tab)
     this.tabs.set(tab.id, tab)
     this.capabilityRegistry?.register(contents, kind, options)
     this.bindShortcuts(contents)
@@ -525,7 +543,7 @@ class TabBrowser {
     const pinnedTitle = policy.name ? String(policy.name).trim() : null
     const authType = policy.authType || null
     const showSaveButton = policy.showSaveButton !== undefined ? Boolean(policy.showSaveButton) : true
-    const tab = { id: tabId, kind: 'managed', environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: pinnedTitle || '新标签', pinnedTitle, authType, showSaveButton, saving: false, authConfig: policy.authConfig || null, url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
+    const tab = { id: tabId, kind: 'managed', hasFingerprint: Boolean(snapshot.fingerprint?.enabled), environmentId: environment.id, dataDir, profile: snapshot, view, proxyBridge, title: pinnedTitle || '新标签', pinnedTitle, authType, showSaveButton, saving: false, authConfig: policy.authConfig || null, url, warning, error: '', loading: false, preserveLastUrl, popups: new Set() }
     const contents = view.webContents
     this.capabilityRegistry?.register(contents, 'managed', { capabilities: ['*'], allowedOrigins: /^https?:/.test(url) ? [new URL(url).origin] : [], ...policy })
     let restore = null
@@ -536,6 +554,7 @@ class TabBrowser {
         console.warn('[会话恢复] 初始化恢复失败，跳过恢复直接打开:', err?.message || err)
       }
     }
+    this.trackTabIcon(tab)
     this.bindShortcuts(contents)
     if (typeof contents.setBackgroundThrottling === 'function') {
       contents.setBackgroundThrottling(false)

@@ -53,7 +53,13 @@
     for (const tab of [home, ...rawTabs]) {
       const item = document.createElement('div'); item.className = `tab${tab.id === snapshot.activeId ? ' active' : ''}${tab.loading ? ' loading' : ''}${tab.error ? ' error' : ''}`; item.setAttribute('role', 'tab'); item.setAttribute('aria-selected', String(tab.id === snapshot.activeId))
       item.dataset.id = tab.id || ''; item.draggable = Boolean(tab.id)
-      const select = document.createElement('button'); select.className = 'tab-select'; select.type = 'button'; select.innerHTML = `<svg viewBox="0 0 24 24">${symbols[tab.kind] || symbols.managed}</svg>`; select.dataset.action = tab.id ? 'select' : 'home'; if (tab.id) select.dataset.id = tab.id
+      const select = document.createElement('button'); select.className = 'tab-select'; select.type = 'button'; select.innerHTML = `<svg viewBox="0 0 24 24">${symbols[tab.kind === 'home' ? 'home' : tab.hasFingerprint ? 'managed' : 'ordinary']}</svg>`; select.dataset.action = tab.id ? 'select' : 'home'; if (tab.id) select.dataset.id = tab.id
+      if (tab.kind !== 'home' && !tab.hasFingerprint && /^(https?:\/\/|data:image\/)/i.test(tab.favicon || '')) {
+        const fallback = select.firstElementChild; const icon = document.createElement('img')
+        icon.className = 'tab-favicon'; icon.alt = ''; icon.referrerPolicy = 'no-referrer'
+        icon.onerror = () => { icon.replaceWith(fallback) }
+        icon.src = tab.favicon; fallback.replaceWith(icon)
+      }
       const title = document.createElement('span'); title.textContent = tab.title || tab.profileName || '新标签页'; select.append(title); select.title = title.textContent; item.append(select)
       if (tab.id) { const close = document.createElement('button'); close.className = 'tab-close'; close.type = 'button'; close.dataset.action = 'close'; close.dataset.id = tab.id; close.setAttribute('aria-label', `关闭${title.textContent}`); close.innerHTML = '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'; item.append(close) }
       if (tab.id) list.append(item); else pinned.append(item)

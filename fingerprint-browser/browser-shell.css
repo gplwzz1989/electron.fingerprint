@@ -7,3 +7,4 @@
 
 /* 连续关闭时保留命中区域，加载过程在地址栏反馈。 */
 .tab.tiny.active{padding:0 4px}.tab.tiny.active .tab-select{display:none}.browser-chrome{position:relative}.browser-chrome.page-loading:after{content:"";position:absolute;bottom:0;left:0;height:2px;width:28%;background:#315bea;animation:page-progress 1.2s ease-in-out infinite}@keyframes page-progress{from{transform:translateX(0);opacity:.5}to{transform:translateX(250%);opacity:1}}@media(prefers-reduced-motion:reduce){.browser-chrome.page-loading:after{animation:none}}
+.tab-select .tab-favicon{width:18px;height:18px;object-fit:contain;flex-shrink:0}.tab.tiny:not(.active):hover .tab-select .tab-favicon{visibility:hidden}
