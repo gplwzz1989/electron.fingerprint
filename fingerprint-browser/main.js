@@ -909,7 +909,7 @@ function registerIpc () {
           authConfig,
           name: profile.name
         }
-        const reopenResult = await tabBrowser.reopen(existing.id, policy, restoredSession)
+        const reopenResult = await tabBrowser.reopen(existing.id, policy, restoredSession, { waitForPageLoad: false })
         if (reopenResult.tabId) {
           attachAccountSessionObserver(reopenResult.tabId, authConfig)
         }
@@ -934,7 +934,7 @@ function registerIpc () {
         authConfig,
         name: profile.name
       }
-      const openResult = await tabBrowser.openEnvironment(environment, policy, restoredSession)
+      const openResult = await tabBrowser.openEnvironment(environment, policy, restoredSession, { waitForPageLoad: false })
       if (openResult.tabId) {
         attachAccountSessionObserver(openResult.tabId, authConfig)
       }

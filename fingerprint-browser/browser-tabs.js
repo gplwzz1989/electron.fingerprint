@@ -125,6 +125,7 @@ class TabBrowser {
     this.window = null
     this.ready = null
     this.tabs = new Map()
+    this.notifyTimer = null
     this.createOperations = new Map()
     this.activeId = null
     this.shuttingDown = null
@@ -148,6 +149,8 @@ class TabBrowser {
     window.on('resize', () => this.layout())
     window.on('closed', () => {
       if (this.window === window) {
+        clearTimeout(this.notifyTimer)
+        this.notifyTimer = null
         this.window = null
         this.ready = null
       }
@@ -225,7 +228,10 @@ class TabBrowser {
   }
 
   notify () {
-    if (this.window && !this.window.isDestroyed()) {
+    if (!this.window || this.window.isDestroyed() || this.notifyTimer) return
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = null
+      if (!this.window || this.window.isDestroyed()) return
       const snapshot = this.snapshot()
       const envelope = createEventEnvelope('tabs:changed', snapshot, 'tabBrowser')
       this.window.webContents.send('tabs:changed', envelope)
@@ -235,7 +241,7 @@ class TabBrowser {
         const sender = tab.view.webContents
         try { this.capabilityRegistry.assert({ sender, senderFrame: sender.mainFrame }, 'tabs:list'); sender.send('tabs:changed', envelope) } catch {}
       }
-    }
+    }, 24)
   }
 
   attachDashboard (view, url) {
@@ -434,7 +440,7 @@ class TabBrowser {
     }
   }
 
-  async reopen (environmentId, policy, sessionSnapshot) {
+  async reopen (environmentId, policy, sessionSnapshot, options = {}) {
     const environment = this.environmentRepository.get(environmentId)
     if (!environment) throw new ProfileValidationError('找不到浏览器环境。')
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
@@ -443,12 +449,12 @@ class TabBrowser {
     } catch {
       throw new ProfileValidationError('环境数据目录不存在，无法恢复登录状态。')
     }
-    return await this.openEnvironment(environment, policy, sessionSnapshot)
+    return await this.openEnvironment(environment, policy, sessionSnapshot, options)
   }
 
-  async openEnvironment (environment, policy, sessionSnapshot) {
+  async openEnvironment (environment, policy, sessionSnapshot, options = {}) {
     if (this.isOpen(environment.id)) throw new ProfileValidationError('该浏览器环境已经打开。')
-    return await this.openPage(environment, environment.id, undefined, policy, sessionSnapshot)
+    return await this.openPage(environment, environment.id, undefined, policy, sessionSnapshot, options)
   }
 
   async openPageTab (environmentId, targetUrl) {
@@ -463,7 +469,7 @@ class TabBrowser {
     return await this.openPage(environment, randomUUID(), targetUrl)
   }
 
-  async openPage (environment, tabId, targetUrl, policy = {}, sessionSnapshot) {
+  async openPage (environment, tabId, targetUrl, policy = {}, sessionSnapshot, options = {}) {
     const profile = {
       id: environment.profileId,
       name: environment.profileName,
@@ -625,6 +631,28 @@ class TabBrowser {
     this.onEnvironmentChanged()
     this.tabs.set(tabId, tab)
     this.select(tabId)
+    if (options.waitForPageLoad === false) {
+      tab.loading = true
+      this.notify()
+      void loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
+        .then(async () => {
+          if (restore) await restore.verify().catch(e => console.warn('[会话恢复] 存储验证跳过:', e?.message || e))
+          if (this.xGrokAutomation && this.tabs.has(tabId) && !contents.isDestroyed()) {
+            this.xGrokAutomation.onEnvironmentOpened(environment, tabId, url)
+          }
+        })
+        .catch(async error => {
+          if (restore) await restore.cleanup().catch(() => {})
+          console.error('[加载标签网页]', error)
+          tab.preserveLastUrl = false
+          if (!this.tabs.has(tabId) || tab.closing || tab.closed || tab.closePromise || contents?.isDestroyed?.()) return
+          if (error?.code === 'ERR_ABORTED' || error?.errno === -3) return
+          tab.loading = false
+          tab.error = error instanceof ProfileValidationError ? error.message : '网页加载失败，请检查网址和网络连接。'
+          this.notify()
+        })
+      return { tabId, warning, loading: true }
+    }
     try {
       await loadUrlWithProxyTimeout(contents, url, snapshot.proxy)
       if (restore) await restore.verify().catch(e => console.warn('[会话恢复] 存储验证跳过:', e?.message || e))
