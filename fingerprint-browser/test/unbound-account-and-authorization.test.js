@@ -144,7 +144,7 @@ test('未绑定环境的账号打开：解封后指纹为 disabled，启动原�
   }
 
   const source = await fs.readFile(path.join(__dirname, '../main.js'), 'utf8')
-  const start = source.indexOf("  handle('application:launch-encrypted',")
+  const start = source.indexOf("  async function executeLaunchEncrypted (")
   const end = source.indexOf("  handle('window:action',", start)
   assert(start >= 0 && end > start)
 
@@ -155,6 +155,7 @@ test('未绑定环境的账号打开：解封后指纹为 disabled，启动原�
     require, fs, path, URL, randomUUID: crypto.randomUUID, createProfileRecord, ProfileValidationError,
     validateSessionSnapshot: input => input,
     assertTrusted () {},
+    attachAccountSessionObserver () {},
     assertFingerprintSave (fp) {
       assert.equal(fp.enabled, false, '无环境账号的指纹必须处于关闭状态（原生模式）')
     },

@@ -20,6 +20,25 @@ function fixture (frames = []) {
   return { observer, owner, contents, privateKey, input: { tabId: 'test-only', operationId: 'test-operation', origins: ['https://example.com'], publicKey, storageKeys: ['a', 'b'] } }
 }
 
+test('文档采集仅允许显式路径和 HTTPS 来源，正文仅作为文本返回且不执行', async () => {
+  const state = fixture()
+  const { id } = await state.observer.open(state.owner, { ...state.input, paths: ['/api/identity'], documentPaths: ['/cgi-bin/home'] })
+  const job = state.observer.get(state.owner, id)
+  const html = '<script>throw new Error("不能执行页面代码")</script><div>官方登录页测试夹具</div>'
+  state.contents.debugger.sendCommand = async () => ({ body: Buffer.from(html).toString('base64'), base64Encoded: true })
+  for (const [requestId, url] of [['outside', 'https://other.test/cgi-bin/home'], ['wrong-path', 'https://example.com/cgi-bin/home-other'], ['allowed', 'https://example.com/cgi-bin/home?token=test']]) {
+    await job.listener({}, 'Network.responseReceived', { requestId, type: 'Document', response: { url, status: 200 } })
+    await job.listener({}, 'Network.loadingFinished', { requestId, encodedDataLength: 100 })
+  }
+  assert.equal(job.responses.length, 1)
+  assert.equal(job.responses[0].body, html)
+  await job.listener({}, 'Network.responseReceived', { requestId: 'oversize', type: 'Document', response: { url: 'https://example.com/cgi-bin/home', status: 200 } })
+  await job.listener({}, 'Network.loadingFinished', { requestId: 'oversize', encodedDataLength: 3 * 1024 * 1024 })
+  assert.equal(job.responses.length, 1)
+  await state.observer.close(state.owner, id)
+  await assert.rejects(state.observer.open(state.owner, { ...state.input, documentPaths: ['https://other.test/'] }), /文档观察路径/)
+})
+
 test('同来源多个 frame 合并存储字段，忽略其他来源', async () => {
   const state = fixture([
     { url: 'https://example.com/', executeJavaScript: async () => ({ a: 'secret-a' }) },
@@ -148,4 +167,42 @@ test('页面销毁后关闭观察器不再访问已销毁的 debugger，也不�
   await state.observer.close(state.owner, id)
   assert.equal(state.observer.jobs.size, 0)
   assert.equal(state.owner.listenerCount('did-start-navigation'), 0)
+})
+
+test('账号接口核验模式在命中 URL 时提供元信息，不依赖响应正文读取成功', async () => {
+  const state = fixture()
+  const { id } = await state.observer.open(state.owner, { ...state.input, paths: ['/auth'], metadataOnly: true })
+  state.contents.debugger.sendCommand = async () => { assert.fail('元信息模式不应读取响应正文') }
+  const job = state.observer.get(state.owner, id)
+  await job.listener({}, 'Network.responseReceived', { requestId: 'test', type: 'XHR', response: { url: 'https://example.com/auth', status: 200 } })
+  await job.listener({}, 'Network.loadingFinished', { requestId: 'test', encodedDataLength: 9000000 })
+  const result = await state.observer.read(state.owner, { id })
+  assert.equal(result.responses.length, 1)
+  assert.equal(result.responses[0].body, null)
+  assert.equal(job.pending.size, 0)
+  await state.observer.close(state.owner, id)
+})
+
+test('账号查询仅在受信内部读取当前 Session Cookie，并沿用该 Session 的网络请求', async () => {
+  const state = fixture(); let requests = 0
+  state.contents.session.cookies.get = async () => [{ name: 'session', value: 'isolated-secret', domain: '.example.com' }, { name: 'other', value: 'excluded', domain: '.other.test' }]
+  state.contents.session.fetch = async url => { requests++; assert.equal(url, 'https://example.com/account'); return new Response('账号核验响应') }
+  const { id } = await state.observer.open(state.owner, state.input)
+  const metadata = await state.observer.read(state.owner, { id })
+  assert(!JSON.stringify(metadata).includes('isolated-secret'))
+  const account = await state.observer.accountSession(state.owner, { id })
+  assert.equal(account.cookies.length, 1)
+  assert.equal((await account.request({ url: 'https://example.com/account', headers: {} })).body, '账号核验响应')
+  await assert.rejects(account.request({ url: 'https://other.test/account', headers: {} }), /来源无效/)
+  assert.equal(requests, 1)
+  await state.observer.close(state.owner, id)
+  await assert.rejects(state.observer.accountSession(state.owner, { id }), /已结束/)
+})
+
+test('Cookie 账号核验完成后采集不被平台无关页面资源长期阻塞', async () => {
+  const state = fixture(); state.contents.isLoading = () => true
+  const { id } = await state.observer.open(state.owner, state.input)
+  const captured = await state.observer.capture(state.owner, { id, identity: { platformUserId: 'verified-test' } }, { platform: { accountInfo: true }, packageVersion: 'test' })
+  assert(captured.ciphertext)
+  await state.observer.close(state.owner, id)
 })

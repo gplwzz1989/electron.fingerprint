@@ -20,7 +20,7 @@
 | `createTab(options)` | 创建可配置权限的系统网页标签 |
 | `setTabCapabilities(options)` | 固定首页管理系统标签权限 |
 | `requestLocalApi({path,method,body})` | 调用当前客户端本地接口，由主进程附加令牌 |
-| `observeSession({tabId,origins,paths?,storageKeys?,publicKey,operationId})` | 仅固定首页可创建十五分钟内有效的会话观察；来源必须为 HTTPS |
+| `observeSession({tabId,origins,paths?,documentPaths?,storageKeys?,publicKey,operationId})` | 仅固定首页可创建十五分钟内有效的会话观察；来源必须为 HTTPS |
 | `readSession({id,cursor?})` | 读取匹配响应、游标和存储字段名称，不返回 Cookie 或存储值 |
 | `captureSession({id})` | 将来源白名单内的 Cookie 和字段白名单内的存储值加密，返回 RSA-OAEP-SHA256/AES-256-GCM 信封 |
 | `closeSession({id})` | 释放观察；仅创建观察的首页可以操作 |
@@ -28,6 +28,12 @@
 | `onTabsChanged(callback)` / `onUpdateChanged(callback)` | 订阅状态，返回取消订阅函数 |
 
 `browserApi` 保留具名的原生环境、代理、动作和参数校验接口。基座不自动生成业务指纹；第三方可显式提供参数，或使用下述加密启动协议。原生桥接不向网页开放文件系统、任意 IPC 或私钥。
+
+0.4.1 起平台状态额外声明 `session-document-v1`。能力包可配置 `documentPaths` 精确路径白名单，观察器仅在指定 HTTPS 来源和路径读取文档或文本响应（最大 2 MiB），不执行响应中的脚本。未配置时保持原有 JSON 观察与大小限制。
+
+0.4.2 起声明 `session-account-info-v1`。微博命中 `/ajax/config/get_config` 或 `/config/get_config`、公众号命中 `/wxamp/cgi/getNavInfo` 后，观察器记录响应元信息，即使该响应正文无法读取也继续授权流程。能力包在客户端提供的账号 Session 上调用自己的账号信息接口；客户端只转交该 Session 的 Cookie、白名单存储和同 Session 网络请求能力，不解析平台账号身份。只有能力包返回真实 `platformUserId` 才加密采集会话；身份与重授权目标不一致时拒绝保存。该客户端能力依赖 Node 环境，会话观察和账号信息查询使用同一代理出口。
+
+账号打开密文增加可选 `platformUserId`，保存会话时核对当前真实身份；平台会话更新提交 `platformKey`、完整 `identity`、`cookies` 与 `storage`，失败不标记同步成功。
 
 ## 加密启动
 

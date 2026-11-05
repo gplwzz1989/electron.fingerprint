@@ -1,7 +1,7 @@
 {
   "name": "@qijie/desktop-base",
   "productName": "浏览器基座",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "private": false,
   "description": "独立可配置的第三方桌面浏览器基座，支持指纹注入、多环境隔离、代理网络与受控桥接协议",
   "main": "index.js",

@@ -553,6 +553,7 @@ function registerIpc () {
       return createResponseEnvelope(true, {
         version: manifest.version,
         protocol: 'platform-runtime-v3',
+        capabilities: ['session-document-v1', 'session-account-info-v1'],
         update: platformPackages?.state
       }, 'SUCCESS', '获取平台能力状态成功', req?.traceId)
     } catch (err) {
@@ -573,8 +574,8 @@ function registerIpc () {
       }
       platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
       sessionObserver ||= new SessionObserver(tabBrowser)
-      const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) {
+      const desktop = { capabilities: ['session-document-v1', 'session-account-info-v1'] }
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', readAccountSession: 'accountSession', captureSession: 'capture', closeSession: 'close' })) {
         desktop[method] = async payload => ({ ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) })
       }
       desktop.refreshIdentity = async () => {
@@ -619,11 +620,11 @@ function registerIpc () {
     if (capabilityRegistry.entries.get(event.sender.id)?.kind !== 'home') throw new ProfileValidationError('只有固定首页可以调用平台能力。')
     platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
     try {
-      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version, protocol: 'platform-runtime-v3', update: platformPackages?.state } }
+      if (action === 'status') { const { manifest } = await platformRuntime.load(); return { ok: true, version: manifest.version, protocol: 'platform-runtime-v3', capabilities: ['session-document-v1', 'session-account-info-v1'], update: platformPackages?.state } }
       if (action === 'poll' || action === 'cancel') return { ok: true, ...await platformRuntime.poll(event.sender, input?.id, action === 'cancel') }
       sessionObserver ||= new SessionObserver(tabBrowser)
-      const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => {
+      const desktop = { capabilities: ['session-document-v1', 'session-account-info-v1'] }
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', readAccountSession: 'accountSession', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async payload => {
         try { return { ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? payload.id : payload, operation === 'capture' ? desktop.authorizeCapture : null) } } catch (error) {
           console.error('[平台能力调用失败]', { method, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); throw error
         }
@@ -752,16 +753,24 @@ function registerIpc () {
           const { runtime, rpa } = await platformRuntime.load()
           const platformDef = runtime?.catalog?.find?.(item => item.key === platformKey)
           const responsePaths = platformDef?.responsePaths || (platformDef?.responsePath ? [platformDef.responsePath] : [])
-          if (responsePaths.length && !contents.debugger.isAttached() && !tab.hasPushedAuthUpdate && !contents.isDestroyed()) {
+          if ((responsePaths.length || platformDef?.documentPaths?.length) && !contents.debugger.isAttached() && !tab.hasPushedAuthUpdate && !contents.isDestroyed()) {
             contents.debugger.attach('1.3')
-            await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: 262144 })
+            await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: platformDef.documentPaths?.length ? 2 * 1024 * 1024 : 262144 })
             const pendingRequests = new Map()
+            let queryingAccount = false
             onDebuggerMessage = async (_ev, method, data) => {
               if (tab.hasPushedAuthUpdate || contents.isDestroyed()) return
               try {
-                if (method === 'Network.responseReceived' && responsePaths.some(p => {
-                  try { return new URL(data.response.url).pathname.includes(p) } catch { return false }
-                })) {
+                if (method === 'Network.responseReceived' && platformDef.origins.includes(new URL(data.response.url).origin) && (responsePaths.some(p => new URL(data.response.url).pathname.includes(p)) || platformDef.documentPaths?.includes(new URL(data.response.url).pathname))) {
+                  if (platformDef.accountInfo) {
+                    if (queryingAccount || data.response.status < 200 || data.response.status >= 300) return
+                    queryingAccount = true
+                    try {
+                      const account = await platformRuntime.getAccountInfo({ platformKey, contents })
+                      if (account.ok) { tab.authConfig = { ...(tab.authConfig || {}), detectedIdentity: account.identity }; await triggerSave() }
+                    } finally { queryingAccount = false }
+                    return
+                  }
                   pendingRequests.set(data.requestId, { url: data.response.url, status: data.response.status })
                 } else if (method === 'Network.loadingFailed') {
                   pendingRequests.delete(data.requestId)
@@ -770,8 +779,13 @@ function registerIpc () {
                   pendingRequests.delete(data.requestId)
                   if (reqInfo && reqInfo.status >= 200 && reqInfo.status < 300) {
                     const result = await contents.debugger.sendCommand('Network.getResponseBody', { requestId: data.requestId })
-                    const body = JSON.parse(result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body)
-                    const idn = rpa?.identity?.(platformKey, body)
+                    const limit = platformDef.documentPaths?.includes(new URL(reqInfo.url).pathname) ? 2 * 1024 * 1024 : 262144
+                    if (result.body.length > Math.ceil(limit * 4 / 3)) return
+                    const raw = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body
+                    if (Buffer.byteLength(raw, 'utf8') > limit) return
+                    let body
+                    try { body = JSON.parse(raw) } catch { if (!platformDef.documentPaths?.includes(new URL(reqInfo.url).pathname)) return; body = raw }
+                    const idn = rpa?.identity?.(platformKey, body, reqInfo.url)
                     if (idn?.platformUserId) {
                       tab.authConfig = { ...(tab.authConfig || {}), detectedIdentity: idn }
                       void triggerSave()
@@ -781,6 +795,14 @@ function registerIpc () {
               } catch {}
             }
             contents.debugger.on('message', onDebuggerMessage)
+            const refresh = () => {
+              if (contents.isDestroyed() || tab.hasPushedAuthUpdate || !platformDef.identityRequest) return
+              try { if (!platformDef.origins.includes(new URL(contents.getURL()).origin)) return } catch { return }
+              void contents.executeJavaScript('fetch(' + JSON.stringify(platformDef.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }).then(() => true).catch(() => false)').catch(() => {})
+            }
+            contents.on('did-finish-load', refresh)
+            contents.once('destroyed', () => contents.removeListener('did-finish-load', refresh))
+            refresh()
           }
         } catch (e) {
           console.warn('[平台会话主动观察启动提示]', e?.message || e)
@@ -881,6 +903,11 @@ function registerIpc () {
         const tabIds = tabBrowser.tabIdsForEnvironment(existing.id)
         if (tabIds.length) {
           const activeTab = tabBrowser.getTab?.(tabIds[0])
+          if (activeTab && !isWebsiteAccount && (decrypted.platformKey || decrypted.platform) && !activeTab.authConfig?.accountId) {
+            activeTab.authType = 'platform'
+            activeTab.authConfig = { type: 'platform', accountId: decrypted.id, platformKey: decrypted.platformKey || decrypted.platform, expectedUserId: decrypted.platformUserId || '' }
+            attachAccountSessionObserver(activeTab.id, activeTab.authConfig)
+          }
           if (activeTab && profile.name) {
             activeTab.pinnedTitle = String(profile.name).trim()
             activeTab.title = activeTab.pinnedTitle
@@ -897,6 +924,7 @@ function registerIpc () {
           type: authType,
           accountId: decrypted.id,
           platformKey: isWebsite ? null : (decrypted.platformKey || decrypted.platform || null),
+          expectedUserId: decrypted.platformUserId || '',
           websiteAccountId: isWebsite ? decrypted.id : null,
           name: profile.name
         }
@@ -922,6 +950,7 @@ function registerIpc () {
         type: authType,
         accountId: decrypted.id,
         platformKey: isWebsite ? null : (decrypted.platformKey || decrypted.platform || null),
+          expectedUserId: decrypted.platformUserId || '',
         websiteAccountId: isWebsite ? decrypted.id : null,
         name: profile.name
       }
@@ -981,8 +1010,8 @@ function registerIpc () {
       const prepared = await preparePlatformAuthorization(event.sender, payload)
       platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
       sessionObserver ||= new SessionObserver(tabBrowser)
-      const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async p => {
+      const desktop = { capabilities: ['session-document-v1', 'session-account-info-v1'] }
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', readAccountSession: 'accountSession', captureSession: 'capture', closeSession: 'close' })) desktop[method] = async p => {
         try { return { ok: true, ...await sessionObserver[operation](event.sender, operation === 'close' ? p.id : p, operation === 'capture' ? desktop.authorizeCapture : null) } } catch (error) {
           console.error('[平台能力调用失败]', { method, code: error.code || error.name, site: error.stack?.split('\n').slice(1, 4).join(' ') }); throw error
         }
@@ -1038,7 +1067,7 @@ function registerIpc () {
       return { ok: true, type: 'custom', tabId: result.tabId }
     }
   })
-  async function saveTabAuth (tabId) {
+  async function saveTabAuth (tabId, manual = false) {
     const id = tabId || tabBrowser.activeId
     if (!id) return null
     const tab = tabBrowser.getTab(id)
@@ -1073,7 +1102,7 @@ function registerIpc () {
               const platformKey = tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey
               if (rpa && typeof rpa.identity === 'function') {
                 for (const res of job.responses || []) {
-                  const idn = rpa.identity(platformKey, res.body)
+                  const idn = rpa.identity(platformKey, res.body, res.url)
                   if (idn?.platformUserId) { identity = idn; break }
                 }
               }
@@ -1104,12 +1133,32 @@ function registerIpc () {
         if (!identity?.platformUserId && tab.authConfig?.detectedIdentity) {
           identity = tab.authConfig.detectedIdentity
         }
-        if (!identity?.platformUserId && tab.authConfig?.task?.expectedUserId) {
-          identity = { platformUserId: tab.authConfig.task.expectedUserId }
+        platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
+        const { runtime, rpa } = await platformRuntime.load()
+        const definition = runtime.catalog.find(item => item.key === (tab.authConfig?.task?.platformKey || tab.authConfig?.platformKey))
+        if (!definition) throw new ProfileValidationError('客户端能力包不支持此平台。')
+        if (!definition.origins.includes(new URL(currentUrl).origin)) throw new ProfileValidationError('请返回账号所属平台后再保存登录信息。')
+        if (definition.accountInfo) {
+          const account = await platformRuntime.getAccountInfo({ platformKey: definition.key, contents, storage })
+          if (!account.ok) throw new Error(account.error)
+          identity = account.identity
         }
+        // 文档身份每次保存前重新读取，避免沿用上次登录身份而覆盖切换后的账号会话。
+        if (definition.documentPaths?.length && definition.identityRequest) {
+          const response = await contents.executeJavaScript('(async () => { const response = await fetch(' + JSON.stringify(definition.identityRequest) + ', { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000) }); return { url: response.url, status: response.status, body: await response.text() } })()')
+          identity = response?.status >= 200 && response.status < 300 && response.body?.length <= 2 * 1024 * 1024 ? rpa.identity(definition.key, response.body, response.url) : null
+        }
+        if (!identity?.platformUserId) throw new ProfileValidationError('尚未确认当前登录账号，请等待平台登录完成后重试。')
+        if (tab.authConfig?.expectedUserId && identity.platformUserId !== tab.authConfig.expectedUserId) throw new ProfileValidationError('当前登录账号与原账号不一致，未更新登录信息。')
+        await contents.session.cookies.flushStore()
+        cookies = await contents.session.cookies.get({})
+        cookies = cookies.filter(cookie => definition.origins.some(origin => { const host = new URL(origin).hostname; const domain = cookie.domain?.replace(/^\./, ''); return domain && (host === domain || host.endsWith('.' + domain)) }))
+        storage = Object.fromEntries(Object.entries(storage).filter(([origin]) => definition.origins.includes(origin)).map(([origin, values]) => [origin, Object.fromEntries(Object.entries(values).filter(([key]) => definition.storageKeys.includes(key)))]))
+        if (!cookies.length) throw new ProfileValidationError('尚未取得有效登录信息，请完成登录后重试。')
 
         payload = {
           type: 'platform',
+          manual,
           tabId: tab.id,
           accountId: tab.authConfig?.accountId || null,
           name: tab.pinnedTitle || tab.title,
@@ -1178,6 +1227,7 @@ function registerIpc () {
       }
       return { ok: true, data: payload }
     } catch (error) {
+      if (manual) throw error instanceof ProfileValidationError ? error : new ProfileValidationError('登录信息保存未完成，请检查平台页面和网络后重试。')
       return null
     } finally {
       tab.saving = false
@@ -1188,7 +1238,7 @@ function registerIpc () {
   handle('tabs:save-auth', async (event, tabId) => {
     const id = tabId || tabBrowser.activeId
     if (!id) throw new ProfileValidationError('未选择需要保存的标签页。')
-    const result = await saveTabAuth(id)
+    const result = await saveTabAuth(id, true)
     if (!result) throw new ProfileValidationError('保存授权数据失败：网页已关闭或未找到。')
     return result
   })
@@ -1946,8 +1996,8 @@ async function start () {
     taskGateway.registerHandler('platform:authorize', async ({ taskId, payload, signal, sender }) => {
       platformRuntime ||= new PlatformRuntime(process.env.FP_PLATFORM_RUNTIME_DIR || path.join(process.resourcesPath, 'platform-runtime'))
       sessionObserver ||= new SessionObserver(tabBrowser)
-      const desktop = {}
-      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', captureSession: 'capture', closeSession: 'close' })) {
+      const desktop = { capabilities: ['session-document-v1', 'session-account-info-v1'] }
+      for (const [method, operation] of Object.entries({ observeSession: 'open', readSession: 'read', readAccountSession: 'accountSession', captureSession: 'capture', closeSession: 'close' })) {
         desktop[method] = async opPayload => {
           try {
             return { ok: true, ...await sessionObserver[operation](sender, operation === 'close' ? opPayload.id : opPayload, operation === 'capture' ? desktop.authorizeCapture : null) }
@@ -1979,7 +2029,7 @@ async function start () {
         if (signal.aborted) break
         const polled = await platformRuntime.poll(sender, started.id, false)
         if (polled.done) {
-          if (polled.error) throw new ProfileValidationError(polled.error)
+          if (polled.error) throw Object.assign(new Error(polled.error), { code: 'PLATFORM_AUTH_FAILED' })
           return {
             outcome: polled.result?.outcome || 'valid',
             tabId: prepared.tabId,

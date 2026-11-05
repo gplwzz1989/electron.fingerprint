@@ -444,7 +444,8 @@ class TabBrowser {
     this.onSessionCreated(tabSession)
     tabSession.setPermissionRequestHandler((_contents, permission, callback) => callback(isPermissionAllowed(permission)))
     tabSession.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission))
-    const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' ? { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
+    // 未绑定环境的账号授权同样属于第三方页面，不注入桌面桥接或私有契约参数。
+    const view = new WebContentsView({ webPreferences: { session: tabSession, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, ...(kind === 'managed' && !options.authType ? { preload: path.join(__dirname, 'desktop-preload.js'), additionalArguments: bridgeArguments() } : options.ownerEnvironmentId ? { preload: STEALTH_PRELOAD_PATH } : {}) } })
     const contents = view.webContents
     const pinnedTitle = options.name ? String(options.name).trim() : null
     const authType = options.authType || null

@@ -3,6 +3,39 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { ProfileValidationError } = require('./profile-store')
 
+// 仅供受信任能力包调用，网页桥接不返回明文 Cookie 或可执行的请求函数。
+async function readAccountSession (contents, origins, storage = {}) {
+  if (contents.isDestroyed()) throw new Error('授权页面已关闭，请重新打开。')
+  await contents.session.cookies.flushStore()
+  const domains = origins.map(origin => new URL(origin).hostname)
+  const cookies = (await contents.session.cookies.get({})).filter(cookie => typeof cookie.domain === 'string' && domains.some(host => host === cookie.domain.replace(/^\./, '') || host.endsWith('.' + cookie.domain.replace(/^\./, ''))))
+  return {
+    cookies, storage,
+    request: async ({ url, headers, signal }) => {
+      if (contents.isDestroyed() || !origins.includes(new URL(url).origin)) throw new Error('账号信息请求来源无效。')
+      // 使用授权标签的 Session 发请求，保留代理出口和平台写入的新 Cookie。
+      const response = await contents.session.fetch(url, { method: 'GET', headers, signal, redirect: 'manual' })
+      if (response.status >= 300 && response.status < 400) return { url: new URL(response.headers.get('location') || url, url).href, status: response.status, body: '' }
+      if (Number(response.headers.get('content-length')) > 2 * 1024 * 1024) throw new Error('账号信息响应过大。')
+      const reader = response.body?.getReader(); const decoder = new TextDecoder(); let body = ''; let size = 0
+      if (reader) {
+        try {
+          while (true) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            size += chunk.value.byteLength
+            if (size > 2 * 1024 * 1024) throw new Error('账号信息响应过大。')
+            body += decoder.decode(chunk.value, { stream: true })
+          }
+          body += decoder.decode()
+        } finally { await reader.cancel().catch(() => {}) }
+      }
+      if (contents.isDestroyed()) throw new Error('授权页面已关闭，请重新打开。')
+      return { url: response.url || url, status: response.status, body }
+    }
+  }
+}
+
 // 仅提供通用观察与加密采集能力，平台规则由客户端加载的独立能力包提供。
 class SessionObserver {
   constructor (browser, { logger = null } = {}) { this.browser = browser; this.jobs = new Map(); this.logger = logger }
@@ -20,6 +53,9 @@ class SessionObserver {
     const origins = input.origins.map(value => { const url = new URL(value); if (url.protocol !== 'https:' || url.origin !== value) throw new ProfileValidationError('会话来源必须为完整的安全网页来源。'); return value })
     const paths = input.paths || []
     if (!Array.isArray(paths) || paths.length > 8 || paths.some(value => typeof value !== 'string' || !value.startsWith('/') || value.length > 512)) throw new ProfileValidationError('网络观察路径配置无效。')
+    const documentPaths = input.documentPaths || []
+    if (input.metadataOnly !== undefined && typeof input.metadataOnly !== 'boolean') throw new ProfileValidationError('网络观察模式无效。')
+    if (!Array.isArray(documentPaths) || documentPaths.length > 8 || documentPaths.some(value => typeof value !== 'string' || !value.startsWith('/') || value.length > 512 || value.includes('?'))) throw new ProfileValidationError('文档观察路径配置无效。')
     const storageKeys = input.storageKeys || []
     if (!Array.isArray(storageKeys) || storageKeys.length > 64 || storageKeys.some(key => typeof key !== 'string' || key.length > 256)) throw new ProfileValidationError('会话存储字段配置无效。')
     const contents = tab.view.webContents
@@ -33,18 +69,28 @@ class SessionObserver {
     job.listener = async (_event, method, data) => {
       try {
         if (this.jobs.get(id) !== job) return
-        if (method === 'Network.responseReceived' && origins.includes(new URL(data.response.url).origin) && (!paths.length || paths.some(value => new URL(data.response.url).pathname.includes(value))) && ['XHR', 'Fetch', 'Other'].includes(data.type)) {
+        if (method === 'Network.responseReceived' && origins.includes(new URL(data.response.url).origin) && ((documentPaths.includes(new URL(data.response.url).pathname) && ['Document', 'XHR', 'Fetch', 'Other'].includes(data.type)) || ((!paths.length || paths.some(value => new URL(data.response.url).pathname.includes(value))) && ['XHR', 'Fetch', 'Other'].includes(data.type)))) {
           Object.assign(job.diagnostics, { matchedResponses: job.diagnostics.matchedResponses + 1, lastType: data.type, lastStatus: data.response.status })
           this.log('info', '[会话观察] 已匹配授权响应', { operationId: job.operationId, ...job.diagnostics })
+          if (input.metadataOnly) {
+            job.responses.push({ url: data.response.url, status: data.response.status, body: null, cursor: ++job.cursor })
+            if (job.responses.length > 24) job.responses.shift()
+            return
+          }
           if (job.pending.size < 128) job.pending.set(data.requestId, { url: data.response.url, status: data.response.status })
         }
         if (method === 'Network.loadingFailed') job.pending.delete(data.requestId)
         if (method === 'Network.loadingFinished' && job.pending.has(data.requestId)) {
           const response = job.pending.get(data.requestId); job.pending.delete(data.requestId)
-          if (data.encodedDataLength > 262144) { job.diagnostics.failedResponses++; this.log('warn', '[会话观察] 匹配响应超过采集大小限制', { operationId: job.operationId, ...job.diagnostics }); return }
+          const textResponse = documentPaths.includes(new URL(response.url).pathname)
+          const limit = textResponse ? 2 * 1024 * 1024 : 262144
+          if (data.encodedDataLength > limit) { job.diagnostics.failedResponses++; this.log('warn', '[会话观察] 匹配响应超过采集大小限制', { operationId: job.operationId, ...job.diagnostics }); return }
           const result = await contents.debugger.sendCommand('Network.getResponseBody', { requestId: data.requestId })
-          if (result.body.length > 350000) return
-          const body = JSON.parse(result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body)
+          if (result.body.length > Math.ceil(limit * 4 / 3)) return
+          const raw = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body
+          if (Buffer.byteLength(raw, 'utf8') > limit) return
+          let body
+          try { body = JSON.parse(raw) } catch (error) { if (!textResponse) throw error; body = raw }
           if (this.jobs.get(id) !== job) return
           job.diagnostics.parsedResponses++
           this.log('info', '[会话观察] 已解析授权响应', { operationId: job.operationId, ...job.diagnostics })
@@ -62,7 +108,7 @@ class SessionObserver {
     if (!input.persistAcrossNavigation) owner.on('did-start-navigation', job.ownerNavigation)
     job.cleanup = cleanup
     job.timer = setTimeout(cleanup, 15 * 60 * 1000); job.timer.unref()
-    try { await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: 262144 }); this.get(owner, id); return { id } } catch (error) { await this.close(owner, id); throw error }
+    try { await contents.debugger.sendCommand('Network.enable', { maxResourceBufferSize: documentPaths.length ? 2 * 1024 * 1024 : 262144 }); this.get(owner, id); return { id } } catch (error) { await this.close(owner, id); throw error }
   }
   get (owner, id) {
     const job = this.jobs.get(id)
@@ -83,9 +129,9 @@ class SessionObserver {
   }
   async capture (owner, input, authorization = null) {
     const job = this.get(owner, input.id)
-    // 等待授权页面及其资源结束加载，超时或取消时不上传未完成的会话。
+    // 等待授权页面及其资源结束加载，超时或取消时不上传未完成的会话；已完成 Cookie 账号核验的链路不等待无关页面资源。
     const deadline = Date.now() + 30000
-    while (job.contents.isLoading()) {
+    while (!authorization?.platform?.accountInfo && job.contents.isLoading()) {
       if (Date.now() >= deadline) throw new ProfileValidationError('授权页面加载超时，请等待页面加载完成后重新采集。')
       await new Promise(resolve => setTimeout(resolve, 100))
       this.get(owner, input.id)
@@ -111,6 +157,13 @@ class SessionObserver {
     cipher.setAAD(Buffer.from(job.operationId))
     return { wrappedKey: crypto.publicEncrypt({ key: job.publicKey, oaepHash: 'sha256' }, key).toString('base64'), iv: iv.toString('base64'), ciphertext: Buffer.concat([cipher.update(payload), cipher.final()]).toString('base64'), ...{ tag: cipher.getAuthTag().toString('base64') } }
   }
+  async accountSession (owner, input) {
+    const job = this.get(owner, input.id)
+    await this.read(owner, input)
+    const data = await readAccountSession(job.contents, job.origins, job.storage)
+    this.get(owner, input.id)
+    return data
+  }
   async close (owner, id) {
     const job = this.jobs.get(id); if (!job || job.owner !== owner) return
     this.jobs.delete(id); clearTimeout(job.timer)
@@ -125,4 +178,4 @@ class SessionObserver {
     }
   }
 }
-module.exports = { SessionObserver }
+module.exports = { SessionObserver, readAccountSession }
