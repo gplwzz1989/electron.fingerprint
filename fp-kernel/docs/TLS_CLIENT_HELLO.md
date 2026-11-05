@@ -100,7 +100,23 @@ npm run test:fingerprint:contexts
 2. 提供 `resolveTLSConfigForBrowser` 跨版本配置生成器与自适应版本区间映射；底层保持与原生 Session 的安全绑定（`chromiumVersion: 138.x`），同时上报 `targetMajor`、`targetVersion` 与 `emulationMode: 'cross-version'`。
 3. 提供 `auditTLSVersionConsistency` 跨层一致性审计器：严防“UA 声明 Chrome 120 但底层暴露 Chrome 138 ML-KEM/新 ALPS”的矛盾指纹；提供精确原因诊断与一键修复建议。
 4. 扩展 `assertTLSRuntimeIdentity` 与 `previewFingerprintProfile`，在保障原生 138 严格校验的同时，支持跨版本自洽配置的安全保存与环境启动。
-5. 新增 `test/tls-cross-version.test.js` 并接入 `npm test`，全流程 21 项自检 100% 通过。
+5. 新增 `test/tls-cross-version.test.js` 并接入 `npm test`，全流程自检 100% 通过。
+6. 确立“Chrome 138 保持现有原生直通（Pass-Through），非 138 跨版本走内核级定向适配”的动静分离原则。
+
+## 支持的 UA 版本与桌面操作系统矩阵
+
+### 1. Chrome UA 版本拓扑映射
+- **Chrome 138 (默认原生)**：`138.0.7204.185`，纯正 BoringSSL 原生网络栈，ML-KEM-768 (`4588`)、ALPS `17613`、ECH、GREASE 混淆；
+- **Chrome 131 ~ 137**：自适应映射至 ML-KEM-768 与新版 ALPS `17613`；
+- **Chrome 124 ~ 130**：Kyber-768 草案组 (`25497`)、旧版 ALPS `17513`、ECH；
+- **Chrome 120 及更早 (< 124)**：纯经典曲线组 `[29, 23, 24]`，后量子强制关闭 (`false`)，ALPS `17513`，ECH 禁用 (`false`)；
+- **合法大版本范围**：门禁严格约束在 Chrome `100` 至 `200` 范围。
+
+### 2. 桌面操作系统支持
+- **Windows**：Windows 10 / 11（`Win32`，`Windows NT 10.0; Win64; x64`），推荐 ANGLE Direct3D11 拓扑；
+- **macOS**：macOS 10.15 ~ 15+（`MacIntel`，`Macintosh; Intel Mac OS X 10_15_7`），推荐 Apple Metal 拓扑；
+- **Linux**：主流 64 位发行版（`Linux x86_64`，`X11; Linux x86_64`），推荐 Mesa 拓扑。
+- **宿主相容铁律**：严禁在桌面端伪造移动端（Android / iOS）User-Agent，移动端指纹由独立容器 `electron.mobile` 专职承接。
 
 ## Git 恢复点
 
