@@ -141,6 +141,14 @@ function resolveTLSConfigForBrowser (target, options = {}) {
   if (!preset) throw new ProfileValidationError(`不支持模拟该 Chrome 版本 (${targetMajor}) 的 TLS 指纹。`)
 
   const emulationMode = targetMajor === 138 ? 'native' : 'cross-version'
+  if (emulationMode === 'native') {
+    return createTLSFingerprintConfig({
+      chromiumVersion: runtimeVersion,
+      targetMajor: 138,
+      targetVersion: targetVersion || preset.targetVersion,
+      emulationMode: 'native'
+    })
+  }
   return createTLSFingerprintConfig({
     chromiumVersion: runtimeVersion,
     targetMajor,
@@ -167,18 +175,26 @@ function auditTLSVersionConsistency (fingerprint, policy, options = {}) {
   const uaMajor = uaVersion ? Number(uaVersion.split('.')[0]) : null
   const declaredMajor = uaMajor || fingerprint.browser?.chromiumMajor || runtimeMajor
 
-  if (!policy) {
-    if (declaredMajor !== runtimeMajor) {
+  if (!policy || policy.emulationMode === 'native' || policy.targetMajor === 138) {
+    if (declaredMajor !== runtimeMajor && declaredMajor !== 138) {
       return {
         consistent: false,
         reason: `用户代理主版本为 Chrome ${declaredMajor}，但未配置对应的 TLS 跨版本模拟策略，底层网络将暴露 Chrome ${runtimeMajor} 的 TLS 特征。`,
         suggestedPolicy: resolveTLSConfigForBrowser(declaredMajor, { runtimeVersion })
       }
     }
-    return { consistent: true, mode: 'native' }
+    return { consistent: true, mode: 'native', targetMajor: 138 }
   }
 
   const policyTargetMajor = policy.targetMajor || (policy.targetVersion ? Number(policy.targetVersion.split('.')[0]) : null)
+
+  if (declaredMajor >= 131 && policyTargetMajor && policyTargetMajor < 131) {
+    return {
+      consistent: false,
+      reason: `用户代理为 Chrome ${declaredMajor}，但 TLS 策略被配置为旧版本 Chrome ${policyTargetMajor}。`,
+      suggestedPolicy: resolveTLSConfigForBrowser(declaredMajor, { runtimeVersion })
+    }
+  }
 
   if (declaredMajor < 124) {
     if (policy.postQuantumKeyAgreementEnabled !== false) {
@@ -283,6 +299,20 @@ function applyTLSFingerprintConfig (profileSession, policy, chromiumVersion = pr
   if (!policy || typeof policy !== 'object' || Array.isArray(policy) || (policy.chromiumVersion !== undefined && policy.chromiumVersion !== chromiumVersion)) throw new ProfileValidationError('TLS 策略必须对应当前内核版本。')
   if (typeof chromiumVersion !== 'string' || !chromiumVersion.startsWith('138.')) throw new ProfileValidationError('TLS 策略与当前内核版本不一致。')
   const normalized = createTLSFingerprintConfig({ ...policy, chromiumVersion })
+
+  // 1. Chrome 138 原生基线：保持现有纯原生网络栈，不强制覆写自定义套件/曲线/ALPS，确保 100% 官方默认握手行为
+  if (normalized.emulationMode === 'native' || normalized.targetMajor === 138) {
+    if (typeof profileSession.setSSLConfig === 'function') {
+      try {
+        profileSession.setSSLConfig({})
+      } catch {
+        // 保持静默原生
+      }
+    }
+    return
+  }
+
+  // 2. 跨版本模式 (非 138，如 120, 124, 126, 128, 130 等)：下发定制的套件与曲线策略
   if (typeof profileSession.getTLSFingerprintCapabilities !== 'function' || typeof profileSession.setSSLConfig !== 'function') throw new ProfileValidationError('当前运行时未包含 TLS 指纹策略接口，请更新运行时后使用。')
   let capabilities
   try { capabilities = profileSession.getTLSFingerprintCapabilities() } catch { throw new ProfileValidationError('无法读取当前运行时的 TLS 策略能力。') }
@@ -306,20 +336,37 @@ function applyTLSFingerprintConfig (profileSession, policy, chromiumVersion = pr
 
 function applyEnvironmentTLSFingerprintConfig (profileSession, policy, chromiumVersion = process.versions.chrome) {
   const normalized = assertTLSFingerprintRuntimeVersion(policy, chromiumVersion, '环境 TLS 策略与当前内核版本不一致，请使用匹配的运行时。')
-  const missingRuntimeInterface = normalized && (
+  if (!normalized) {
+    environmentPolicies.set(profileSession, null)
+    return ''
+  }
+
+  const isNative138 = normalized.emulationMode === 'native' || normalized.targetMajor === 138
+
+  if (environmentPolicies.has(profileSession)) {
+    if (!isDeepStrictEqual(environmentPolicies.get(profileSession), normalized)) throw new ProfileValidationError('该环境会话已经锁定另一份 TLS 策略，请重启客户端后重新打开以生效。')
+    return ''
+  }
+
+  // 1. Chrome 138 原生基线：保持现有纯原生网络栈，无需特殊补丁接口，零警告零干预
+  if (isNative138) {
+    applyTLSFingerprintConfig(profileSession, normalized, chromiumVersion)
+    environmentPolicies.set(profileSession, normalized)
+    return ''
+  }
+
+  // 2. 跨版本模式 (非 138，如 120, 126 等)：检查接口并在有能力时下发定制策略
+  const missingRuntimeInterface = (
     typeof profileSession.getTLSFingerprintCapabilities !== 'function' ||
     typeof profileSession.setSSLConfig !== 'function'
   )
-  const warning = '当前运行时缺少 TLS 指纹策略接口，本次启动未应用 TLS 策略，请更新匹配的运行时。'
-  if (environmentPolicies.has(profileSession)) {
-    if (!isDeepStrictEqual(environmentPolicies.get(profileSession), normalized)) throw new ProfileValidationError('该环境会话已经锁定另一份 TLS 策略，请重启客户端后重新打开以生效。')
-    return missingRuntimeInterface ? warning : ''
-  }
-  if (normalized && missingRuntimeInterface) {
+  if (missingRuntimeInterface) {
+    const warning = `当前运行时缺少 TLS 指纹策略接口，本次启动未生效 Chrome ${normalized.targetMajor || '跨版本'} 策略，请更新匹配的运行时。`
     environmentPolicies.set(profileSession, normalized)
     return warning
   }
-  if (normalized) applyTLSFingerprintConfig(profileSession, normalized, chromiumVersion)
+
+  applyTLSFingerprintConfig(profileSession, normalized, chromiumVersion)
   environmentPolicies.set(profileSession, normalized)
   return ''
 }

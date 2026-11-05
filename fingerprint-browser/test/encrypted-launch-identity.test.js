@@ -17,12 +17,14 @@ test('同一远端资源重复启动复用已打开环境，本机标识归一�
   const decrypted = { id: reference.resourceId, name: '隔离启动身份验收', url: 'about:blank', fingerprint }
   const tabs = new Map(); const navigations = []; let launch; let importedSession
   const source = await fs.readFile(path.join(__dirname, '../main.js'), 'utf8')
-  const start = source.indexOf("  handle('application:launch-encrypted',")
+  const start = source.indexOf('  async function executeLaunchEncrypted (') >= 0
+    ? source.indexOf('  async function executeLaunchEncrypted (')
+    : source.indexOf("  handle('application:launch-encrypted',")
   const end = source.indexOf("  handle('window:action',", start)
   assert(start >= 0 && end > start)
   // 执行实际主进程处理器并使用真实文件仓储，只隔离 Electron 窗口及密文传输入口。
   vm.runInNewContext(source.slice(start, end), {
-    require, fs, path, URL, validateSessionSnapshot, createProfileRecord, ProfileValidationError, assertTrusted () {}, assertFingerprintSave () {}, fingerprintRuntime: {},
+    require, fs, path, URL, validateSessionSnapshot, createProfileRecord, ProfileValidationError, assertTrusted () {}, assertFingerprintSave () {}, fingerprintRuntime: {}, attachAccountSessionObserver () {},
     encryptedLaunchRequests: { consume: () => ({ profile: structuredClone(decrypted), reference: structuredClone(reference) }) },
     environmentRepository: repository,
     platformRuntime: { load: async () => ({ runtime: { catalog: [{ key: 'douyin', url: 'https://creator.douyin.com/', origins: ['https://creator.douyin.com'] }] } }), bind () {} },

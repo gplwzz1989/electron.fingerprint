@@ -105,4 +105,59 @@ assert.equal(preview.canSave, true, '跨版本自洽配置应该允许保存')
 assert.equal(preview.errors.length, 0, '错误列表应为空')
 assert.ok(preview.warnings.some(w => w.includes('已启用 Chrome 120 跨版本 TLS 仿真')), '应给出跨版本仿真成功提示')
 
+// 7. Chrome 138 保持现有原生直通验证
+const { applyTLSFingerprintConfig, applyEnvironmentTLSFingerprintConfig } = require('../tls-fingerprint')
+const config138 = resolveTLSConfigForBrowser(138, { runtimeVersion })
+assert.equal(config138.emulationMode, 'native', 'Chrome 138 必须为 native 直通模式')
+assert.equal(config138.targetMajor, 138)
+
+const profile138 = getDefaultProfile()
+const audit138 = auditTLSVersionConsistency(profile138, config138, { runtimeVersion })
+assert.equal(audit138.consistent, true)
+assert.equal(audit138.mode, 'native')
+
+// 验证原生 138 在未打 TLS 补丁的常规 Session 上直通运行，零警告、零抛错
+let sslConfigCalls = []
+const mockSession138 = {
+  setSSLConfig (cfg) { sslConfigCalls.push(cfg) }
+}
+assert.doesNotThrow(() => applyTLSFingerprintConfig(mockSession138, config138, runtimeVersion))
+assert.deepEqual(sslConfigCalls, [{}], '原生 138 应安全恢复默认配置')
+
+const mockSessionForEnv = {
+  setSSLConfig (cfg) { sslConfigCalls.push(cfg) }
+}
+const envWarning138 = applyEnvironmentTLSFingerprintConfig(mockSessionForEnv, config138, runtimeVersion)
+assert.equal(envWarning138, '', '原生 138 环境启动不应产生缺少接口警告')
+
+// 8. 非 138 跨版本策略在缺少接口时警告，在支持时精准下发
+const mockSessionNon138Missing = {}
+const envWarning120 = applyEnvironmentTLSFingerprintConfig(mockSessionNon120Missing = {}, config120, runtimeVersion)
+assert.ok(envWarning120.includes('当前运行时缺少 TLS 指纹策略接口'), '跨版本策略缺少接口时应产生明确中文警告')
+
+let capturedFingerprint = null
+const mockSessionSupported = {
+  getTLSFingerprintCapabilities () {
+    return {
+      schemaVersion: 1,
+      chromiumVersion: runtimeVersion,
+      cipherOrder: 'tls1.2',
+      extensionPermutation: true,
+      ech: true,
+      postQuantumKeyAgreement: true,
+      supportedGroups: true,
+      signatureAlgorithms: true,
+      supportedGroupIds: [23, 24, 29, 4588, 25497],
+      alpsCodepoints: [17513, 17613]
+    }
+  },
+  setSSLConfig (cfg) {
+    capturedFingerprint = cfg.fingerprint
+  }
+}
+assert.doesNotThrow(() => applyTLSFingerprintConfig(mockSessionSupported, config120, runtimeVersion))
+assert.equal(capturedFingerprint.postQuantumKeyAgreementEnabled, false)
+assert.equal(capturedFingerprint.alpsCodepoint, 17513)
+assert.deepEqual(capturedFingerprint.supportedGroups, [29, 23, 24])
+
 console.log('TLS 跨浏览器版本伪装链路自检全部通过。')
