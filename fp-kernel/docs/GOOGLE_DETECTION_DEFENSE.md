@@ -159,8 +159,8 @@ if (typeof tabSession.setUserAgent === 'function') tabSession.setUserAgent(targe
 ```
 确保发往 Google 验证端点的网络请求头绝不包含 `Electron/` 关键字。
 
-### 8. 内核 C++ 补丁储备 (`patches/chromium/fp_native_window_chrome.patch`)
-在 Blink 渲染层上下文初始化入口 `local_window_proxy.cc` 导出 C++ 原生补丁，将 `SetupChromeObject` 原生挂载注册为项目 **FP-21** 指纹点。
+### 8. 原生实现状态
+当前 `window.chrome` 对象树由 `fingerprint-browser/stealth-engine.js` 和 `stealth-preload.js` 提供 JS 层模拟。旧的 Blink 原生补丁已移除：补丁格式损坏，且原生添加 `csi` 会触发预加载脚本提前退出，导致 `runtime` 等接口未补齐。若重新实现原生版本，需与现有模拟逻辑协调后，再按当前 Chromium 源码导出补丁。
 
 ---
 
