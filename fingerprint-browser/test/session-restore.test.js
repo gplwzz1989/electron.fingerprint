@@ -14,18 +14,6 @@ test('会话恢复按 domain 前导点保留Cookie范围且不扩大hostOnly', (
   assert.equal(validateSessionSnapshot(hostOnlyCookie).cookies[0].domain, undefined, '无前导点时即使字段冲突也不能扩大到子域')
   assert.equal(normalized.version, 'account-test:2')
 })
-test('恢复范围以 desktop 相同的 domain 前导点判定，不被 hostOnly 字段扩大', () => {
-  const hostCookie = snapshot(); hostCookie.cookies[0].hostOnly = false
-  const hostOnly = validateSessionSnapshot(hostCookie).cookies[0]
-  assert.equal(hostOnly.domain, undefined)
-  assert.equal(hostOnly.url, 'https://creator.example.com/account')
-
-  const domainCookie = snapshot(); domainCookie.cookies[0].domain = '.example.com'; domainCookie.cookies[0].hostOnly = true
-  domainCookie.origins = ['https://creator.example.com']
-  const domain = validateSessionSnapshot(domainCookie).cookies[0]
-  assert.equal(domain.domain, '.example.com')
-  assert.equal(domain.url, 'https://example.com/account')
-})
 test('旧版会话安全属性丢失时补足 SameSite 与前缀约束', () => {
   for (const attributes of [{ sameSite: 'no_restriction' }, { name: '__Secure-session' }, { name: '__Host-session' }, { name: '__Http-session' }, { name: '__Host-Http-session' }]) {
     const value = snapshot(); Object.assign(value.cookies[0], { secure: false, httpOnly: false, path: '/' }, attributes)
