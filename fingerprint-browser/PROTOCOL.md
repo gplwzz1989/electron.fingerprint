@@ -65,7 +65,7 @@
 
 服务端密文明文可增加 `session:{format:"desktop-session-v1",origins,cookies,storage,version?}`。`origins` 是完整 HTTPS 来源数组；Cookie 使用 Electron 字段，必须属于来源范围；`storage` 按来源映射字符串键值，禁止跨来源混写。当前不支持带 `partitionKey` 的分区 Cookie，遇到时拒绝恢复，不降级为普通 Cookie。
 
-恢复仅发生在目标环境首次访问之前；Cookie 属性保留 `hostOnly/path/httpOnly/secure/sameSite/expirationDate`。页面存储使用隔离世界的预导航脚本，每个来源只恢复一次，随后清理脚本及本次建立的调试连接；网站后续更新的令牌不会被导航覆盖。
+恢复仅发生在目标环境首次访问之前；Cookie 属性保留 `hostOnly/path/httpOnly/secure/sameSite/expirationDate`。写入范围依原始 `domain` 是否带前导点决定：无点时写为 host-only，有点时作为 Domain Cookie 保留，与 desktop 项目一致；不能单独用 `hostOnly` 字段扩大域范围。页面存储使用隔离世界的预导航脚本，每个来源只恢复一次，随后清理脚本及本次建立的调试连接；网站后续更新的令牌不会被导航覆盖。
 
 服务端可同时提供 `localSessionSource:{resourceId,operationId}`，仅指向同来源、同作用域的授权采集环境。基座核对该环境持久化的本机采集任务标识；完全匹配时直接复用原数据目录，不导入云端会话。记录缺失或任务不匹配时回退到云端恢复。标识只能来自已确认保存的授权任务，不作为业务权限凭据。
 

@@ -12,8 +12,9 @@ function validateSessionSnapshot (snapshot) {
     if (!cookie || typeof cookie.name !== 'string' || !cookie.name || /[\x00-\x20\x7f=;,]/.test(cookie.name) || typeof cookie.value !== 'string' || /[\r\n\x00]/.test(cookie.value) || typeof cookie.domain !== 'string') fail()
     // 当前 Electron Cookie 写接口未声明分区键，不能将分区 Cookie 静默降级为普通 Cookie。
     if (cookie.partitionKey !== undefined && cookie.partitionKey !== null) fail()
+    const domainCookie = cookie.domain.startsWith('.')
     const domain = cookie.domain.replace(/^\./, '').toLowerCase()
-    const origin = origins.find(value => { const host = new URL(value).hostname; return host === domain || cookie.hostOnly !== true && host.endsWith('.' + domain) })
+    const origin = origins.find(value => { const host = new URL(value).hostname; return host === domain || domainCookie && host.endsWith('.' + domain) })
     if (!origin || !domain.includes('.') && domain !== 'localhost' || cookie.path !== undefined && (typeof cookie.path !== 'string' || !cookie.path.startsWith('/')) || cookie.expirationDate !== undefined && !Number.isFinite(cookie.expirationDate)) fail()
     if (cookie.sameSite !== undefined && !['unspecified', 'no_restriction', 'lax', 'strict'].includes(cookie.sameSite)) fail()
     for (const key of ['secure', 'httpOnly', 'hostOnly']) if (cookie[key] !== undefined && typeof cookie[key] !== 'boolean') fail()
@@ -22,7 +23,8 @@ function validateSessionSnapshot (snapshot) {
     const secure = cookie.secure === true || cookie.sameSite === 'no_restriction' || /^__(Secure|Host|Http)-/.test(cookie.name)
     const httpOnly = cookie.httpOnly === true || /^__(Http|Host-Http)-/.test(cookie.name)
     const result = { url: `https://${domain}${path}`, name: cookie.name, value: cookie.value, path, secure, httpOnly }
-    if (cookie.hostOnly !== true) result.domain = cookie.domain
+    // 与 desktop 保持一致：以前导点区分 Domain Cookie；无点时省略 domain 字段。
+    if (domainCookie) result.domain = cookie.domain
     if (cookie.expirationDate !== undefined) result.expirationDate = cookie.expirationDate
     if (cookie.sameSite !== undefined) result.sameSite = cookie.sameSite
     return result
